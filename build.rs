@@ -16,7 +16,6 @@ fn build_swift_backend() {
     println!("cargo:rerun-if-changed=swift/");
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let out_dir = env::var("OUT_DIR").unwrap();
     let profile = env::var("PROFILE").unwrap();
 
     let swift_dir = PathBuf::from(&manifest_dir).join("swift");
@@ -29,7 +28,7 @@ fn build_swift_backend() {
     // Build the Swift package
     println!("cargo:warning=Building Swift backend...");
     let status = Command::new("swift")
-        .args(&[
+        .args([
             "build",
             "-c",
             build_config,
