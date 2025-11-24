@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb x11-apps imagemagick scrot
+          sudo apt-get install -y xvfb x11-apps imagemagick libxcb1-dev libxcb-shm0-dev
 
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -36,6 +36,9 @@ jobs:
           sleep 2
         env:
           DISPLAY: :99
+
+      - name: Create test output directory
+        run: mkdir -p visual_output
 
       - name: Start x11anywhere server
         run: |
