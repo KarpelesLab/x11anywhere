@@ -10,6 +10,7 @@ pub mod backend;
 pub mod server;
 pub mod connection;
 pub mod security;
+pub mod resources;
 
 pub use protocol::{Window, Pixmap, Drawable, GContext, Atom};
 pub use backend::{Backend, BackendWindow, BackendDrawable};
