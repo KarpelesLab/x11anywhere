@@ -72,10 +72,7 @@ fn build_swift_backend() {
 
     // Add Swift toolchain library path to rpath
     // This ensures the Swift runtime libraries can be found at runtime
-    if let Ok(output) = Command::new("xcrun")
-        .args(["--show-sdk-path"])
-        .output()
-    {
+    if let Ok(output) = Command::new("xcrun").args(["--show-sdk-path"]).output() {
         if output.status.success() {
             if let Ok(sdk_path) = String::from_utf8(output.stdout) {
                 let sdk_path = sdk_path.trim();
@@ -86,10 +83,7 @@ fn build_swift_backend() {
     }
 
     // Also add the toolchain's Swift library path
-    if let Ok(output) = Command::new("xcrun")
-        .args(["--find", "swift"])
-        .output()
-    {
+    if let Ok(output) = Command::new("xcrun").args(["--find", "swift"]).output() {
         if output.status.success() {
             if let Ok(swift_path) = String::from_utf8(output.stdout) {
                 let swift_path = swift_path.trim();
