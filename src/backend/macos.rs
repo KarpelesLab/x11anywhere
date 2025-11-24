@@ -1,31 +1,111 @@
-//! macOS Backend - Using Cocoa/Core Graphics
+//! macOS Backend - Using Swift/Cocoa via FFI
 //!
-//! This backend provides X11 protocol support on macOS using native
-//! Cocoa frameworks and Core Graphics APIs. It translates X11 window
-//! operations and drawing commands to their macOS equivalents.
+//! This backend provides X11 protocol support on macOS using a Swift wrapper
+//! around native Cocoa and Core Graphics APIs. The Swift code handles all
+//! Cocoa interactions and exposes a C API that Rust calls via FFI.
 
 use super::*;
 use crate::protocol::*;
-use cocoa::appkit::{
-    NSApplication, NSApplicationActivationPolicyRegular, NSBackingStoreType, NSWindow,
-    NSWindowStyleMask,
-};
-use cocoa::base::{id, nil, NO, YES};
-use cocoa::foundation::{
-    NSAutoreleasePool, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize, NSString,
-};
-use core_graphics::base::CGFloat;
-use core_graphics::color::CGColor;
-use core_graphics::context::{CGContext, CGContextRef};
-use core_graphics::geometry::{CGPoint, CGRect, CGSize};
-use objc::{class, msg_send, sel, sel_impl};
 use std::collections::HashMap;
-use std::mem;
-use std::ptr;
+use std::ffi::CString;
+use std::os::raw::c_char;
 
-/// Window data stored per NSWindow
+// FFI declarations for Swift backend
+type BackendHandle = *mut std::ffi::c_void;
+
+extern "C" {
+    fn macos_backend_create() -> BackendHandle;
+    fn macos_backend_destroy(handle: BackendHandle);
+    fn macos_backend_get_screen_info(
+        handle: BackendHandle,
+        width: *mut i32,
+        height: *mut i32,
+        width_mm: *mut i32,
+        height_mm: *mut i32,
+    ) -> i32;
+
+    fn macos_backend_create_window(
+        handle: BackendHandle,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> i32;
+    fn macos_backend_destroy_window(handle: BackendHandle, window_id: i32) -> i32;
+    fn macos_backend_map_window(handle: BackendHandle, window_id: i32) -> i32;
+    fn macos_backend_unmap_window(handle: BackendHandle, window_id: i32) -> i32;
+    fn macos_backend_configure_window(
+        handle: BackendHandle,
+        window_id: i32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> i32;
+    fn macos_backend_raise_window(handle: BackendHandle, window_id: i32) -> i32;
+    fn macos_backend_lower_window(handle: BackendHandle, window_id: i32) -> i32;
+    fn macos_backend_set_window_title(
+        handle: BackendHandle,
+        window_id: i32,
+        title: *const c_char,
+    ) -> i32;
+
+    fn macos_backend_create_pixmap(handle: BackendHandle, width: i32, height: i32) -> i32;
+    fn macos_backend_free_pixmap(handle: BackendHandle, pixmap_id: i32) -> i32;
+
+    fn macos_backend_clear_area(
+        handle: BackendHandle,
+        window_id: i32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> i32;
+    fn macos_backend_draw_rectangle(
+        handle: BackendHandle,
+        is_window: i32,
+        drawable_id: i32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        r: f32,
+        g: f32,
+        b: f32,
+        line_width: f32,
+    ) -> i32;
+    fn macos_backend_fill_rectangle(
+        handle: BackendHandle,
+        is_window: i32,
+        drawable_id: i32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        r: f32,
+        g: f32,
+        b: f32,
+    ) -> i32;
+    fn macos_backend_draw_line(
+        handle: BackendHandle,
+        is_window: i32,
+        drawable_id: i32,
+        x1: i32,
+        y1: i32,
+        x2: i32,
+        y2: i32,
+        r: f32,
+        g: f32,
+        b: f32,
+        line_width: f32,
+    ) -> i32;
+
+    fn macos_backend_flush(handle: BackendHandle) -> i32;
+}
+
+/// Window data stored per-window
 struct WindowData {
-    ns_window: id,
+    swift_id: i32,
     width: u16,
     height: u16,
     x: i16,
@@ -33,14 +113,11 @@ struct WindowData {
 }
 
 pub struct MacOSBackend {
+    /// Swift backend handle
+    handle: BackendHandle,
+
     /// Whether the backend has been initialized
     initialized: bool,
-
-    /// Autorelease pool for Cocoa memory management
-    pool: id,
-
-    /// NSApplication instance
-    app: id,
 
     /// Screen dimensions
     screen_width: u16,
@@ -53,8 +130,8 @@ pub struct MacOSBackend {
     /// Window handle mapping (backend window ID -> WindowData)
     windows: HashMap<usize, WindowData>,
 
-    /// Pixmap handle mapping (pixmap ID -> CGContextRef)
-    pixmaps: HashMap<usize, CGContextRef>,
+    /// Pixmap handle mapping (pixmap ID -> Swift pixmap ID)
+    pixmaps: HashMap<usize, i32>,
 
     /// Next resource ID to allocate
     next_resource_id: usize,
@@ -70,9 +147,8 @@ impl MacOSBackend {
     /// Create a new macOS backend instance
     pub fn new() -> Self {
         Self {
+            handle: std::ptr::null_mut(),
             initialized: false,
-            pool: nil,
-            app: nil,
             screen_width: 1920,
             screen_height: 1080,
             screen_width_mm: 508,
@@ -92,108 +168,49 @@ impl MacOSBackend {
         self
     }
 
-    /// Convert X11 color (0xRRGGBB) to CGColor
-    unsafe fn color_to_cgcolor(&self, color: u32) -> CGColor {
-        let r = ((color >> 16) & 0xff) as f64 / 255.0;
-        let g = ((color >> 8) & 0xff) as f64 / 255.0;
-        let b = (color & 0xff) as f64 / 255.0;
-        CGColor::rgb(r, g, b, 1.0)
-    }
-
-    /// Set up graphics context for drawing
-    unsafe fn setup_gc(&self, context: CGContextRef, gc: &BackendGC) {
-        let fg_color = self.color_to_cgcolor(gc.foreground);
-        CGContext::set_rgb_fill_color(
-            context,
-            fg_color.components()[0] as CGFloat,
-            fg_color.components()[1] as CGFloat,
-            fg_color.components()[2] as CGFloat,
-            1.0,
-        );
-        CGContext::set_rgb_stroke_color(
-            context,
-            fg_color.components()[0] as CGFloat,
-            fg_color.components()[1] as CGFloat,
-            fg_color.components()[2] as CGFloat,
-            1.0,
-        );
-        CGContext::set_line_width(context, gc.line_width as CGFloat);
-    }
-
-    /// Get CGContextRef for a drawable
-    unsafe fn get_context(&mut self, drawable: BackendDrawable) -> BackendResult<CGContextRef> {
-        match drawable {
-            BackendDrawable::Window(BackendWindow(id)) => {
-                if let Some(window_data) = self.windows.get(&id) {
-                    // Get the window's graphics context
-                    let ns_window = window_data.ns_window;
-                    let content_view: id = msg_send![ns_window, contentView];
-                    if content_view != nil {
-                        let _: () = msg_send![content_view, lockFocus];
-                        let ns_context: id = class!(NSGraphicsContext);
-                        let current_context: id = msg_send![ns_context, currentContext];
-                        if current_context != nil {
-                            let cg_context: CGContextRef = msg_send![current_context, CGContext];
-                            if !cg_context.is_null() {
-                                return Ok(cg_context);
-                            }
-                        }
-                    }
-                }
-                Err(format!("Window {:?} not found or has no context", drawable).into())
-            }
-            BackendDrawable::Pixmap(id) => {
-                if let Some(&context) = self.pixmaps.get(&id) {
-                    Ok(context)
-                } else {
-                    Err(format!("Pixmap {} not found", id).into())
-                }
-            }
-        }
-    }
-
-    /// Release focus on window's content view
-    unsafe fn release_window_focus(&self, window: BackendWindow) {
-        if let Some(window_data) = self.windows.get(&window.0) {
-            let ns_window = window_data.ns_window;
-            let content_view: id = msg_send![ns_window, contentView];
-            if content_view != nil {
-                let _: () = msg_send![content_view, unlockFocus];
-            }
-        }
-    }
-
-    /// Convert X11 y-coordinate to macOS (origin at bottom-left)
-    fn flip_y(&self, y: i16, height: u16) -> i16 {
-        self.screen_height as i16 - y - height as i16
+    /// Convert X11 color (0xRRGGBB) to RGB components
+    fn color_to_rgb(color: u32) -> (f32, f32, f32) {
+        let r = ((color >> 16) & 0xff) as f32 / 255.0;
+        let g = ((color >> 8) & 0xff) as f32 / 255.0;
+        let b = (color & 0xff) as f32 / 255.0;
+        (r, g, b)
     }
 }
+
+// Implement Send for MacOSBackend since Swift handles thread safety
+unsafe impl Send for MacOSBackend {}
 
 impl Backend for MacOSBackend {
     fn init(&mut self) -> BackendResult<()> {
         unsafe {
-            // Create autorelease pool
-            self.pool = NSAutoreleasePool::new(nil);
-
-            // Initialize NSApplication
-            self.app = NSApplication::sharedApplication(nil);
-            self.app
-                .setActivationPolicy_(NSApplicationActivationPolicyRegular);
-
-            // Get screen dimensions
-            let screen_class = class!(NSScreen);
-            let main_screen: id = msg_send![screen_class, mainScreen];
-            if main_screen != nil {
-                let frame: NSRect = msg_send![main_screen, frame];
-                self.screen_width = frame.size.width as u16;
-                self.screen_height = frame.size.height as u16;
-
-                // Estimate physical size (assume 72 DPI as default, actual DPI may vary)
-                let backing_scale: CGFloat = msg_send![main_screen, backingScaleFactor];
-                let dpi = 72.0 * backing_scale as f64;
-                self.screen_width_mm = ((self.screen_width as f64 * 25.4) / dpi) as u16;
-                self.screen_height_mm = ((self.screen_height as f64 * 25.4) / dpi) as u16;
+            // Create Swift backend handle
+            self.handle = macos_backend_create();
+            if self.handle.is_null() {
+                return Err("Failed to create macOS backend".into());
             }
+
+            // Get screen info from Swift
+            let mut width: i32 = 0;
+            let mut height: i32 = 0;
+            let mut width_mm: i32 = 0;
+            let mut height_mm: i32 = 0;
+
+            let result = macos_backend_get_screen_info(
+                self.handle,
+                &mut width,
+                &mut height,
+                &mut width_mm,
+                &mut height_mm,
+            );
+
+            if result != 0 {
+                return Err("Failed to get screen info".into());
+            }
+
+            self.screen_width = width as u16;
+            self.screen_height = height as u16;
+            self.screen_width_mm = width_mm as u16;
+            self.screen_height_mm = height_mm as u16;
 
             self.initialized = true;
             Ok(())
@@ -235,59 +252,40 @@ impl Backend for MacOSBackend {
 
     fn create_window(&mut self, params: WindowParams) -> BackendResult<BackendWindow> {
         unsafe {
+            let swift_id = macos_backend_create_window(
+                self.handle,
+                params.x as i32,
+                params.y as i32,
+                params.width as i32,
+                params.height as i32,
+            );
+
+            if swift_id <= 0 {
+                return Err("Failed to create window".into());
+            }
+
             let id = self.next_resource_id;
             self.next_resource_id += 1;
 
-            // Convert X11 coordinates (origin top-left) to macOS (origin bottom-left)
-            let y_flipped = self.flip_y(params.y, params.height);
-
-            let frame = NSRect::new(
-                NSPoint::new(params.x as f64, y_flipped as f64),
-                NSSize::new(params.width as f64, params.height as f64),
+            self.windows.insert(
+                id,
+                WindowData {
+                    swift_id,
+                    width: params.width,
+                    height: params.height,
+                    x: params.x,
+                    y: params.y,
+                },
             );
 
-            let style_mask = NSWindowStyleMask::NSTitledWindowMask
-                | NSWindowStyleMask::NSClosableWindowMask
-                | NSWindowStyleMask::NSMiniaturizableWindowMask
-                | NSWindowStyleMask::NSResizableWindowMask;
-
-            let ns_window = NSWindow::alloc(nil).initWithContentRect_styleMask_backing_defer_(
-                frame,
-                style_mask,
-                NSBackingStoreType::NSBackingStoreBuffered,
-                NO,
-            );
-
-            if ns_window == nil {
-                return Err("Failed to create NSWindow".into());
-            }
-
-            // Set background color if specified
-            if let Some(bg_pixel) = params.background_pixel {
-                let bg_color = self.color_to_cgcolor(bg_pixel);
-                let ns_color_class = class!(NSColor);
-                let ns_color: id = msg_send![ns_color_class, colorWithRed:bg_color.components()[0] green:bg_color.components()[1] blue:bg_color.components()[2] alpha:1.0];
-                let _: () = msg_send![ns_window, setBackgroundColor: ns_color];
-            }
-
-            let window_data = WindowData {
-                ns_window,
-                width: params.width,
-                height: params.height,
-                x: params.x,
-                y: params.y,
-            };
-
-            self.windows.insert(id, window_data);
             Ok(BackendWindow(id))
         }
     }
 
     fn destroy_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
-            if let Some(window_data) = self.windows.remove(&window.0) {
-                let ns_window = window_data.ns_window;
-                let _: () = msg_send![ns_window, close];
+            if let Some(data) = self.windows.remove(&window.0) {
+                macos_backend_destroy_window(self.handle, data.swift_id);
             }
             Ok(())
         }
@@ -295,9 +293,8 @@ impl Backend for MacOSBackend {
 
     fn map_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
-            if let Some(window_data) = self.windows.get(&window.0) {
-                let ns_window = window_data.ns_window;
-                let _: () = msg_send![ns_window, makeKeyAndOrderFront: nil];
+            if let Some(data) = self.windows.get(&window.0) {
+                macos_backend_map_window(self.handle, data.swift_id);
             }
             Ok(())
         }
@@ -305,9 +302,8 @@ impl Backend for MacOSBackend {
 
     fn unmap_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
-            if let Some(window_data) = self.windows.get(&window.0) {
-                let ns_window = window_data.ns_window;
-                let _: () = msg_send![ns_window, orderOut: nil];
+            if let Some(data) = self.windows.get(&window.0) {
+                macos_backend_unmap_window(self.handle, data.swift_id);
             }
             Ok(())
         }
@@ -319,29 +315,25 @@ impl Backend for MacOSBackend {
         config: WindowConfig,
     ) -> BackendResult<()> {
         unsafe {
-            if let Some(window_data) = self.windows.get_mut(&window.0) {
-                let ns_window = window_data.ns_window;
-                let mut frame: NSRect = msg_send![ns_window, frame];
+            if let Some(data) = self.windows.get_mut(&window.0) {
+                let x = config.x.unwrap_or(data.x);
+                let y = config.y.unwrap_or(data.y);
+                let width = config.width.unwrap_or(data.width);
+                let height = config.height.unwrap_or(data.height);
 
-                if let Some(x) = config.x {
-                    frame.origin.x = x as f64;
-                    window_data.x = x;
-                }
-                if let Some(y) = config.y {
-                    let y_flipped = self.flip_y(y, window_data.height);
-                    frame.origin.y = y_flipped as f64;
-                    window_data.y = y;
-                }
-                if let Some(width) = config.width {
-                    frame.size.width = width as f64;
-                    window_data.width = width;
-                }
-                if let Some(height) = config.height {
-                    frame.size.height = height as f64;
-                    window_data.height = height;
-                }
+                macos_backend_configure_window(
+                    self.handle,
+                    data.swift_id,
+                    x as i32,
+                    y as i32,
+                    width as i32,
+                    height as i32,
+                );
 
-                let _: () = msg_send![ns_window, setFrame:frame display:YES];
+                data.x = x;
+                data.y = y;
+                data.width = width;
+                data.height = height;
             }
             Ok(())
         }
@@ -349,9 +341,8 @@ impl Backend for MacOSBackend {
 
     fn raise_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
-            if let Some(window_data) = self.windows.get(&window.0) {
-                let ns_window = window_data.ns_window;
-                let _: () = msg_send![ns_window, orderFront: nil];
+            if let Some(data) = self.windows.get(&window.0) {
+                macos_backend_raise_window(self.handle, data.swift_id);
             }
             Ok(())
         }
@@ -359,9 +350,8 @@ impl Backend for MacOSBackend {
 
     fn lower_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
-            if let Some(window_data) = self.windows.get(&window.0) {
-                let ns_window = window_data.ns_window;
-                let _: () = msg_send![ns_window, orderBack: nil];
+            if let Some(data) = self.windows.get(&window.0) {
+                macos_backend_lower_window(self.handle, data.swift_id);
             }
             Ok(())
         }
@@ -369,10 +359,9 @@ impl Backend for MacOSBackend {
 
     fn set_window_title(&mut self, window: BackendWindow, title: &str) -> BackendResult<()> {
         unsafe {
-            if let Some(window_data) = self.windows.get(&window.0) {
-                let ns_window = window_data.ns_window;
-                let ns_title = NSString::alloc(nil).init_str(title);
-                let _: () = msg_send![ns_window, setTitle: ns_title];
+            if let Some(data) = self.windows.get(&window.0) {
+                let c_title = CString::new(title).unwrap();
+                macos_backend_set_window_title(self.handle, data.swift_id, c_title.as_ptr());
             }
             Ok(())
         }
@@ -387,16 +376,15 @@ impl Backend for MacOSBackend {
         height: u16,
     ) -> BackendResult<()> {
         unsafe {
-            if let Some(window_data) = self.windows.get(&window.0) {
-                let ns_window = window_data.ns_window;
-                let content_view: id = msg_send![ns_window, contentView];
-                if content_view != nil {
-                    let rect = NSRect::new(
-                        NSPoint::new(x as f64, y as f64),
-                        NSSize::new(width as f64, height as f64),
-                    );
-                    let _: () = msg_send![content_view, setNeedsDisplayInRect: rect];
-                }
+            if let Some(data) = self.windows.get(&window.0) {
+                macos_backend_clear_area(
+                    self.handle,
+                    data.swift_id,
+                    x as i32,
+                    y as i32,
+                    width as i32,
+                    height as i32,
+                );
             }
             Ok(())
         }
@@ -412,18 +400,44 @@ impl Backend for MacOSBackend {
         height: u16,
     ) -> BackendResult<()> {
         unsafe {
-            let context = self.get_context(drawable)?;
-            self.setup_gc(context, gc);
+            let (is_window, drawable_id) = match drawable {
+                BackendDrawable::Window(w) => {
+                    if let Some(data) = self.windows.get(&w.0) {
+                        (1, data.swift_id)
+                    } else {
+                        return Err("Window not found".into());
+                    }
+                }
+                BackendDrawable::Pixmap(p) => {
+                    if let Some(&swift_id) = self.pixmaps.get(&p) {
+                        (0, swift_id)
+                    } else {
+                        return Err("Pixmap not found".into());
+                    }
+                }
+            };
 
-            let rect = CGRect::new(
-                &CGPoint::new(x as f64, y as f64),
-                &CGSize::new(width as f64, height as f64),
+            let (r, g, b) = Self::color_to_rgb(gc.foreground);
+            let line_width = if gc.line_width == 0 {
+                1.0
+            } else {
+                gc.line_width as f32
+            };
+
+            macos_backend_draw_rectangle(
+                self.handle,
+                is_window,
+                drawable_id,
+                x as i32,
+                y as i32,
+                width as i32,
+                height as i32,
+                r,
+                g,
+                b,
+                line_width,
             );
-            CGContext::stroke_rect(context, rect);
 
-            if let BackendDrawable::Window(window) = drawable {
-                self.release_window_focus(window);
-            }
             Ok(())
         }
     }
@@ -438,18 +452,38 @@ impl Backend for MacOSBackend {
         height: u16,
     ) -> BackendResult<()> {
         unsafe {
-            let context = self.get_context(drawable)?;
-            self.setup_gc(context, gc);
+            let (is_window, drawable_id) = match drawable {
+                BackendDrawable::Window(w) => {
+                    if let Some(data) = self.windows.get(&w.0) {
+                        (1, data.swift_id)
+                    } else {
+                        return Err("Window not found".into());
+                    }
+                }
+                BackendDrawable::Pixmap(p) => {
+                    if let Some(&swift_id) = self.pixmaps.get(&p) {
+                        (0, swift_id)
+                    } else {
+                        return Err("Pixmap not found".into());
+                    }
+                }
+            };
 
-            let rect = CGRect::new(
-                &CGPoint::new(x as f64, y as f64),
-                &CGSize::new(width as f64, height as f64),
+            let (r, g, b) = Self::color_to_rgb(gc.foreground);
+
+            macos_backend_fill_rectangle(
+                self.handle,
+                is_window,
+                drawable_id,
+                x as i32,
+                y as i32,
+                width as i32,
+                height as i32,
+                r,
+                g,
+                b,
             );
-            CGContext::fill_rect(context, rect);
 
-            if let BackendDrawable::Window(window) = drawable {
-                self.release_window_focus(window);
-            }
             Ok(())
         }
     }
@@ -464,17 +498,44 @@ impl Backend for MacOSBackend {
         y2: i16,
     ) -> BackendResult<()> {
         unsafe {
-            let context = self.get_context(drawable)?;
-            self.setup_gc(context, gc);
+            let (is_window, drawable_id) = match drawable {
+                BackendDrawable::Window(w) => {
+                    if let Some(data) = self.windows.get(&w.0) {
+                        (1, data.swift_id)
+                    } else {
+                        return Err("Window not found".into());
+                    }
+                }
+                BackendDrawable::Pixmap(p) => {
+                    if let Some(&swift_id) = self.pixmaps.get(&p) {
+                        (0, swift_id)
+                    } else {
+                        return Err("Pixmap not found".into());
+                    }
+                }
+            };
 
-            CGContext::begin_path(context);
-            CGContext::move_to_point(context, x1 as f64, y1 as f64);
-            CGContext::add_line_to_point(context, x2 as f64, y2 as f64);
-            CGContext::stroke_path(context);
+            let (r, g, b) = Self::color_to_rgb(gc.foreground);
+            let line_width = if gc.line_width == 0 {
+                1.0
+            } else {
+                gc.line_width as f32
+            };
 
-            if let BackendDrawable::Window(window) = drawable {
-                self.release_window_focus(window);
-            }
+            macos_backend_draw_line(
+                self.handle,
+                is_window,
+                drawable_id,
+                x1 as i32,
+                y1 as i32,
+                x2 as i32,
+                y2 as i32,
+                r,
+                g,
+                b,
+                line_width,
+            );
+
             Ok(())
         }
     }
@@ -485,187 +546,90 @@ impl Backend for MacOSBackend {
         gc: &BackendGC,
         points: &[Point],
     ) -> BackendResult<()> {
-        unsafe {
-            let context = self.get_context(drawable)?;
-            self.setup_gc(context, gc);
-
-            for point in points {
-                let rect = CGRect::new(
-                    &CGPoint::new(point.x as f64, point.y as f64),
-                    &CGSize::new(1.0, 1.0),
-                );
-                CGContext::fill_rect(context, rect);
-            }
-
-            if let BackendDrawable::Window(window) = drawable {
-                self.release_window_focus(window);
-            }
-            Ok(())
+        // Draw points as 1x1 rectangles
+        for point in points {
+            self.fill_rectangle(drawable, gc, point.x, point.y, 1, 1)?;
         }
+        Ok(())
     }
 
     fn draw_text(
         &mut self,
-        drawable: BackendDrawable,
-        gc: &BackendGC,
-        x: i16,
-        y: i16,
-        text: &str,
+        _drawable: BackendDrawable,
+        _gc: &BackendGC,
+        _x: i16,
+        _y: i16,
+        _text: &str,
     ) -> BackendResult<()> {
-        unsafe {
-            let context = self.get_context(drawable)?;
-            self.setup_gc(context, gc);
-
-            // Set text drawing mode
-            CGContext::set_text_drawing_mode(
-                context,
-                core_graphics::context::CGTextDrawingMode::CGTextFill,
-            );
-
-            // Draw text at position
-            let ns_string = NSString::alloc(nil).init_str(text);
-            let point = NSPoint::new(x as f64, y as f64);
-            let _: () = msg_send![ns_string, drawAtPoint:point withAttributes:nil];
-
-            if let BackendDrawable::Window(window) = drawable {
-                self.release_window_focus(window);
-            }
-            Ok(())
-        }
+        // TODO: Implement text drawing
+        Ok(())
     }
 
     fn copy_area(
         &mut self,
-        src: BackendDrawable,
-        dst: BackendDrawable,
-        gc: &BackendGC,
-        src_x: i16,
-        src_y: i16,
-        width: u16,
-        height: u16,
-        dst_x: i16,
-        dst_y: i16,
+        _src: BackendDrawable,
+        _dst: BackendDrawable,
+        _gc: &BackendGC,
+        _src_x: i16,
+        _src_y: i16,
+        _width: u16,
+        _height: u16,
+        _dst_x: i16,
+        _dst_y: i16,
     ) -> BackendResult<()> {
-        unsafe {
-            let _src_context = self.get_context(src)?;
-            let dst_context = self.get_context(dst)?;
-            self.setup_gc(dst_context, gc);
-
-            // Create source rect
-            let src_rect = CGRect::new(
-                &CGPoint::new(src_x as f64, src_y as f64),
-                &CGSize::new(width as f64, height as f64),
-            );
-
-            // For now, just fill the destination area (proper bitmap copy requires CGImage)
-            let dst_rect = CGRect::new(
-                &CGPoint::new(dst_x as f64, dst_y as f64),
-                &CGSize::new(width as f64, height as f64),
-            );
-            CGContext::fill_rect(dst_context, dst_rect);
-
-            if let BackendDrawable::Window(window) = dst {
-                self.release_window_focus(window);
-            }
-            Ok(())
-        }
+        // TODO: Implement copy_area
+        Ok(())
     }
 
-    fn create_pixmap(&mut self, width: u16, height: u16, depth: u8) -> BackendResult<usize> {
+    fn create_pixmap(&mut self, width: u16, height: u16, _depth: u8) -> BackendResult<usize> {
         unsafe {
+            let swift_id = macos_backend_create_pixmap(self.handle, width as i32, height as i32);
+
+            if swift_id <= 0 {
+                return Err("Failed to create pixmap".into());
+            }
+
             let id = self.next_resource_id;
             self.next_resource_id += 1;
+            self.pixmaps.insert(id, swift_id);
 
-            // Create bitmap context for the pixmap
-            let color_space = core_graphics::color_space::CGColorSpace::create_device_rgb();
-            let bytes_per_row = width as usize * 4;
-
-            let context = core_graphics::context::CGContext::create_bitmap_context(
-                ptr::null_mut(),
-                width as usize,
-                height as usize,
-                8,
-                bytes_per_row,
-                &color_space,
-                core_graphics::base::kCGImageAlphaPremultipliedLast,
-            );
-
-            self.pixmaps.insert(id, context.as_ptr());
-            mem::forget(context); // Prevent automatic release
             Ok(id)
         }
     }
 
     fn free_pixmap(&mut self, pixmap: usize) -> BackendResult<()> {
-        if let Some(context) = self.pixmaps.remove(&pixmap) {
-            unsafe {
-                // Recreate CGContext from raw pointer to allow proper cleanup
-                let _context =
-                    core_graphics::context::CGContext::from_existing_context_ptr(context);
-                // Drops when going out of scope
+        unsafe {
+            if let Some(swift_id) = self.pixmaps.remove(&pixmap) {
+                macos_backend_free_pixmap(self.handle, swift_id);
             }
+            Ok(())
         }
-        Ok(())
     }
 
     fn poll_events(&mut self) -> BackendResult<Vec<BackendEvent>> {
-        unsafe {
-            // Process pending events
-            let until_date: id = msg_send![class!(NSDate), distantPast];
-            loop {
-                let event: id = msg_send![self.app, nextEventMatchingMask:0xFFFFFFFF untilDate:until_date inMode:NSDefaultRunLoopMode dequeue:YES];
-                if event == nil {
-                    break;
-                }
-                let _: () = msg_send![self.app, sendEvent: event];
-            }
-
-            Ok(mem::take(&mut self.event_queue))
-        }
+        // TODO: Implement event polling
+        Ok(std::mem::take(&mut self.event_queue))
     }
 
     fn flush(&mut self) -> BackendResult<()> {
         unsafe {
-            // Flush window server
-            let _: () = msg_send![self.app, updateWindows];
+            macos_backend_flush(self.handle);
             Ok(())
         }
     }
 
     fn wait_for_event(&mut self) -> BackendResult<BackendEvent> {
-        unsafe {
-            loop {
-                let until_date: id = msg_send![class!(NSDate), distantFuture];
-                let event: id = msg_send![self.app, nextEventMatchingMask:0xFFFFFFFF untilDate:until_date inMode:NSDefaultRunLoopMode dequeue:YES];
-                if event != nil {
-                    let _: () = msg_send![self.app, sendEvent: event];
-
-                    if !self.event_queue.is_empty() {
-                        return Ok(self.event_queue.remove(0));
-                    }
-                }
-            }
-        }
+        // TODO: Implement blocking event wait
+        // For now, return an error
+        Err("wait_for_event not yet implemented".into())
     }
 }
 
 impl Drop for MacOSBackend {
     fn drop(&mut self) {
-        unsafe {
-            // Clean up windows
-            for (_, window_data) in self.windows.drain() {
-                let _: () = msg_send![window_data.ns_window, close];
-            }
-
-            // Clean up pixmaps
-            for (_, context) in self.pixmaps.drain() {
-                let _context =
-                    core_graphics::context::CGContext::from_existing_context_ptr(context);
-            }
-
-            // Drain autorelease pool
-            if self.pool != nil {
-                let _: () = msg_send![self.pool, drain];
+        if !self.handle.is_null() {
+            unsafe {
+                macos_backend_destroy(self.handle);
             }
         }
     }

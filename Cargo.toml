@@ -21,11 +21,8 @@ nix = { version = "0.29", features = ["socket", "net"] }
 x11rb = { version = "0.13", optional = true, default-features = false, features = ["allow-unsafe-code"] }
 wayland-client = { version = "0.31", optional = true }
 
-# macOS-only backend dependencies
-[target.'cfg(target_os = "macos")'.dependencies]
-cocoa = { version = "0.25", optional = true }
-core-graphics = { version = "0.23", optional = true }
-objc = { version = "0.2", optional = true }
+# macOS backend uses Swift via FFI (compiled separately)
+# No Rust dependencies needed - Swift Package provides the C API
 
 # Windows-only backend dependencies
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -46,7 +43,7 @@ default = ["backend-x11", "backend-wayland", "backend-macos", "backend-windows"]
 # Individual backend features
 backend-x11 = ["x11rb"]
 backend-wayland = ["wayland-client"]
-backend-macos = ["cocoa", "core-graphics", "objc"]
+backend-macos = []  # Swift module compiled separately
 backend-windows = ["windows-sys"]
 
 # Convenience bundles for minimal builds
