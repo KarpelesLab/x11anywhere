@@ -10,6 +10,23 @@ use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::thread;
 use std::os::fd::{FromRawFd, AsRawFd};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+fn dump_bytes(direction: &str, seq: usize, data: &[u8]) {
+    log::info!("\n{} #{}: {} bytes", direction, seq, data.len());
+    for (i, chunk) in data.chunks(16).enumerate() {
+        let hex: String = chunk.iter().map(|b| format!("{:02x} ", b)).collect();
+        let ascii: String = chunk.iter().map(|b| {
+            if *b >= 32 && *b < 127 {
+                *b as char
+            } else {
+                '.'
+            }
+        }).collect();
+        log::info!("  {:04x}: {:48} | {}", i * 16, hex, ascii);
+    }
+}
 
 fn handle_client(mut stream: UnixStream, client_id: usize, backend: &mut X11Backend) {
     log::info!("[Client {}] Connected", client_id);
@@ -87,6 +104,10 @@ fn handle_client(mut stream: UnixStream, client_id: usize, backend: &mut X11Back
         }
     };
 
+    let seq_client_to_server = Arc::new(AtomicUsize::new(0));
+    let seq_server_to_client = Arc::new(AtomicUsize::new(0));
+    let seq_s2c = seq_server_to_client.clone();
+
     // Thread to forward server -> client
     let cid = client_id;
     let server_to_client_thread = thread::spawn(move || {
@@ -98,7 +119,8 @@ fn handle_client(mut stream: UnixStream, client_id: usize, backend: &mut X11Back
                     break;
                 }
                 Ok(n) => {
-                    log::debug!("[Client {}] SERVER -> CLIENT: {} bytes", cid, n);
+                    let seq = seq_s2c.fetch_add(1, Ordering::SeqCst);
+                    dump_bytes(&format!("[Client {}] SERVER -> CLIENT", cid), seq, &buffer[..n]);
                     if let Err(e) = client_writer.write_all(&buffer[..n]) {
                         log::error!("[Client {}] Error writing to client: {}", cid, e);
                         break;
@@ -121,7 +143,8 @@ fn handle_client(mut stream: UnixStream, client_id: usize, backend: &mut X11Back
                 break;
             }
             Ok(n) => {
-                log::debug!("[Client {}] CLIENT -> SERVER: {} bytes", client_id, n);
+                let seq = seq_client_to_server.fetch_add(1, Ordering::SeqCst);
+                dump_bytes(&format!("[Client {}] CLIENT -> SERVER", client_id), seq, &buffer[..n]);
                 if let Err(e) = server.write_all(&buffer[..n]) {
                     log::error!("[Client {}] Error writing to server: {}", client_id, e);
                     break;
