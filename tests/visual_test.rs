@@ -53,9 +53,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Wait for rendering
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    // Capture screenshot
-    println!("Capturing screenshot of window {}...", window_id);
-    let screenshot = screenshot::capture_window(window_id)?;
+    // Capture screenshot (full screen since window IDs don't match between client and server)
+    println!("Capturing screenshot...");
+    let screenshot = screenshot::capture_screen()?;
     println!(
         "Screenshot captured: {}x{} ({} bytes)",
         screenshot.width,
