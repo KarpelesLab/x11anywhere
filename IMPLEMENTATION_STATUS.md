@@ -60,7 +60,7 @@ This document tracks the implementation status of X11 protocol features across d
 | PolyFillRectangle | 🟡 | ✅ | ✅ | ⚪ | FillRect on Windows, fill_rect on macOS |
 | FillPoly | 🟡 | ✅ | ✅ | ⚪ | Polygon on Windows, CGContext paths on macOS |
 | PolyArc | 🟡 | ✅ | ✅ | ⚪ | Arc/Pie on Windows, CGContext ellipse transforms on macOS |
-| CopyArea | 🟡 | ✅ | 🟡 | ⚪ | BitBlt on Windows; macOS simplified (fills dest) |
+| CopyArea | 🟡 | ✅ | ✅ | ⚪ | BitBlt on Windows; CGImage cropping/drawing on macOS |
 | ImageText8 | 🟡 | ✅ | ✅ | ⚪ | TextOutW on Windows, NSString on macOS |
 | ImageText16 | 🟡 | ✅ | ✅ | ⚪ | Unicode text rendering supported |
 | PutImage | 🟡 | ✅ | ✅ | ⚪ | SetDIBitsToDevice on Windows, CGImage on macOS |
@@ -226,9 +226,8 @@ This document tracks the implementation status of X11 protocol features across d
   - Runtime library search paths via rpath
   - Proper linkage of Cocoa, Foundation, CoreGraphics, AppKit frameworks
 - **Known Limitations**:
-  - copy_area() is simplified (fills destination rectangle with color)
   - Missing EnterNotify/LeaveNotify events
-- **Next Steps**: Test with real X11 applications, improve copy_area
+- **Next Steps**: Test with real X11 applications
 
 ### Wayland Backend
 - **Status**: Not started
@@ -271,7 +270,7 @@ This document tracks the implementation status of X11 protocol features across d
 - [x] **Both**: Enhanced event handling (ButtonRelease, MotionNotify, Focus events) ✅ **COMPLETED**
 - [x] **Both**: Arc and polygon drawing operations ✅ **COMPLETED**
 - [x] **Both**: Image operations (PutImage, GetImage) ✅ **COMPLETED**
-- [ ] **macOS**: Improve copy_area() with proper CGImage implementation
+- [x] **macOS**: Improve copy_area() with proper CGImage implementation ✅ **COMPLETED**
 - [ ] **Both**: Advanced font handling
 - [ ] **Both**: Advanced color management
 - [ ] **Both**: Cursor support
