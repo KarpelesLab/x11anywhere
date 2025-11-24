@@ -243,18 +243,34 @@ fn main() {
         config.security.allow_global_selections
     );
 
-    // TODO: Initialize backend and start server
-    log::warn!("Server initialization not yet implemented");
-    log::info!("The project structure is ready for implementation!");
+    // Initialize backend
+    // For now, use null backend for all platforms (minimal implementation)
+    let backend: Box<dyn backend::Backend> = Box::new(backend::null::NullBackend::new());
 
-    println!();
-    println!("X11Anywhere server would start here with:");
-    println!("  Display: :{}", config.display);
-    println!("  Backend: {}", backend_type);
+    // Create server
+    let server = match server::Server::new(backend) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error: Failed to initialize server: {}", e);
+            process::exit(1);
+        }
+    };
+
+    // Wrap server in Arc<Mutex<>> for thread-safe access
+    let server = std::sync::Arc::new(std::sync::Mutex::new(server));
+
+    // Start TCP listener
     if config.listen_tcp {
-        println!("  TCP: 0.0.0.0:{}", 6000 + config.display);
+        let tcp_server = std::sync::Arc::clone(&server);
+        log::info!("Starting TCP listener on port {}", 6000 + config.display);
+
+        if let Err(e) = server::listener::start_tcp_listener(config.display, tcp_server) {
+            eprintln!("Error: Failed to start TCP listener: {}", e);
+            process::exit(1);
+        }
     }
+
     if config.listen_unix {
-        println!("  Unix: /tmp/.X11-unix/X{}", config.display);
+        log::warn!("Unix socket listener not yet implemented");
     }
 }

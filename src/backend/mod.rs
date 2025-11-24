@@ -9,6 +9,9 @@
 mod r#trait;
 pub use r#trait::*;
 
+// Null backend (always available for testing)
+pub mod null;
+
 // Backend implementations (feature-gated)
 
 #[cfg(all(feature = "backend-x11", target_family = "unix"))]

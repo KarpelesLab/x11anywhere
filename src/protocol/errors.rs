@@ -130,6 +130,8 @@ impl fmt::Display for X11Error {
     }
 }
 
+impl std::error::Error for X11Error {}
+
 /// Result type for X11 operations
 pub type X11Result<T> = Result<T, X11Error>;
 
