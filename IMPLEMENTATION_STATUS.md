@@ -58,8 +58,8 @@ This document tracks the implementation status of X11 protocol features across d
 | PolySegment | 🟡 | ✅ | ✅ | ⚪ | Multiple LineTo calls |
 | PolyRectangle | 🟡 | ✅ | ✅ | ⚪ | Rectangle on Windows, stroke_rect on macOS |
 | PolyFillRectangle | 🟡 | ✅ | ✅ | ⚪ | FillRect on Windows, fill_rect on macOS |
-| FillPoly | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
-| PolyArc | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
+| FillPoly | 🟡 | ✅ | ✅ | ⚪ | Polygon on Windows, CGContext paths on macOS |
+| PolyArc | 🟡 | ✅ | ✅ | ⚪ | Arc/Pie on Windows, CGContext ellipse transforms on macOS |
 | CopyArea | 🟡 | ✅ | 🟡 | ⚪ | BitBlt on Windows; macOS simplified (fills dest) |
 | ImageText8 | 🟡 | ✅ | ✅ | ⚪ | TextOutW on Windows, NSString on macOS |
 | ImageText16 | 🟡 | ✅ | ✅ | ⚪ | Unicode text rendering supported |
@@ -111,20 +111,20 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| Expose | 🟡 | ✅ | 🟡 | ⚪ | WM_PAINT on Windows; macOS event loop working |
-| ConfigureNotify | 🟡 | ✅ | 🟡 | ⚪ | WM_SIZE on Windows; macOS needs enhancement |
+| Expose | 🟡 | ✅ | ✅ | ⚪ | WM_PAINT on Windows; NSView drawRect on macOS |
+| ConfigureNotify | 🟡 | ✅ | ✅ | ⚪ | WM_SIZE on Windows; NSWindow resize on macOS |
 | MapNotify | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
 | UnmapNotify | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
-| DestroyNotify | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
-| KeyPress | 🟡 | ✅ | 🟡 | ⚪ | WM_KEYDOWN on Windows; macOS needs enhancement |
-| KeyRelease | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
-| ButtonPress | 🟡 | ✅ | 🟡 | ⚪ | WM_LBUTTONDOWN/etc on Windows; macOS needs enhancement |
-| ButtonRelease | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
-| MotionNotify | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
+| DestroyNotify | 🟡 | ✅ | ✅ | ⚪ | WM_CLOSE on Windows; NSWindow close on macOS |
+| KeyPress | 🟡 | ✅ | ✅ | ⚪ | WM_KEYDOWN on Windows; NSEvent keyDown on macOS |
+| KeyRelease | 🟡 | ✅ | ✅ | ⚪ | WM_KEYUP on Windows; NSEvent keyUp on macOS |
+| ButtonPress | 🟡 | ✅ | ✅ | ⚪ | WM_LBUTTONDOWN/etc on Windows; NSEvent mouseDown on macOS |
+| ButtonRelease | 🟡 | ✅ | ✅ | ⚪ | WM_LBUTTONUP/etc on Windows; NSEvent mouseUp on macOS |
+| MotionNotify | 🟡 | ✅ | ✅ | ⚪ | WM_MOUSEMOVE on Windows; NSEvent mouseMoved on macOS |
 | EnterNotify | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
 | LeaveNotify | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
-| FocusIn | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
-| FocusOut | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
+| FocusIn | 🟡 | ✅ | ✅ | ⚪ | WM_SETFOCUS on Windows; NSWindow becomeKey on macOS |
+| FocusOut | 🟡 | ✅ | ✅ | ⚪ | WM_KILLFOCUS on Windows; NSWindow resignKey on macOS |
 
 ### Input
 
@@ -184,22 +184,23 @@ This document tracks the implementation status of X11 protocol features across d
 - **Architecture**: X11 protocol → Win32 API translation
 - **Implemented APIs**:
   - Window management: `CreateWindowExW`, `ShowWindow`, `SetWindowPos`, `DestroyWindow`
-  - Drawing: GDI (`Rectangle`, `FillRect`, `TextOutW`, `LineTo`, `SetPixel`, `BitBlt`)
+  - Drawing: GDI (`Rectangle`, `FillRect`, `TextOutW`, `LineTo`, `SetPixel`, `BitBlt`, `Arc`, `Pie`, `Polygon`)
   - Resources: `CreatePen`, `CreateSolidBrush`, `CreateCompatibleDC/Bitmap`
   - Events: Windows message loop (`PeekMessageW`, `GetMessageW`, `DispatchMessageW`)
-  - Supported events: WM_PAINT (Expose), WM_SIZE (Configure), WM_KEYDOWN (KeyPress), WM_LBUTTONDOWN/etc (ButtonPress)
+  - Supported events: WM_PAINT, WM_SIZE, WM_CLOSE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_SETFOCUS, WM_KILLFOCUS
 - **Working Features**:
   - ✅ Window creation, mapping, configuration, raising/lowering
   - ✅ Basic drawing: rectangles, lines, points, text
+  - ✅ Arc and polygon drawing (Arc, Pie, Polygon GDI functions)
   - ✅ Pixmaps (off-screen drawing with compatible DCs)
+  - ✅ Enhanced event handling: KeyPress/Release, ButtonPress/Release, MotionNotify, FocusIn/Out
   - ✅ Event polling and blocking wait
   - ✅ GC state tracking (foreground, background, line width/style)
 - **Known Limitations**:
-  - Event handling is basic (missing ButtonRelease, MotionNotify, Focus events)
   - No advanced raster operations (SetROP2)
-  - No arc/polygon drawing
   - No image operations (PutImage/GetImage)
-- **Next Steps**: Test with real X11 applications, enhance event handling
+  - Missing EnterNotify/LeaveNotify events
+- **Next Steps**: Test with real X11 applications, implement image operations
 
 ### macOS Backend
 - **Status**: ✅ **Fully implemented** with Swift FFI (compiles & passes CI for ARM64 and x86_64)
@@ -212,9 +213,11 @@ This document tracks the implementation status of X11 protocol features across d
 - **Implemented Features**:
   - Window management: `NSWindow`, `NSApplication` with proper lifecycle management
   - Drawing: Core Graphics (`CGContext`) with native APIs (`stroke`, `fill`, `setStrokeColor`, etc.)
+  - Arc and polygon drawing: CGContext ellipse transforms, path-based polygon filling
   - Resources: CGContext-based bitmap contexts for pixmaps
   - Events: Cocoa event loop with `NSApp.nextEvent`
-  - Supported operations: rectangles, lines, points, text, clear area, copy area (basic)
+  - Enhanced event handling: KeyPress/Release, ButtonPress/Release, MotionNotify, FocusIn/Out, DestroyNotify
+  - Supported operations: rectangles, lines, points, arcs, polygons, text, clear area, copy area (basic)
   - GC state tracking: foreground/background colors, line width
 - **Build System**:
   - Swift Package Manager integration via `build.rs`
@@ -222,11 +225,10 @@ This document tracks the implementation status of X11 protocol features across d
   - Runtime library search paths via rpath
   - Proper linkage of Cocoa, Foundation, CoreGraphics, AppKit frameworks
 - **Known Limitations**:
-  - Event handling is basic (missing ButtonRelease, MotionNotify, Focus events)
-  - No arc/polygon drawing yet
   - No image operations (PutImage/GetImage)
   - copy_area() is simplified (fills destination rectangle with color)
-- **Next Steps**: Test with real X11 applications, enhance event handling, improve copy_area
+  - Missing EnterNotify/LeaveNotify events
+- **Next Steps**: Test with real X11 applications, implement image operations, improve copy_area
 
 ### Wayland Backend
 - **Status**: Not started
@@ -266,9 +268,9 @@ This document tracks the implementation status of X11 protocol features across d
 - [ ] **Both**: Test with simple X11 applications ⏳ **IN PROGRESS**
 
 ### Phase 3: Advanced Features (Current Phase)
-- [ ] **Both**: Enhanced event handling (ButtonRelease, MotionNotify, Focus events)
+- [x] **Both**: Enhanced event handling (ButtonRelease, MotionNotify, Focus events) ✅ **COMPLETED**
+- [x] **Both**: Arc and polygon drawing operations ✅ **COMPLETED**
 - [ ] **macOS**: Improve copy_area() with proper CGImage implementation
-- [ ] **Both**: Arc and polygon drawing operations
 - [ ] **Both**: Image operations (PutImage, GetImage)
 - [ ] **Both**: Advanced font handling
 - [ ] **Both**: Advanced color management
