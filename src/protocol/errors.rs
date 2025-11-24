@@ -1,4 +1,4 @@
-/// X11 protocol error codes and error handling
+//! X11 protocol error codes and error handling
 
 use super::types::*;
 use std::fmt;

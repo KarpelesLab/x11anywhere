@@ -1,11 +1,11 @@
-/// Client session management
-///
-/// This module provides the Client struct which represents an individual
-/// client connection and manages its state.
+//! Client session management
+//!
+//! This module provides the Client struct which represents an individual
+//! client connection and manages its state.
 
 use crate::connection::Connection;
 use crate::protocol::{ByteOrder, X11Error};
-use std::io::{self, Read, Write};
+use std::io;
 
 /// Represents a connected X11 client
 pub struct Client {

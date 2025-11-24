@@ -1,14 +1,25 @@
-/// X11Anywhere - Main entry point
-///
-/// A portable X11 server with modular backend support
+//! X11Anywhere - Main entry point
+//!
+//! A portable X11 server with modular backend support
 
-use x11anywhere::backend;
-use x11anywhere::security::SecurityPolicy;
 use std::env;
 use std::process;
 
+// Internal modules
+mod backend;
+mod connection;
+mod protocol;
+mod resources;
+mod security;
+mod server;
+
+use security::SecurityPolicy;
+
+/// Server version
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn print_usage() {
-    println!("X11Anywhere v{}", x11anywhere::VERSION);
+    println!("X11Anywhere v{}", VERSION);
     println!("A portable X11 server implementation");
     println!();
     println!("Usage: x11anywhere [OPTIONS]");
@@ -34,7 +45,9 @@ fn list_backends() {
     if backends.is_empty() {
         println!("  (none available)");
         println!();
-        println!("Note: Backends are enabled by default but may not be available on this platform.");
+        println!(
+            "Note: Backends are enabled by default but may not be available on this platform."
+        );
     } else {
         for backend in backends {
             println!("  - {}", backend);
@@ -100,7 +113,8 @@ fn parse_args() -> Result<Config, String> {
                 if i >= args.len() {
                     return Err("Missing value for -display".to_string());
                 }
-                config.display = args[i].parse()
+                config.display = args[i]
+                    .parse()
                     .map_err(|_| "Invalid display number".to_string())?;
             }
             "-backend" => {
@@ -206,7 +220,7 @@ fn main() {
                 list_backends();
                 process::exit(1);
             }
-        }
+        },
     };
 
     // Validate backend is available
@@ -218,14 +232,16 @@ fn main() {
         process::exit(1);
     }
 
-    log::info!("X11Anywhere v{}", x11anywhere::VERSION);
+    log::info!("X11Anywhere v{}", VERSION);
     log::info!("Display: :{}", config.display);
     log::info!("Backend: {}", backend_type);
     log::info!("TCP listening: {}", config.listen_tcp);
     log::info!("Unix socket listening: {}", config.listen_unix);
-    log::info!("Security policy: window_isolation={}, global_selections={}",
-               config.security.window_isolation,
-               config.security.allow_global_selections);
+    log::info!(
+        "Security policy: window_isolation={}, global_selections={}",
+        config.security.window_isolation,
+        config.security.allow_global_selections
+    );
 
     // TODO: Initialize backend and start server
     log::warn!("Server initialization not yet implemented");

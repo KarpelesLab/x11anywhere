@@ -1,7 +1,7 @@
-/// Backend trait definition
-///
-/// This module defines the trait that all display backends must implement.
-/// Backends translate X11 operations to native window system operations.
+//! Backend trait definition
+//!
+//! This module defines the trait that all display backends must implement.
+//! Backends translate X11 operations to native window system operations.
 
 use crate::protocol::*;
 use std::error::Error;
@@ -323,6 +323,7 @@ pub trait Backend: Send {
     ) -> BackendResult<()>;
 
     /// Copy area from one drawable to another
+    #[allow(clippy::too_many_arguments)]
     fn copy_area(
         &mut self,
         src: BackendDrawable,

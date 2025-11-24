@@ -57,10 +57,6 @@ minimal-wayland = ["backend-wayland"]   # Wayland only
 name = "x11anywhere"
 path = "src/main.rs"
 
-[lib]
-name = "x11anywhere"
-path = "src/lib.rs"
-
 [profile.release]
 opt-level = 3
 lto = true

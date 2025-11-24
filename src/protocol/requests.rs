@@ -1,6 +1,6 @@
-/// X11 protocol requests
-///
-/// This module defines the X11 request opcodes and structures for parsing requests.
+//! X11 protocol requests
+//!
+//! This module defines the X11 request opcodes and structures for parsing requests.
 
 use super::types::*;
 use super::errors::*;
@@ -162,6 +162,7 @@ impl RequestOpcode {
             43 => Some(RequestOpcode::GetInputFocus),
             45 => Some(RequestOpcode::OpenFont),
             46 => Some(RequestOpcode::CloseFont),
+            47 => Some(RequestOpcode::QueryFont),
             53 => Some(RequestOpcode::CreatePixmap),
             54 => Some(RequestOpcode::FreePixmap),
             55 => Some(RequestOpcode::CreateGC),

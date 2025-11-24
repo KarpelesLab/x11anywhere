@@ -1,6 +1,6 @@
-/// X11 connection setup protocol
-///
-/// This module handles the initial connection handshake between client and server.
+//! X11 connection setup protocol
+//!
+//! This module handles the initial connection handshake between client and server.
 
 use super::*;
 use std::io::{Read, Write};

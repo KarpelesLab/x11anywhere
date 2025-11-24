@@ -1,7 +1,7 @@
-/// X11 protocol events
-///
-/// Events are sent from the server to clients to notify them of state changes,
-/// user input, and other interesting occurrences.
+//! X11 protocol events
+//!
+//! Events are sent from the server to clients to notify them of state changes,
+//! user input, and other interesting occurrences.
 
 use super::types::*;
 

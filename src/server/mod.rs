@@ -1,11 +1,9 @@
-/// Core X11 server implementation
-///
-/// This module contains the main server logic, including window management,
-/// resource tracking, event dispatching, and client session management.
+//! Core X11 server implementation
+//!
+//! This module contains the main server logic, including window management,
+//! resource tracking, event dispatching, and client session management.
 
 mod client;
-
-pub use client::Client;
 
 use crate::protocol::*;
 use crate::backend::{Backend, BackendWindow};

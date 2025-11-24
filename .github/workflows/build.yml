@@ -110,9 +110,9 @@ jobs:
         if: matrix.use_cross
         run: cross build --release --target ${{ matrix.target }}
 
-      - name: Run tests (native only)
-        if: '!matrix.use_cross'
-        run: cargo test --target ${{ matrix.target }}
+      - name: Run tests (native only, Unix only - examples use Unix sockets)
+        if: '!matrix.use_cross && runner.os != ''Windows'''
+        run: cargo test --target ${{ matrix.target }} --bins
 
       - name: Prepare artifacts
         shell: bash
@@ -130,6 +130,24 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: artifacts/${{ matrix.artifact_name }}
           if-no-files-found: error
+
+  format-and-lint:
+    name: Format and Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   release:
     name: Create Release

@@ -1,8 +1,8 @@
-/// Resource tracking for X11 clients
-///
-/// This module provides common resource tracking that can be used across all
-/// backends (X11, Windows, macOS). It tracks all resources created by a client
-/// and generates cleanup requests when the client disconnects.
+//! Resource tracking for X11 clients
+//!
+//! This module provides common resource tracking that can be used across all
+//! backends (X11, Windows, macOS). It tracks all resources created by a client
+//! and generates cleanup requests when the client disconnects.
 
 use std::collections::{HashMap, HashSet};
 use crate::protocol::*;
@@ -145,7 +145,7 @@ impl ResourceTracker {
                 // Track atom requests (though atoms are global, we track which client used them)
                 if !req.only_if_exists {
                     // Only track newly created atoms
-                    if let Some(atoms) = self.atoms.get_mut(&client_id) {
+                    if let Some(_atoms) = self.atoms.get_mut(&client_id) {
                         // We don't know the atom ID yet (comes in reply), but we track the request
                         // This is for informational purposes
                     }

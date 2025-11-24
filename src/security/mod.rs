@@ -1,7 +1,7 @@
-/// Security and isolation
-///
-/// This module provides security features to protect the host system and
-/// isolate X11 clients from each other.
+//! Security and isolation
+//!
+//! This module provides security features to protect the host system and
+//! isolate X11 clients from each other.
 
 /// Security policy configuration
 #[derive(Debug, Clone)]

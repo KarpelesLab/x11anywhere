@@ -1,6 +1,6 @@
-/// Connection layer
-///
-/// This module handles network connections from X11 clients via TCP and Unix sockets.
+//! Connection layer
+//!
+//! This module handles network connections from X11 clients via TCP and Unix sockets.
 
 use std::io;
 use std::net::{TcpListener, TcpStream};

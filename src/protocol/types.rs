@@ -1,12 +1,13 @@
-/// Core X11 protocol types
-///
-/// These types represent the fundamental data types used in the X11 protocol.
-/// They are kept minimal and close to the wire protocol for efficiency.
+//! Core X11 protocol types
+//!
+//! These types represent the fundamental data types used in the X11 protocol.
+//! They are kept minimal and close to the wire protocol for efficiency.
 
 use std::fmt;
 
 /// X11 resource ID - used for windows, pixmaps, graphics contexts, etc.
 /// In X11, all objects are identified by 29-bit IDs.
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct XID(pub u32);
 

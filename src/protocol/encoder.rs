@@ -1,6 +1,6 @@
-/// X11 reply and event encoder
-///
-/// This module encodes replies and events to the wire protocol.
+//! X11 reply and event encoder
+//!
+//! This module encodes replies and events to the wire protocol.
 
 use super::*;
 
@@ -37,6 +37,7 @@ impl ProtocolEncoder {
     }
 
     /// Encode GetWindowAttributes reply
+    #[allow(clippy::too_many_arguments)]
     pub fn encode_get_window_attributes_reply(
         &self,
         sequence: u16,
@@ -83,6 +84,7 @@ impl ProtocolEncoder {
     }
 
     /// Encode GetGeometry reply
+    #[allow(clippy::too_many_arguments)]
     pub fn encode_get_geometry_reply(
         &self,
         sequence: u16,
@@ -254,6 +256,7 @@ impl ProtocolEncoder {
     }
 
     /// Encode AllocNamedColor reply
+    #[allow(clippy::too_many_arguments)]
     pub fn encode_alloc_named_color_reply(
         &self,
         sequence: u16,
@@ -277,6 +280,50 @@ impl ProtocolEncoder {
         buffer[18..20].copy_from_slice(&self.write_u16(visual_red));
         buffer[20..22].copy_from_slice(&self.write_u16(visual_green));
         buffer[22..24].copy_from_slice(&self.write_u16(visual_blue));
+
+        buffer
+    }
+
+    /// Encode QueryFont reply
+    pub fn encode_query_font_reply(
+        &self,
+        sequence: u16,
+        font_ascent: i16,
+        font_descent: i16,
+        char_width: i16,
+        _char_height: i16,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        // CHARINFO for min_bounds (all zeros for fixed-width font)
+        let min_bounds = [0u8; 12];
+        // CHARINFO for max_bounds
+        let mut max_bounds = [0u8; 12];
+        max_bounds[0..2].copy_from_slice(&self.write_i16(0)); // left_side_bearing
+        max_bounds[2..4].copy_from_slice(&self.write_i16(0)); // right_side_bearing
+        max_bounds[4..6].copy_from_slice(&self.write_i16(char_width)); // character_width
+        max_bounds[6..8].copy_from_slice(&self.write_i16(font_ascent)); // ascent
+        max_bounds[8..10].copy_from_slice(&self.write_i16(font_descent)); // descent
+        max_bounds[10..12].copy_from_slice(&self.write_u16(0)); // attributes
+
+        buffer[0] = 1; // Reply
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(7)); // Length (60 bytes / 4)
+        buffer[8..20].copy_from_slice(&min_bounds);
+        buffer[20..32].copy_from_slice(&max_bounds);
+
+        // Additional 28 bytes to complete the FONTINFO structure
+        buffer.extend_from_slice(&self.write_u16(0)); // min_char_or_byte2
+        buffer.extend_from_slice(&self.write_u16(255)); // max_char_or_byte2
+        buffer.extend_from_slice(&self.write_u16(0)); // default_char
+        buffer.extend_from_slice(&self.write_u16(0)); // n_font_props
+        buffer.push(0); // draw_direction (LeftToRight)
+        buffer.push(0); // min_byte1
+        buffer.push(0); // max_byte1
+        buffer.push(1); // all_chars_exist
+        buffer.extend_from_slice(&self.write_i16(font_ascent)); // font_ascent
+        buffer.extend_from_slice(&self.write_i16(font_descent)); // font_descent
+        buffer.extend_from_slice(&self.write_u32(0)); // n_char_infos
 
         buffer
     }

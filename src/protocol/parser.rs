@@ -1,10 +1,11 @@
-/// X11 request parser
-///
-/// This module parses X11 requests from the wire protocol.
+//! X11 request parser
+//!
+//! This module parses X11 requests from the wire protocol.
 
 use super::*;
 
 /// Parsed X11 request
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone)]
 pub enum Request {
     CreateWindow(CreateWindowRequest),
@@ -36,6 +37,7 @@ pub enum Request {
     CloseFont(CloseFontRequest),
     CreateGlyphCursor(CreateGlyphCursorRequest),
     AllocNamedColor(AllocNamedColorRequest),
+    QueryFont(QueryFontRequest),
     QueryExtension(QueryExtensionRequest),
     GetInputFocus,
     ExtensionRequest { opcode: u8, data: Vec<u8> },
@@ -263,6 +265,11 @@ pub struct AllocNamedColorRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct QueryFontRequest {
+    pub font: u32,
+}
+
+#[derive(Debug, Clone)]
 pub struct QueryExtensionRequest {
     pub name: String,
 }
@@ -327,6 +334,7 @@ impl ProtocolParser {
             Some(RequestOpcode::CloseFont) => self.parse_close_font(request_data)?,
             Some(RequestOpcode::CreateGlyphCursor) => self.parse_create_glyph_cursor(request_data)?,
             Some(RequestOpcode::AllocNamedColor) => self.parse_alloc_named_color(request_data)?,
+            Some(RequestOpcode::QueryFont) => self.parse_query_font(request_data)?,
             Some(RequestOpcode::QueryExtension) => self.parse_query_extension(request_data)?,
             Some(RequestOpcode::GetInputFocus) => Request::GetInputFocus,
             Some(RequestOpcode::NoOperation) => Request::NoOperation,
@@ -744,6 +752,11 @@ impl ProtocolParser {
             colormap,
             name,
         }))
+    }
+
+    fn parse_query_font(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let font = self.read_u32(&data[0..4]);
+        Ok(Request::QueryFont(QueryFontRequest { font }))
     }
 
     fn parse_query_extension(&self, data: &[u8]) -> Result<Request, X11Error> {
