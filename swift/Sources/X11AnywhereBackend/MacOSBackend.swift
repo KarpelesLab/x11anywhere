@@ -669,6 +669,75 @@ public func macos_backend_get_image(_ handle: BackendHandle, isWindow: Int32, dr
     return BackendResult.success.rawValue
 }
 
+@_cdecl("macos_backend_copy_area")
+public func macos_backend_copy_area(_ handle: BackendHandle,
+                                    srcIsWindow: Int32, srcDrawableId: Int32,
+                                    dstIsWindow: Int32, dstDrawableId: Int32,
+                                    srcX: Int32, srcY: Int32,
+                                    width: Int32, height: Int32,
+                                    dstX: Int32, dstY: Int32) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+
+    // Get source context
+    let srcContext: CGContext?
+    if srcIsWindow != 0 {
+        srcContext = backend.getWindowContext(id: Int(srcDrawableId))
+    } else {
+        srcContext = backend.getPixmapContext(id: Int(srcDrawableId))
+    }
+
+    guard let srcCtx = srcContext else {
+        return BackendResult.error.rawValue
+    }
+
+    // Create a CGImage from the source context
+    guard let fullImage = srcCtx.makeImage() else {
+        if srcIsWindow != 0 {
+            backend.releaseWindowContext(id: Int(srcDrawableId))
+        }
+        return BackendResult.error.rawValue
+    }
+
+    // Crop to the source rectangle
+    let cropRect = CGRect(x: CGFloat(srcX), y: CGFloat(srcY),
+                          width: CGFloat(width), height: CGFloat(height))
+    guard let croppedImage = fullImage.cropping(to: cropRect) else {
+        if srcIsWindow != 0 {
+            backend.releaseWindowContext(id: Int(srcDrawableId))
+        }
+        return BackendResult.error.rawValue
+    }
+
+    // Release source context
+    if srcIsWindow != 0 {
+        backend.releaseWindowContext(id: Int(srcDrawableId))
+    }
+
+    // Get destination context
+    let dstContext: CGContext?
+    if dstIsWindow != 0 {
+        dstContext = backend.getWindowContext(id: Int(dstDrawableId))
+    } else {
+        dstContext = backend.getPixmapContext(id: Int(dstDrawableId))
+    }
+
+    guard let dstCtx = dstContext else {
+        return BackendResult.error.rawValue
+    }
+
+    // Draw the cropped image to the destination
+    let dstRect = CGRect(x: CGFloat(dstX), y: CGFloat(dstY),
+                         width: CGFloat(width), height: CGFloat(height))
+    dstCtx.draw(croppedImage, in: dstRect)
+
+    // Release destination context
+    if dstIsWindow != 0 {
+        backend.releaseWindowContext(id: Int(dstDrawableId))
+    }
+
+    return BackendResult.success.rawValue
+}
+
 @_cdecl("macos_backend_flush")
 public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     DispatchQueue.main.sync {

@@ -168,6 +168,20 @@ extern "C" {
         buffer_size: i32,
     ) -> i32;
 
+    fn macos_backend_copy_area(
+        handle: BackendHandle,
+        src_is_window: i32,
+        src_drawable_id: i32,
+        dst_is_window: i32,
+        dst_drawable_id: i32,
+        src_x: i32,
+        src_y: i32,
+        width: i32,
+        height: i32,
+        dst_x: i32,
+        dst_y: i32,
+    ) -> i32;
+
     fn macos_backend_flush(handle: BackendHandle) -> i32;
 
     fn macos_backend_poll_event(
@@ -777,18 +791,40 @@ impl Backend for MacOSBackend {
 
     fn copy_area(
         &mut self,
-        _src: BackendDrawable,
-        _dst: BackendDrawable,
+        src: BackendDrawable,
+        dst: BackendDrawable,
         _gc: &BackendGC,
-        _src_x: i16,
-        _src_y: i16,
-        _width: u16,
-        _height: u16,
-        _dst_x: i16,
-        _dst_y: i16,
+        src_x: i16,
+        src_y: i16,
+        width: u16,
+        height: u16,
+        dst_x: i16,
+        dst_y: i16,
     ) -> BackendResult<()> {
-        // TODO: Implement copy_area
-        Ok(())
+        unsafe {
+            let (src_is_window, src_drawable_id) = self.get_drawable_id(src)?;
+            let (dst_is_window, dst_drawable_id) = self.get_drawable_id(dst)?;
+
+            let result = macos_backend_copy_area(
+                self.handle,
+                src_is_window,
+                src_drawable_id,
+                dst_is_window,
+                dst_drawable_id,
+                src_x as i32,
+                src_y as i32,
+                width as i32,
+                height as i32,
+                dst_x as i32,
+                dst_y as i32,
+            );
+
+            if result == 0 {
+                Err("Failed to copy area".into())
+            } else {
+                Ok(())
+            }
+        }
     }
 
     fn create_pixmap(&mut self, width: u16, height: u16, _depth: u8) -> BackendResult<usize> {
