@@ -60,7 +60,6 @@ path = "tests/visual_test.rs"
 harness = false  # Disable default test harness, use custom main()
 
 [dev-dependencies]
-x11rb = { version = "0.13", features = ["allow-unsafe-code"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(target_os = "windows")'.dev-dependencies]
