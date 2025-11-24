@@ -56,18 +56,19 @@ fn build_swift_backend() {
         "build",
         "-c",
         build_config,
-        "--arch",
-        swift_arch,
         "--package-path",
         swift_dir.to_str().unwrap(),
     ]);
 
-    // Add SDK and target triple for proper cross-compilation
+    // Use --triple for proper cross-compilation (includes arch and platform)
     if !sdk_path.is_empty() {
         swift_build.args(["--sdk", &sdk_path]);
         // Set explicit target triple for cross-compilation
         let target_triple = format!("{}-apple-macosx", swift_arch);
         swift_build.args(["--triple", &target_triple]);
+    } else {
+        // Fallback to --arch if SDK path is not available
+        swift_build.args(["--arch", swift_arch]);
     }
 
     let status = swift_build.status().expect("Failed to execute swift build");
