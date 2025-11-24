@@ -216,8 +216,8 @@ impl Backend for WindowsBackend {
             // Get physical dimensions in mm (approximate using DPI)
             let hdc = GetDC(0);
             if hdc != 0 {
-                let dpi_x = GetDeviceCaps(hdc, LOGPIXELSX);
-                let dpi_y = GetDeviceCaps(hdc, LOGPIXELSY);
+                let dpi_x = GetDeviceCaps(hdc, LOGPIXELSX as i32);
+                let dpi_y = GetDeviceCaps(hdc, LOGPIXELSY as i32);
                 // Convert pixels to mm (25.4mm per inch)
                 self.screen_width_mm = ((self.screen_width as f32 * 25.4) / dpi_x as f32) as u16;
                 self.screen_height_mm = ((self.screen_height as f32 * 25.4) / dpi_y as f32) as u16;
@@ -420,8 +420,8 @@ impl Backend for WindowsBackend {
             let rect = RECT {
                 left: x as i32,
                 top: y as i32,
-                right: (x as i32 + width as i32),
-                bottom: (y as i32 + height as i32),
+                right: x as i32 + width as i32,
+                bottom: y as i32 + height as i32,
             };
 
             let brush = GetStockObject(WHITE_BRUSH) as HBRUSH;
@@ -453,8 +453,8 @@ impl Backend for WindowsBackend {
                 hdc,
                 x as i32,
                 y as i32,
-                (x as i32 + width as i32),
-                (y as i32 + height as i32),
+                x as i32 + width as i32,
+                y as i32 + height as i32,
             );
 
             SelectObject(hdc, old_brush);
@@ -481,8 +481,8 @@ impl Backend for WindowsBackend {
             let rect = RECT {
                 left: x as i32,
                 top: y as i32,
-                right: (x as i32 + width as i32),
-                bottom: (y as i32 + height as i32),
+                right: x as i32 + width as i32,
+                bottom: y as i32 + height as i32,
             };
 
             FillRect(hdc, &rect, brush);
@@ -663,8 +663,8 @@ impl Backend for WindowsBackend {
                             .iter_mut()
                             .find(|(_, data)| data.hwnd == msg.hwnd)
                         {
-                            let width = (msg.lparam & 0xffff) as u16;
-                            let height = ((msg.lparam >> 16) & 0xffff) as u16;
+                            let width = (msg.lParam & 0xffff) as u16;
+                            let height = ((msg.lParam >> 16) & 0xffff) as u16;
                             data.width = width;
                             data.height = height;
 
@@ -687,8 +687,8 @@ impl Backend for WindowsBackend {
                                 WM_MBUTTONDOWN => 2,
                                 _ => 1,
                             };
-                            let x = (msg.lparam & 0xffff) as i16;
-                            let y = ((msg.lparam >> 16) & 0xffff) as i16;
+                            let x = (msg.lParam & 0xffff) as i16;
+                            let y = ((msg.lParam >> 16) & 0xffff) as i16;
 
                             self.event_queue.push(BackendEvent::ButtonPress {
                                 window: BackendWindow(*id),
@@ -706,7 +706,7 @@ impl Backend for WindowsBackend {
                         {
                             self.event_queue.push(BackendEvent::KeyPress {
                                 window: BackendWindow(*id),
-                                keycode: msg.wparam as u8,
+                                keycode: msg.wParam as u8,
                                 state: 0,
                                 time: msg.time,
                                 x: 0,
@@ -771,8 +771,8 @@ impl Backend for WindowsBackend {
                             .iter_mut()
                             .find(|(_, data)| data.hwnd == msg.hwnd)
                         {
-                            let width = (msg.lparam & 0xffff) as u16;
-                            let height = ((msg.lparam >> 16) & 0xffff) as u16;
+                            let width = (msg.lParam & 0xffff) as u16;
+                            let height = ((msg.lParam >> 16) & 0xffff) as u16;
                             data.width = width;
                             data.height = height;
 
