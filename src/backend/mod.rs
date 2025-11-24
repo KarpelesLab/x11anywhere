@@ -3,6 +3,9 @@
 //! This module contains the backend trait and implementations for different
 //! display systems (X11, Wayland, macOS, Windows).
 
+// Allow dead code for now - these are skeleton implementations not yet integrated
+#![allow(dead_code)]
+
 mod r#trait;
 pub use r#trait::*;
 

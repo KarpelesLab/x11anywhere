@@ -4,6 +4,10 @@
 //! backends (X11, Windows, macOS). It tracks all resources created by a client
 //! and generates cleanup requests when the client disconnects.
 
+
+// Allow dead code for now - skeleton implementation not yet integrated
+#![allow(dead_code)]
+
 use crate::protocol::*;
 use std::collections::{HashMap, HashSet};
 

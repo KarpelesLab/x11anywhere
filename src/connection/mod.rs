@@ -2,6 +2,10 @@
 //!
 //! This module handles network connections from X11 clients via TCP and Unix sockets.
 
+
+// Allow dead code for now - skeleton implementation not yet integrated
+#![allow(dead_code)]
+
 use std::io;
 use std::net::{TcpListener, TcpStream};
 
