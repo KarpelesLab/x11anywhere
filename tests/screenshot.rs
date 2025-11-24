@@ -2,7 +2,6 @@
 ///
 /// This module provides screenshot capture functionality for Windows, macOS, and Linux.
 /// Used by visual tests to capture and verify rendering output.
-
 use std::path::Path;
 use std::process::Command;
 
@@ -27,7 +26,10 @@ pub fn capture_window(window_id: u32) -> Result<Screenshot, Box<dyn std::error::
         .arg("-window")
         .arg(&window_id_hex)
         .arg(temp_png)
-        .env("DISPLAY", env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string()))
+        .env(
+            "DISPLAY",
+            env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string()),
+        )
         .output()?;
 
     if !output.status.success() {
@@ -61,14 +63,19 @@ pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
         }
 
         // Get screen dimensions
-        let width =
-            windows_sys::Win32::Graphics::Gdi::GetDeviceCaps(screen_dc, windows_sys::Win32::Graphics::Gdi::HORZRES as i32);
-        let height =
-            windows_sys::Win32::Graphics::Gdi::GetDeviceCaps(screen_dc, windows_sys::Win32::Graphics::Gdi::VERTRES as i32);
+        let width = windows_sys::Win32::Graphics::Gdi::GetDeviceCaps(
+            screen_dc,
+            windows_sys::Win32::Graphics::Gdi::HORZRES as i32,
+        );
+        let height = windows_sys::Win32::Graphics::Gdi::GetDeviceCaps(
+            screen_dc,
+            windows_sys::Win32::Graphics::Gdi::VERTRES as i32,
+        );
 
         // Create compatible DC and bitmap
         let mem_dc = windows_sys::Win32::Graphics::Gdi::CreateCompatibleDC(screen_dc);
-        let bitmap = windows_sys::Win32::Graphics::Gdi::CreateCompatibleBitmap(screen_dc, width, height);
+        let bitmap =
+            windows_sys::Win32::Graphics::Gdi::CreateCompatibleBitmap(screen_dc, width, height);
         let old_bitmap = windows_sys::Win32::Graphics::Gdi::SelectObject(mem_dc, bitmap);
 
         // Copy screen to bitmap
@@ -86,7 +93,8 @@ pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
 
         // Get bitmap data
         let mut bmi: windows_sys::Win32::Graphics::Gdi::BITMAPINFO = mem::zeroed();
-        bmi.bmiHeader.biSize = mem::size_of::<windows_sys::Win32::Graphics::Gdi::BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biSize =
+            mem::size_of::<windows_sys::Win32::Graphics::Gdi::BITMAPINFOHEADER>() as u32;
         bmi.bmiHeader.biWidth = width;
         bmi.bmiHeader.biHeight = -height; // Top-down
         bmi.bmiHeader.biPlanes = 1;
@@ -187,7 +195,10 @@ pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
         .arg("-window")
         .arg("root")
         .arg(temp_png)
-        .env("DISPLAY", env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string()))
+        .env(
+            "DISPLAY",
+            env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string()),
+        )
         .output()?;
 
     if !output.status.success() {

@@ -1,5 +1,4 @@
 ///! Server listener and connection handling
-
 use std::error::Error;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -199,7 +198,15 @@ fn handle_create_window(
     let visual = u32::from_le_bytes([data[20], data[21], data[22], data[23]]);
     let value_mask = u32::from_le_bytes([data[24], data[25], data[26], data[27]]);
 
-    log::debug!("CreateWindow: wid=0x{:x}, parent=0x{:x}, {}x{} at ({},{})", wid, parent, width, height, x, y);
+    log::debug!(
+        "CreateWindow: wid=0x{:x}, parent=0x{:x}, {}x{} at ({},{})",
+        wid,
+        parent,
+        width,
+        height,
+        x,
+        y
+    );
 
     // Parse value list
     let mut background_pixel = None;
@@ -208,13 +215,23 @@ fn handle_create_window(
 
     // Background pixel (bit 1)
     if value_mask & 0x00000002 != 0 && offset + 4 <= data.len() {
-        background_pixel = Some(u32::from_le_bytes([data[offset], data[offset+1], data[offset+2], data[offset+3]]));
+        background_pixel = Some(u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]));
         offset += 4;
     }
 
     // Event mask (bit 11)
     if value_mask & 0x00000800 != 0 && offset + 4 <= data.len() {
-        event_mask = u32::from_le_bytes([data[offset], data[offset+1], data[offset+2], data[offset+3]]);
+        event_mask = u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]);
     }
 
     let window_class = match class {
@@ -279,7 +296,12 @@ fn handle_create_gc(
     let drawable = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
     let value_mask = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
 
-    log::debug!("CreateGC: cid=0x{:x}, drawable=0x{:x}, mask=0x{:x}", cid, drawable, value_mask);
+    log::debug!(
+        "CreateGC: cid=0x{:x}, drawable=0x{:x}, mask=0x{:x}",
+        cid,
+        drawable,
+        value_mask
+    );
 
     // Parse value list
     let mut foreground = None;
@@ -298,13 +320,23 @@ fn handle_create_gc(
 
     // Foreground (bit 2)
     if value_mask & 0x00000004 != 0 && offset + 4 <= data.len() {
-        foreground = Some(u32::from_le_bytes([data[offset], data[offset+1], data[offset+2], data[offset+3]]));
+        foreground = Some(u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]));
         offset += 4;
     }
 
     // Background (bit 3)
     if value_mask & 0x00000008 != 0 && offset + 4 <= data.len() {
-        background = Some(u32::from_le_bytes([data[offset], data[offset+1], data[offset+2], data[offset+3]]));
+        background = Some(u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]));
     }
 
     let mut server = server.lock().unwrap();
@@ -352,21 +384,27 @@ fn handle_change_gc(
 
     // Foreground (bit 2)
     if value_mask & 0x00000004 != 0 && offset + 4 <= data.len() {
-        foreground = Some(u32::from_le_bytes([data[offset], data[offset+1], data[offset+2], data[offset+3]]));
+        foreground = Some(u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]));
         offset += 4;
     }
 
     // Background (bit 3)
     if value_mask & 0x00000008 != 0 && offset + 4 <= data.len() {
-        background = Some(u32::from_le_bytes([data[offset], data[offset+1], data[offset+2], data[offset+3]]));
+        background = Some(u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]));
     }
 
     let mut server = server.lock().unwrap();
-    server.change_gc(
-        crate::protocol::GContext::new(gc),
-        foreground,
-        background,
-    )?;
+    server.change_gc(crate::protocol::GContext::new(gc), foreground, background)?;
 
     Ok(())
 }
@@ -390,15 +428,25 @@ fn handle_poly_fill_rectangle(
     let mut rectangles = Vec::new();
     let mut offset = 8;
     while offset + 8 <= data.len() {
-        let x = i16::from_le_bytes([data[offset], data[offset+1]]);
-        let y = i16::from_le_bytes([data[offset+2], data[offset+3]]);
-        let width = u16::from_le_bytes([data[offset+4], data[offset+5]]);
-        let height = u16::from_le_bytes([data[offset+6], data[offset+7]]);
-        rectangles.push(crate::protocol::Rectangle { x, y, width, height });
+        let x = i16::from_le_bytes([data[offset], data[offset + 1]]);
+        let y = i16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+        let width = u16::from_le_bytes([data[offset + 4], data[offset + 5]]);
+        let height = u16::from_le_bytes([data[offset + 6], data[offset + 7]]);
+        rectangles.push(crate::protocol::Rectangle {
+            x,
+            y,
+            width,
+            height,
+        });
         offset += 8;
     }
 
-    log::debug!("PolyFillRectangle: drawable=0x{:x}, gc=0x{:x}, {} rectangles", drawable, gc, rectangles.len());
+    log::debug!(
+        "PolyFillRectangle: drawable=0x{:x}, gc=0x{:x}, {} rectangles",
+        drawable,
+        gc,
+        rectangles.len()
+    );
 
     let mut server = server.lock().unwrap();
     server.fill_rectangles(

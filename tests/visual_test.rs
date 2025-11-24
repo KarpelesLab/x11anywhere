@@ -2,7 +2,6 @@
 ///
 /// This test connects to the X11 server using raw TCP/IP sockets and sends
 /// X11 protocol commands directly. No platform-specific libraries required.
-
 mod screenshot;
 
 use std::env;
@@ -28,7 +27,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Read setup response
     let (root_window, root_visual, screen_width, screen_height) = read_setup_response(&mut stream)?;
-    println!("Connected! Screen: {}x{}, Root: {}", screen_width, screen_height, root_window);
+    println!(
+        "Connected! Screen: {}x{}, Root: {}",
+        screen_width, screen_height, root_window
+    );
 
     // Create window
     let window_id = 0x02000001u32; // Use a fixed ID
@@ -54,8 +56,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Capture screenshot
     println!("Capturing screenshot of window {}...", window_id);
     let screenshot = screenshot::capture_window(window_id)?;
-    println!("Screenshot captured: {}x{} ({} bytes)",
-             screenshot.width, screenshot.height, screenshot.data.len());
+    println!(
+        "Screenshot captured: {}x{} ({} bytes)",
+        screenshot.width,
+        screenshot.height,
+        screenshot.data.len()
+    );
 
     // Save screenshot
     let output_dir = env::var("VISUAL_TEST_OUTPUT").unwrap_or_else(|_| ".".to_string());
@@ -66,7 +72,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Compare with reference if available
     let reference_path = PathBuf::from(&output_dir).join("visual_test_reference.png");
     let test_result = if reference_path.exists() {
-        println!("Comparing with reference image: {}", reference_path.display());
+        println!(
+            "Comparing with reference image: {}",
+            reference_path.display()
+        );
         match screenshot::load_png(&reference_path) {
             Ok(reference) => {
                 let tolerance = 0.01;
@@ -132,7 +141,9 @@ fn send_connection_setup(stream: &mut TcpStream) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-fn read_setup_response(stream: &mut TcpStream) -> Result<(u32, u32, u16, u16), Box<dyn std::error::Error>> {
+fn read_setup_response(
+    stream: &mut TcpStream,
+) -> Result<(u32, u32, u16, u16), Box<dyn std::error::Error>> {
     // Read status byte
     let mut status = [0u8; 1];
     stream.read_exact(&mut status)?;
@@ -168,7 +179,12 @@ fn read_setup_response(stream: &mut TcpStream) -> Result<(u32, u32, u16, u16), B
     Ok((root_window, root_visual, screen_width, screen_height))
 }
 
-fn create_window(stream: &mut TcpStream, window_id: u32, parent: u32, visual: u32) -> Result<(), Box<dyn std::error::Error>> {
+fn create_window(
+    stream: &mut TcpStream,
+    window_id: u32,
+    parent: u32,
+    visual: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut req = Vec::new();
     req.push(1); // CreateWindow opcode
     req.push(24); // Depth (24-bit color)
@@ -202,7 +218,11 @@ fn map_window(stream: &mut TcpStream, window_id: u32) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-fn create_gc(stream: &mut TcpStream, gc_id: u32, drawable: u32) -> Result<(), Box<dyn std::error::Error>> {
+fn create_gc(
+    stream: &mut TcpStream,
+    gc_id: u32,
+    drawable: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut req = Vec::new();
     req.push(55); // CreateGC opcode
     req.push(0); // Padding
@@ -216,7 +236,11 @@ fn create_gc(stream: &mut TcpStream, gc_id: u32, drawable: u32) -> Result<(), Bo
     Ok(())
 }
 
-fn draw_colored_rectangles(stream: &mut TcpStream, window: u32, gc: u32) -> Result<(), Box<dyn std::error::Error>> {
+fn draw_colored_rectangles(
+    stream: &mut TcpStream,
+    window: u32,
+    gc: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
     let colors = [
         0xFF0000u32, // Red
         0x00FF00u32, // Green

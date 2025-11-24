@@ -471,7 +471,8 @@ impl Server {
         };
 
         // Draw all rectangles
-        self.backend.fill_rectangles(backend_drawable, backend_gc, rectangles)?;
+        self.backend
+            .fill_rectangles(backend_drawable, backend_gc, rectangles)?;
         self.backend.flush()?;
 
         Ok(())

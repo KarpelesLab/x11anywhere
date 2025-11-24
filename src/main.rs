@@ -265,7 +265,10 @@ fn main() {
         {
             // X11 backend connects to an existing X server as specified by DISPLAY
             let target_display = env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
-            log::info!("Initializing X11 backend, connecting to display {}", target_display);
+            log::info!(
+                "Initializing X11 backend, connecting to display {}",
+                target_display
+            );
             Box::new(backend::x11::X11Backend::new(&target_display))
         }
 
