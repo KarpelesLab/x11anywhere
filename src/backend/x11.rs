@@ -113,8 +113,12 @@ impl X11Backend {
         self.send_request(&req)?;
 
         if self.debug {
-            log::debug!("Created GC: id=0x{:x}, fg=0x{:x}, bg=0x{:x}",
-                gc_id, gc.foreground, gc.background);
+            log::debug!(
+                "Created GC: id=0x{:x}, fg=0x{:x}, bg=0x{:x}",
+                gc_id,
+                gc.foreground,
+                gc.background
+            );
         }
 
         Ok(())
@@ -156,8 +160,12 @@ impl X11Backend {
         self.send_request(&req)?;
 
         if self.debug {
-            log::debug!("Changed GC: id=0x{:x}, fg=0x{:x}, bg=0x{:x}",
-                gc_id, gc.foreground, gc.background);
+            log::debug!(
+                "Changed GC: id=0x{:x}, fg=0x{:x}, bg=0x{:x}",
+                gc_id,
+                gc.foreground,
+                gc.background
+            );
         }
 
         Ok(())
@@ -675,7 +683,12 @@ impl Backend for X11Backend {
 
         // Get parent window ID (root is from setup)
         let parent_id = if let Some(parent) = params.parent {
-            *self.window_map.lock().unwrap().get(&parent.0).unwrap_or(&server_wid)
+            *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&parent.0)
+                .unwrap_or(&server_wid)
         } else {
             // Use root window from setup
             if let Some(ref setup) = self.setup_info {
@@ -740,7 +753,11 @@ impl Backend for X11Backend {
         self.window_map.lock().unwrap().insert(our_id, server_wid);
 
         if self.debug {
-            log::debug!("Created window: our_id={}, server_id=0x{:x}", our_id, server_wid);
+            log::debug!(
+                "Created window: our_id={}, server_id=0x{:x}",
+                our_id,
+                server_wid
+            );
         }
 
         Ok(BackendWindow(our_id))
@@ -752,7 +769,11 @@ impl Backend for X11Backend {
 
     fn map_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         // Get server window ID
-        let server_wid = *self.window_map.lock().unwrap().get(&window.0)
+        let server_wid = *self
+            .window_map
+            .lock()
+            .unwrap()
+            .get(&window.0)
             .ok_or("Window not found")?;
 
         // Build MapWindow request (opcode 8)
@@ -765,7 +786,11 @@ impl Backend for X11Backend {
         self.send_request(&req)?;
 
         if self.debug {
-            log::debug!("Mapped window: our_id={}, server_id=0x{:x}", window.0, server_wid);
+            log::debug!(
+                "Mapped window: our_id={}, server_id=0x{:x}",
+                window.0,
+                server_wid
+            );
         }
 
         Ok(())
@@ -829,14 +854,18 @@ impl Backend for X11Backend {
     ) -> BackendResult<()> {
         // Get server drawable ID
         let server_drawable = match drawable {
-            BackendDrawable::Window(w) => {
-                *self.window_map.lock().unwrap().get(&w.0)
-                    .ok_or("Window not found")?
-            }
-            BackendDrawable::Pixmap(p) => {
-                *self.pixmap_map.lock().unwrap().get(&p)
-                    .ok_or("Pixmap not found")?
-            }
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Pixmap not found")?,
         };
 
         // Create or get GC on server
@@ -859,8 +888,14 @@ impl Backend for X11Backend {
         self.send_request(&req)?;
 
         if self.debug {
-            log::debug!("Filled rectangle: drawable=0x{:x}, x={}, y={}, {}x{}",
-                server_drawable, x, y, width, height);
+            log::debug!(
+                "Filled rectangle: drawable=0x{:x}, x={}, y={}, {}x{}",
+                server_drawable,
+                x,
+                y,
+                width,
+                height
+            );
         }
 
         Ok(())
