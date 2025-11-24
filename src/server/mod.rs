@@ -3,8 +3,14 @@
 /// This module contains the main server logic, including window management,
 /// resource tracking, event dispatching, and client session management.
 
+mod client;
+
+pub use client::Client;
+
 use crate::protocol::*;
 use crate::backend::{Backend, BackendWindow};
+use crate::resources::ResourceTracker;
+use crate::security::SecurityPolicy;
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -41,6 +47,12 @@ pub struct Server {
 
     /// Extension name -> info mapping
     extensions: HashMap<String, ExtensionInfo>,
+
+    /// Resource tracker for all clients
+    resource_tracker: ResourceTracker,
+
+    /// Security policy
+    security_policy: SecurityPolicy,
 }
 
 impl Server {
@@ -61,6 +73,8 @@ impl Server {
             atom_ids: HashMap::new(),
             next_atom_id: 69, // Predefined atoms use 1-68
             extensions: HashMap::new(),
+            resource_tracker: ResourceTracker::new(),
+            security_policy: SecurityPolicy::default(),
         };
 
         // Register predefined atoms
@@ -231,5 +245,92 @@ impl Server {
     /// Query extension by name
     pub fn query_extension(&self, name: &str) -> Option<ExtensionInfo> {
         self.extensions.get(name).cloned()
+    }
+
+    /// Register a new client and return its ID
+    pub fn register_client(&mut self) -> u32 {
+        self.resource_tracker.register_client()
+    }
+
+    /// Unregister a client and generate cleanup requests
+    pub fn unregister_client(&mut self, client_id: u32) -> Vec<crate::resources::CleanupRequest> {
+        self.resource_tracker.unregister_client(client_id)
+    }
+
+    /// Track a request for resource management
+    pub fn track_request(&mut self, client_id: u32, request: &Request) {
+        self.resource_tracker.track_request(client_id, request);
+    }
+
+    /// Get the security policy
+    pub fn security_policy(&self) -> &SecurityPolicy {
+        &self.security_policy
+    }
+
+    /// Set a new security policy
+    pub fn set_security_policy(&mut self, policy: SecurityPolicy) {
+        self.security_policy = policy;
+    }
+
+    /// Handle a request from a client with resource tracking and security checks
+    pub fn handle_request(&mut self, client_id: u32, request: &Request) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Track the request for resource management
+        self.resource_tracker.track_request(client_id, request);
+
+        // Apply security policy checks
+        self.check_security_policy(client_id, request)?;
+
+        // Apply resource limits
+        self.check_resource_limits(client_id)?;
+
+        // TODO: Actually process the request with the backend
+        // For now, this is just tracking and security - actual request handling
+        // will be implemented by the backend-specific server implementations
+
+        Ok(())
+    }
+
+    /// Check if a request violates the security policy
+    fn check_security_policy(&self, _client_id: u32, _request: &Request) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // TODO: Implement security checks when more request types are parsed
+        // This will check for:
+        // - Screen capture (GetImage) if !allow_screen_capture
+        // - Keyboard grabs (GrabKeyboard) if !allow_keyboard_grabs
+        // - Pointer grabs (GrabPointer) if !allow_pointer_grabs
+        // - Synthetic events (SendEvent) if !allow_synthetic_events
+        //
+        // For now, all requests are allowed since the parser doesn't support these yet
+
+        Ok(())
+    }
+
+    /// Check if client has exceeded resource limits
+    fn check_resource_limits(&self, client_id: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let counts = self.resource_tracker.get_resource_counts(client_id);
+
+        // Check window limit
+        if self.security_policy.max_windows_per_client > 0
+            && counts.windows >= self.security_policy.max_windows_per_client {
+            return Err(format!(
+                "Client {} exceeded maximum windows limit ({})",
+                client_id, self.security_policy.max_windows_per_client
+            ).into());
+        }
+
+        // Check pixmap limit
+        if self.security_policy.max_pixmaps_per_client > 0
+            && counts.pixmaps >= self.security_policy.max_pixmaps_per_client {
+            return Err(format!(
+                "Client {} exceeded maximum pixmaps limit ({})",
+                client_id, self.security_policy.max_pixmaps_per_client
+            ).into());
+        }
+
+        Ok(())
+    }
+
+    /// Cleanup resources when a client disconnects
+    pub fn handle_client_disconnect(&mut self, client_id: u32) -> Vec<crate::resources::CleanupRequest> {
+        self.unregister_client(client_id)
     }
 }
