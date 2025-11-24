@@ -62,9 +62,9 @@ pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
 
         // Get screen dimensions
         let width =
-            windows_sys::Win32::Graphics::Gdi::GetDeviceCaps(screen_dc, windows_sys::Win32::Graphics::Gdi::HORZRES);
+            windows_sys::Win32::Graphics::Gdi::GetDeviceCaps(screen_dc, windows_sys::Win32::Graphics::Gdi::HORZRES as i32);
         let height =
-            windows_sys::Win32::Graphics::Gdi::GetDeviceCaps(screen_dc, windows_sys::Win32::Graphics::Gdi::VERTRES);
+            windows_sys::Win32::Graphics::Gdi::GetDeviceCaps(screen_dc, windows_sys::Win32::Graphics::Gdi::VERTRES as i32);
 
         // Create compatible DC and bitmap
         let mem_dc = windows_sys::Win32::Graphics::Gdi::CreateCompatibleDC(screen_dc);
