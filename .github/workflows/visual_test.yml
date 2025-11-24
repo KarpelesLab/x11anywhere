@@ -42,11 +42,9 @@ jobs:
 
       - name: Start x11anywhere server
         run: |
-          DISPLAY=:99 ./target/release/x11anywhere &
+          ./target/release/x11anywhere -display 99 -tcp &
           echo "X11ANYWHERE_PID=$!" >> $GITHUB_ENV
           sleep 2
-        env:
-          DISPLAY: :99
 
       - name: Run visual test
         run: |
@@ -149,7 +147,7 @@ jobs:
       - name: Start x11anywhere server
         shell: powershell
         run: |
-          Start-Process -FilePath ".\target\release\x11anywhere.exe" -NoNewWindow
+          Start-Process -FilePath ".\target\release\x11anywhere.exe" -ArgumentList "-display","1","-tcp" -NoNewWindow
           Start-Sleep -Seconds 2
 
       - name: Run visual test
