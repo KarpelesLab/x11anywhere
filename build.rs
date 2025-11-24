@@ -18,6 +18,16 @@ fn build_swift_backend() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let profile = env::var("PROFILE").unwrap();
 
+    // Get the actual target architecture from Cargo (not host architecture)
+    let target = env::var("TARGET").unwrap();
+    let (swift_arch, swift_triple) = if target.contains("aarch64") {
+        ("arm64", "arm64-apple-macosx")
+    } else if target.contains("x86_64") {
+        ("x86_64", "x86_64-apple-macosx")
+    } else {
+        panic!("Unsupported target architecture: {}", target);
+    };
+
     let swift_dir = PathBuf::from(&manifest_dir).join("swift");
     let build_config = if profile == "release" {
         "release"
@@ -25,13 +35,15 @@ fn build_swift_backend() {
         "debug"
     };
 
-    // Build the Swift package
-    println!("cargo:warning=Building Swift backend...");
+    // Build the Swift package for the target architecture
+    println!("cargo:warning=Building Swift backend for {}...", swift_arch);
     let status = Command::new("swift")
         .args([
             "build",
             "-c",
             build_config,
+            "--arch",
+            swift_arch,
             "--package-path",
             swift_dir.to_str().unwrap(),
         ])
@@ -42,14 +54,10 @@ fn build_swift_backend() {
         panic!("Swift build failed");
     }
 
-    // Link the Swift library
+    // Link the Swift library from the correct architecture directory
     let swift_build_dir = swift_dir
         .join(".build")
-        .join(if cfg!(target_arch = "aarch64") {
-            "arm64-apple-macosx"
-        } else {
-            "x86_64-apple-macosx"
-        })
+        .join(swift_triple)
         .join(build_config);
 
     println!(
