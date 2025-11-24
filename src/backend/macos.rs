@@ -11,12 +11,13 @@ use cocoa::appkit::{
     NSWindowStyleMask,
 };
 use cocoa::base::{id, nil, NO, YES};
-use cocoa::foundation::{NSAutoreleasePool, NSPoint, NSRect, NSSize, NSString};
+use cocoa::foundation::{
+    NSAutoreleasePool, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize, NSString,
+};
 use core_graphics::base::CGFloat;
 use core_graphics::color::CGColor;
 use core_graphics::context::{CGContext, CGContextRef};
 use core_graphics::geometry::{CGPoint, CGRect, CGSize};
-use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
 use std::collections::HashMap;
 use std::mem;
@@ -132,8 +133,7 @@ impl MacOSBackend {
                         let ns_context: id = class!(NSGraphicsContext);
                         let current_context: id = msg_send![ns_context, currentContext];
                         if current_context != nil {
-                            let cg_context: CGContextRef =
-                                msg_send![current_context, CGContext];
+                            let cg_context: CGContextRef = msg_send![current_context, CGContext];
                             if !cg_context.is_null() {
                                 return Ok(cg_context);
                             }
@@ -177,7 +177,8 @@ impl Backend for MacOSBackend {
 
             // Initialize NSApplication
             self.app = NSApplication::sharedApplication(nil);
-            self.app.setActivationPolicy_(NSApplicationActivationPolicyRegular);
+            self.app
+                .setActivationPolicy_(NSApplicationActivationPolicyRegular);
 
             // Get screen dimensions
             let screen_class = class!(NSScreen);
@@ -414,8 +415,10 @@ impl Backend for MacOSBackend {
             let context = self.get_context(drawable)?;
             self.setup_gc(context, gc);
 
-            let rect =
-                CGRect::new(&CGPoint::new(x as f64, y as f64), &CGSize::new(width as f64, height as f64));
+            let rect = CGRect::new(
+                &CGPoint::new(x as f64, y as f64),
+                &CGSize::new(width as f64, height as f64),
+            );
             CGContext::stroke_rect(context, rect);
 
             if let BackendDrawable::Window(window) = drawable {
@@ -438,8 +441,10 @@ impl Backend for MacOSBackend {
             let context = self.get_context(drawable)?;
             self.setup_gc(context, gc);
 
-            let rect =
-                CGRect::new(&CGPoint::new(x as f64, y as f64), &CGSize::new(width as f64, height as f64));
+            let rect = CGRect::new(
+                &CGPoint::new(x as f64, y as f64),
+                &CGSize::new(width as f64, height as f64),
+            );
             CGContext::fill_rect(context, rect);
 
             if let BackendDrawable::Window(window) = drawable {
@@ -595,7 +600,8 @@ impl Backend for MacOSBackend {
         if let Some(context) = self.pixmaps.remove(&pixmap) {
             unsafe {
                 // Recreate CGContext from raw pointer to allow proper cleanup
-                let _context = core_graphics::context::CGContext::from_existing_context_ptr(context);
+                let _context =
+                    core_graphics::context::CGContext::from_existing_context_ptr(context);
                 // Drops when going out of scope
             }
         }
@@ -607,7 +613,7 @@ impl Backend for MacOSBackend {
             // Process pending events
             let until_date: id = msg_send![class!(NSDate), distantPast];
             loop {
-                let event: id = msg_send![self.app, nextEventMatchingMask:0xFFFFFFFF untilDate:until_date inMode:cocoa::appkit::NSDefaultRunLoopMode dequeue:YES];
+                let event: id = msg_send![self.app, nextEventMatchingMask:0xFFFFFFFF untilDate:until_date inMode:NSDefaultRunLoopMode dequeue:YES];
                 if event == nil {
                     break;
                 }
@@ -630,7 +636,7 @@ impl Backend for MacOSBackend {
         unsafe {
             loop {
                 let until_date: id = msg_send![class!(NSDate), distantFuture];
-                let event: id = msg_send![self.app, nextEventMatchingMask:0xFFFFFFFF untilDate:until_date inMode:cocoa::appkit::NSDefaultRunLoopMode dequeue:YES];
+                let event: id = msg_send![self.app, nextEventMatchingMask:0xFFFFFFFF untilDate:until_date inMode:NSDefaultRunLoopMode dequeue:YES];
                 if event != nil {
                     let _: () = msg_send![self.app, sendEvent: event];
 
@@ -653,7 +659,8 @@ impl Drop for MacOSBackend {
 
             // Clean up pixmaps
             for (_, context) in self.pixmaps.drain() {
-                let _context = core_graphics::context::CGContext::from_existing_context_ptr(context);
+                let _context =
+                    core_graphics::context::CGContext::from_existing_context_ptr(context);
             }
 
             // Drain autorelease pool
