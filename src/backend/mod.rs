@@ -14,8 +14,8 @@ pub mod x11;
 // #[cfg(all(feature = "backend-wayland", target_os = "linux"))]
 // pub mod wayland;
 
-// #[cfg(all(feature = "backend-macos", target_os = "macos"))]
-// pub mod macos;
+#[cfg(all(feature = "backend-macos", target_os = "macos"))]
+pub mod macos;
 
 // #[cfg(all(feature = "backend-windows", target_os = "windows"))]
 // pub mod windows;
