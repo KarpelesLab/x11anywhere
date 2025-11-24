@@ -243,13 +243,46 @@ fn main() {
         config.security.allow_global_selections
     );
 
-    // Initialize backend
-    // Use NullBackend for now - it accepts all X11 protocol commands without
-    // requiring a real display system. This is perfect for CI testing and
-    // protocol validation.
-    // TODO: Add command-line option to select real backends when running on
-    // actual desktop systems with displays.
-    let backend: Box<dyn backend::Backend> = Box::new(backend::null::NullBackend::new());
+    // Initialize backend based on platform
+    let backend: Box<dyn backend::Backend> = {
+        #[cfg(all(feature = "backend-windows", target_os = "windows"))]
+        {
+            log::info!("Initializing Windows backend");
+            Box::new(backend::windows::WindowsBackend::new())
+        }
+
+        #[cfg(all(feature = "backend-macos", target_os = "macos"))]
+        {
+            log::info!("Initializing macOS backend");
+            Box::new(backend::macos::MacOSBackend::new())
+        }
+
+        #[cfg(all(
+            feature = "backend-x11",
+            target_family = "unix",
+            not(target_os = "macos")
+        ))]
+        {
+            // X11 backend connects to an existing X server as specified by DISPLAY
+            let target_display = env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
+            log::info!("Initializing X11 backend, connecting to display {}", target_display);
+            Box::new(backend::x11::X11Backend::new(&target_display))
+        }
+
+        #[cfg(not(any(
+            all(feature = "backend-windows", target_os = "windows"),
+            all(feature = "backend-macos", target_os = "macos"),
+            all(
+                feature = "backend-x11",
+                target_family = "unix",
+                not(target_os = "macos")
+            )
+        )))]
+        {
+            log::warn!("No backend available, using NullBackend");
+            Box::new(backend::null::NullBackend::new())
+        }
+    };
 
     // Create server
     let server = match server::Server::new(backend) {

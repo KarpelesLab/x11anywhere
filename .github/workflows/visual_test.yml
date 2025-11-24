@@ -42,9 +42,11 @@ jobs:
 
       - name: Start x11anywhere server
         run: |
-          ./target/release/x11anywhere -display 99 -tcp &
+          DISPLAY=:99 ./target/release/x11anywhere -display 99 -tcp &
           echo "X11ANYWHERE_PID=$!" >> $GITHUB_ENV
           sleep 2
+        env:
+          DISPLAY: :99
 
       - name: Run visual test
         run: |
