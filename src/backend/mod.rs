@@ -7,10 +7,9 @@ mod r#trait;
 pub use r#trait::*;
 
 // Backend implementations (feature-gated)
-// These will be implemented in future commits
 
-// #[cfg(all(feature = "backend-x11", target_family = "unix"))]
-// pub mod x11;
+#[cfg(all(feature = "backend-x11", target_family = "unix"))]
+pub mod x11;
 
 // #[cfg(all(feature = "backend-wayland", target_os = "linux"))]
 // pub mod wayland;

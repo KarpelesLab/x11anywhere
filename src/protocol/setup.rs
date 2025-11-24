@@ -70,8 +70,8 @@ impl SetupRequest {
 /// Setup response status
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetupStatus {
-    Success = 0,
-    Failed = 1,
+    Failed = 0,
+    Success = 1,
     Authenticate = 2,
 }
 
