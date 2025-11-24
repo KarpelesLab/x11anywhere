@@ -54,6 +54,21 @@ minimal-wayland = ["backend-wayland"]   # Wayland only
 name = "x11anywhere"
 path = "src/main.rs"
 
+[[test]]
+name = "visual_test"
+path = "tests/visual_test.rs"
+harness = false  # Disable default test harness, use custom main()
+
+[dev-dependencies]
+x11rb = { version = "0.13", features = ["allow-unsafe-code"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+] }
+
 [profile.release]
 opt-level = 3
 lto = true

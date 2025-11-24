@@ -1,0 +1,173 @@
+name: Visual Tests
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  visual-test-linux:
+    name: Visual Test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb x11-apps imagemagick scrot
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Build x11anywhere
+        run: cargo build --release
+
+      - name: Start Xvfb
+        run: |
+          Xvfb :99 -screen 0 1024x768x24 &
+          echo "XVFB_PID=$!" >> $GITHUB_ENV
+          sleep 2
+        env:
+          DISPLAY: :99
+
+      - name: Start x11anywhere server
+        run: |
+          DISPLAY=:99 ./target/release/x11anywhere &
+          echo "X11ANYWHERE_PID=$!" >> $GITHUB_ENV
+          sleep 2
+        env:
+          DISPLAY: :99
+
+      - name: Run visual test
+        run: |
+          DISPLAY=:99 cargo test --test visual_test -- --nocapture
+        continue-on-error: true
+        env:
+          DISPLAY: :99
+          VISUAL_TEST_OUTPUT: ${{ github.workspace }}/visual_output
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-test-linux-screenshots
+          path: visual_output/*.png
+          if-no-files-found: warn
+
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ ! -z "$X11ANYWHERE_PID" ]; then kill $X11ANYWHERE_PID || true; fi
+          if [ ! -z "$XVFB_PID" ]; then kill $XVFB_PID || true; fi
+
+  visual-test-macos:
+    name: Visual Test (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Setup Swift
+        run: |
+          swift --version
+          # Swift is pre-installed on macOS runners
+
+      - name: Build Swift backend
+        run: |
+          cd swift
+          swift build -c release
+
+      - name: Build x11anywhere
+        run: cargo build --release --features backend-macos
+
+      # Note: macOS GitHub Actions runners don't have a display server
+      # We'll need to skip the actual visual test or use a virtual display
+      - name: Create test output directory
+        run: mkdir -p visual_output
+
+      - name: Run visual test (if display available)
+        run: |
+          # Check if we can connect to a display
+          if [ ! -z "$DISPLAY" ]; then
+            ./target/release/x11anywhere &
+            X11ANYWHERE_PID=$!
+            sleep 2
+            cargo test --test visual_test -- --nocapture || true
+            kill $X11ANYWHERE_PID || true
+          else
+            echo "No display available on GitHub Actions macOS runner"
+            echo "Visual tests require a display server - skipping"
+          fi
+        continue-on-error: true
+        env:
+          VISUAL_TEST_OUTPUT: ${{ github.workspace }}/visual_output
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-test-macos-screenshots
+          path: visual_output/*.png
+          if-no-files-found: warn
+
+  visual-test-windows:
+    name: Visual Test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Build x11anywhere
+        run: cargo build --release --features backend-windows
+
+      # Windows GitHub Actions runners have a display
+      - name: Create test output directory
+        run: mkdir visual_output
+
+      - name: Start x11anywhere server
+        shell: powershell
+        run: |
+          Start-Process -FilePath ".\target\release\x11anywhere.exe" -NoNewWindow
+          Start-Sleep -Seconds 2
+
+      - name: Run visual test
+        shell: powershell
+        run: |
+          cargo test --test visual_test -- --nocapture
+        continue-on-error: true
+        env:
+          VISUAL_TEST_OUTPUT: ${{ github.workspace }}/visual_output
+          DISPLAY: localhost:0
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-test-windows-screenshots
+          path: visual_output/*.png
+          if-no-files-found: warn
+
+      - name: Cleanup
+        if: always()
+        shell: powershell
+        run: |
+          Get-Process x11anywhere -ErrorAction SilentlyContinue | Stop-Process -Force
