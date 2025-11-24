@@ -13,6 +13,40 @@ pub struct Screenshot {
     pub data: Vec<u8>, // RGBA format
 }
 
+/// Capture a screenshot of a specific window by ID
+#[cfg(target_os = "linux")]
+pub fn capture_window(window_id: u32) -> Result<Screenshot, Box<dyn std::error::Error>> {
+    use std::env;
+    use std::fs;
+
+    // Use ImageMagick's import to capture specific window as PNG
+    let temp_png = "/tmp/x11anywhere_visual_test_window.png";
+    let window_id_hex = format!("0x{:x}", window_id);
+
+    let output = Command::new("import")
+        .arg("-window")
+        .arg(&window_id_hex)
+        .arg(temp_png)
+        .env("DISPLAY", env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string()))
+        .output()?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "import (ImageMagick) failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+
+    let png_data = fs::read(temp_png)?;
+    let screenshot = decode_png(&png_data)?;
+
+    // Clean up
+    let _ = fs::remove_file(temp_png);
+
+    Ok(screenshot)
+}
+
 /// Capture a screenshot of the entire screen
 #[cfg(target_os = "windows")]
 pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
@@ -90,6 +124,22 @@ pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
     }
 }
 
+/// Capture a screenshot of a specific window by ID (macOS)
+#[cfg(target_os = "macos")]
+pub fn capture_window(_window_id: u32) -> Result<Screenshot, Box<dyn std::error::Error>> {
+    // For macOS, we'd need to use CGWindowListCreateImage with the window ID
+    // For now, fall back to full screen capture
+    capture_screen()
+}
+
+/// Capture a screenshot of a specific window by ID (Windows)
+#[cfg(target_os = "windows")]
+pub fn capture_window(_window_id: u32) -> Result<Screenshot, Box<dyn std::error::Error>> {
+    // For Windows, we'd need to use GetWindowDC instead of screen DC
+    // For now, fall back to full screen capture
+    capture_screen()
+}
+
 /// Capture a screenshot on macOS using screencapture utility
 #[cfg(target_os = "macos")]
 pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
@@ -124,44 +174,26 @@ pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
     Ok(screenshot)
 }
 
-/// Capture a screenshot on Linux using xwd (X Window Dump)
+/// Capture a screenshot on Linux using ImageMagick's import command
 #[cfg(target_os = "linux")]
 pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
     use std::env;
+    use std::fs;
 
-    // Use xwd to capture root window
-    let output = Command::new("xwd")
-        .arg("-root")
-        .arg("-silent")
+    // Use ImageMagick's import to capture root window directly as PNG
+    let temp_png = "/tmp/x11anywhere_visual_test.png";
+
+    let output = Command::new("import")
+        .arg("-window")
+        .arg("root")
+        .arg(temp_png)
         .env("DISPLAY", env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string()))
         .output()?;
 
     if !output.status.success() {
         return Err(format!(
-            "xwd failed: {}",
+            "import (ImageMagick) failed: {}",
             String::from_utf8_lossy(&output.stderr)
-        )
-        .into());
-    }
-
-    // Parse XWD format - this is a simplified parser
-    // For now, fall back to saving to file and using ImageMagick
-    use std::fs;
-    let temp_xwd = "/tmp/x11anywhere_visual_test.xwd";
-    let temp_png = "/tmp/x11anywhere_visual_test.png";
-
-    fs::write(temp_xwd, &output.stdout)?;
-
-    // Convert XWD to PNG using ImageMagick (convert command)
-    let convert_output = Command::new("convert")
-        .arg(temp_xwd)
-        .arg(temp_png)
-        .output()?;
-
-    if !convert_output.status.success() {
-        return Err(format!(
-            "convert (ImageMagick) failed: {}",
-            String::from_utf8_lossy(&convert_output.stderr)
         )
         .into());
     }
@@ -170,7 +202,6 @@ pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
     let screenshot = decode_png(&png_data)?;
 
     // Clean up
-    let _ = fs::remove_file(temp_xwd);
     let _ = fs::remove_file(temp_png);
 
     Ok(screenshot)

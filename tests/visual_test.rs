@@ -99,9 +99,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Keep window open for screenshot (allow time for rendering to complete)
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    // Capture screenshot
-    println!("Capturing screenshot...");
-    let screenshot = match screenshot::capture_screen() {
+    // Capture screenshot of the test window
+    println!("Capturing screenshot of window {}...", window);
+    let screenshot = match screenshot::capture_window(window) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Failed to capture screenshot: {}", e);
