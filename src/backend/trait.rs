@@ -163,6 +163,10 @@ pub enum BackendEvent {
         x: i16,
         y: i16,
     },
+    /// Window gained keyboard focus
+    FocusIn { window: BackendWindow },
+    /// Window lost keyboard focus
+    FocusOut { window: BackendWindow },
     /// Window destroyed by user/WM
     DestroyNotify { window: BackendWindow },
 }

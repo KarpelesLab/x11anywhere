@@ -395,3 +395,194 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     }
     return BackendResult.success.rawValue
 }
+
+// Event structure for FFI
+public struct BackendEventData {
+    var eventType: Int32       // 0=none, 1=expose, 2=configure, 3=keypress, 4=keyrelease, 5=buttonpress, 6=buttonrelease, 7=motion, 8=focusin, 9=focusout
+    var windowId: Int32
+    var x: Int32
+    var y: Int32
+    var width: Int32
+    var height: Int32
+    var keycode: Int32
+    var button: Int32
+    var state: Int32
+    var time: Int32
+}
+
+@_cdecl("macos_backend_poll_event")
+public func macos_backend_poll_event(_ handle: BackendHandle, eventData: UnsafeMutablePointer<BackendEventData>) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+
+    var hasEvent = false
+    var event = BackendEventData(eventType: 0, windowId: 0, x: 0, y: 0, width: 0, height: 0, keycode: 0, button: 0, state: 0, time: 0)
+
+    DispatchQueue.main.sync {
+        if let nsEvent = NSApplication.shared.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) {
+            hasEvent = true
+
+            // Find which window this event is for
+            var windowId: Int32 = 0
+            if let eventWindow = nsEvent.window {
+                for (id, window) in backend.windows {
+                    if window === eventWindow {
+                        windowId = Int32(id)
+                        break
+                    }
+                }
+            }
+
+            event.windowId = windowId
+            event.time = Int32(nsEvent.timestamp * 1000) // Convert to milliseconds
+
+            switch nsEvent.type {
+            case .leftMouseDown:
+                event.eventType = 5 // buttonpress
+                event.button = 1
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .rightMouseDown:
+                event.eventType = 5 // buttonpress
+                event.button = 3
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .otherMouseDown:
+                event.eventType = 5 // buttonpress
+                event.button = 2
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .leftMouseUp:
+                event.eventType = 6 // buttonrelease
+                event.button = 1
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .rightMouseUp:
+                event.eventType = 6 // buttonrelease
+                event.button = 3
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .otherMouseUp:
+                event.eventType = 6 // buttonrelease
+                event.button = 2
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+                event.eventType = 7 // motion
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .keyDown:
+                event.eventType = 3 // keypress
+                event.keycode = Int32(nsEvent.keyCode)
+
+            case .keyUp:
+                event.eventType = 4 // keyrelease
+                event.keycode = Int32(nsEvent.keyCode)
+
+            default:
+                hasEvent = false
+            }
+
+            // Dispatch the event to the application
+            NSApplication.shared.sendEvent(nsEvent)
+        }
+    }
+
+    if hasEvent {
+        eventData.pointee = event
+        return 1 // Has event
+    }
+    return 0 // No event
+}
+
+@_cdecl("macos_backend_wait_for_event")
+public func macos_backend_wait_for_event(_ handle: BackendHandle, eventData: UnsafeMutablePointer<BackendEventData>) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+
+    var event = BackendEventData(eventType: 0, windowId: 0, x: 0, y: 0, width: 0, height: 0, keycode: 0, button: 0, state: 0, time: 0)
+
+    DispatchQueue.main.sync {
+        // Wait indefinitely for an event
+        if let nsEvent = NSApplication.shared.nextEvent(matching: .any, until: .distantFuture, inMode: .default, dequeue: true) {
+            // Find which window this event is for
+            var windowId: Int32 = 0
+            if let eventWindow = nsEvent.window {
+                for (id, window) in backend.windows {
+                    if window === eventWindow {
+                        windowId = Int32(id)
+                        break
+                    }
+                }
+            }
+
+            event.windowId = windowId
+            event.time = Int32(nsEvent.timestamp * 1000) // Convert to milliseconds
+
+            switch nsEvent.type {
+            case .leftMouseDown:
+                event.eventType = 5 // buttonpress
+                event.button = 1
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .rightMouseDown:
+                event.eventType = 5 // buttonpress
+                event.button = 3
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .otherMouseDown:
+                event.eventType = 5 // buttonpress
+                event.button = 2
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .leftMouseUp:
+                event.eventType = 6 // buttonrelease
+                event.button = 1
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .rightMouseUp:
+                event.eventType = 6 // buttonrelease
+                event.button = 3
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .otherMouseUp:
+                event.eventType = 6 // buttonrelease
+                event.button = 2
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+                event.eventType = 7 // motion
+                event.x = Int32(nsEvent.locationInWindow.x)
+                event.y = Int32(nsEvent.locationInWindow.y)
+
+            case .keyDown:
+                event.eventType = 3 // keypress
+                event.keycode = Int32(nsEvent.keyCode)
+
+            case .keyUp:
+                event.eventType = 4 // keyrelease
+                event.keycode = Int32(nsEvent.keyCode)
+
+            default:
+                break
+            }
+
+            // Dispatch the event to the application
+            NSApplication.shared.sendEvent(nsEvent)
+        }
+    }
+
+    eventData.pointee = event
+    return 1 // Has event
+}

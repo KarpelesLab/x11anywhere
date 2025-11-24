@@ -700,6 +700,45 @@ impl Backend for WindowsBackend {
                             });
                         }
                     }
+                    WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            let button = match msg.message {
+                                WM_LBUTTONUP => 1,
+                                WM_RBUTTONUP => 3,
+                                WM_MBUTTONUP => 2,
+                                _ => 1,
+                            };
+                            let x = (msg.lParam & 0xffff) as i16;
+                            let y = ((msg.lParam >> 16) & 0xffff) as i16;
+
+                            self.event_queue.push(BackendEvent::ButtonRelease {
+                                window: BackendWindow(*id),
+                                button,
+                                state: 0,
+                                time: msg.time,
+                                x,
+                                y,
+                            });
+                        }
+                    }
+                    WM_MOUSEMOVE => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            let x = (msg.lParam & 0xffff) as i16;
+                            let y = ((msg.lParam >> 16) & 0xffff) as i16;
+
+                            self.event_queue.push(BackendEvent::MotionNotify {
+                                window: BackendWindow(*id),
+                                state: 0,
+                                time: msg.time,
+                                x,
+                                y,
+                            });
+                        }
+                    }
                     WM_KEYDOWN => {
                         if let Some((id, _)) =
                             self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
@@ -711,6 +750,38 @@ impl Backend for WindowsBackend {
                                 time: msg.time,
                                 x: 0,
                                 y: 0,
+                            });
+                        }
+                    }
+                    WM_KEYUP => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            self.event_queue.push(BackendEvent::KeyRelease {
+                                window: BackendWindow(*id),
+                                keycode: msg.wParam as u8,
+                                state: 0,
+                                time: msg.time,
+                                x: 0,
+                                y: 0,
+                            });
+                        }
+                    }
+                    WM_SETFOCUS => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            self.event_queue.push(BackendEvent::FocusIn {
+                                window: BackendWindow(*id),
+                            });
+                        }
+                    }
+                    WM_KILLFOCUS => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            self.event_queue.push(BackendEvent::FocusOut {
+                                window: BackendWindow(*id),
                             });
                         }
                     }
@@ -782,6 +853,114 @@ impl Backend for WindowsBackend {
                                 y: 0,
                                 width,
                                 height,
+                            });
+                        }
+                    }
+                    WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            let button = match msg.message {
+                                WM_LBUTTONDOWN => 1,
+                                WM_RBUTTONDOWN => 3,
+                                WM_MBUTTONDOWN => 2,
+                                _ => 1,
+                            };
+                            let x = (msg.lParam & 0xffff) as i16;
+                            let y = ((msg.lParam >> 16) & 0xffff) as i16;
+
+                            return Ok(BackendEvent::ButtonPress {
+                                window: BackendWindow(*id),
+                                button,
+                                state: 0,
+                                time: msg.time,
+                                x,
+                                y,
+                            });
+                        }
+                    }
+                    WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            let button = match msg.message {
+                                WM_LBUTTONUP => 1,
+                                WM_RBUTTONUP => 3,
+                                WM_MBUTTONUP => 2,
+                                _ => 1,
+                            };
+                            let x = (msg.lParam & 0xffff) as i16;
+                            let y = ((msg.lParam >> 16) & 0xffff) as i16;
+
+                            return Ok(BackendEvent::ButtonRelease {
+                                window: BackendWindow(*id),
+                                button,
+                                state: 0,
+                                time: msg.time,
+                                x,
+                                y,
+                            });
+                        }
+                    }
+                    WM_MOUSEMOVE => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            let x = (msg.lParam & 0xffff) as i16;
+                            let y = ((msg.lParam >> 16) & 0xffff) as i16;
+
+                            return Ok(BackendEvent::MotionNotify {
+                                window: BackendWindow(*id),
+                                state: 0,
+                                time: msg.time,
+                                x,
+                                y,
+                            });
+                        }
+                    }
+                    WM_KEYDOWN => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            return Ok(BackendEvent::KeyPress {
+                                window: BackendWindow(*id),
+                                keycode: msg.wParam as u8,
+                                state: 0,
+                                time: msg.time,
+                                x: 0,
+                                y: 0,
+                            });
+                        }
+                    }
+                    WM_KEYUP => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            return Ok(BackendEvent::KeyRelease {
+                                window: BackendWindow(*id),
+                                keycode: msg.wParam as u8,
+                                state: 0,
+                                time: msg.time,
+                                x: 0,
+                                y: 0,
+                            });
+                        }
+                    }
+                    WM_SETFOCUS => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            return Ok(BackendEvent::FocusIn {
+                                window: BackendWindow(*id),
+                            });
+                        }
+                    }
+                    WM_KILLFOCUS => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            return Ok(BackendEvent::FocusOut {
+                                window: BackendWindow(*id),
                             });
                         }
                     }

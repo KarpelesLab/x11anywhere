@@ -101,6 +101,27 @@ extern "C" {
     ) -> i32;
 
     fn macos_backend_flush(handle: BackendHandle) -> i32;
+
+    fn macos_backend_poll_event(handle: BackendHandle, event_data: *mut BackendEventData) -> i32;
+    fn macos_backend_wait_for_event(
+        handle: BackendHandle,
+        event_data: *mut BackendEventData,
+    ) -> i32;
+}
+
+/// Event data structure matching Swift side
+#[repr(C)]
+struct BackendEventData {
+    event_type: i32, // 0=none, 1=expose, 2=configure, 3=keypress, 4=keyrelease, 5=buttonpress, 6=buttonrelease, 7=motion, 8=focusin, 9=focusout
+    window_id: i32,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    keycode: i32,
+    button: i32,
+    state: i32,
+    time: i32,
 }
 
 /// Window data stored per-window
@@ -607,8 +628,18 @@ impl Backend for MacOSBackend {
     }
 
     fn poll_events(&mut self) -> BackendResult<Vec<BackendEvent>> {
-        // TODO: Implement event polling
-        Ok(std::mem::take(&mut self.event_queue))
+        unsafe {
+            let mut event_data = std::mem::zeroed::<BackendEventData>();
+            let has_event = macos_backend_poll_event(self.handle, &mut event_data);
+
+            if has_event != 0 {
+                if let Some(event) = self.convert_event(&event_data) {
+                    self.event_queue.push(event);
+                }
+            }
+
+            Ok(std::mem::take(&mut self.event_queue))
+        }
     }
 
     fn flush(&mut self) -> BackendResult<()> {
@@ -619,9 +650,90 @@ impl Backend for MacOSBackend {
     }
 
     fn wait_for_event(&mut self) -> BackendResult<BackendEvent> {
-        // TODO: Implement blocking event wait
-        // For now, return an error
-        Err("wait_for_event not yet implemented".into())
+        unsafe {
+            let mut event_data = std::mem::zeroed::<BackendEventData>();
+            let has_event = macos_backend_wait_for_event(self.handle, &mut event_data);
+
+            if has_event != 0 {
+                if let Some(event) = self.convert_event(&event_data) {
+                    return Ok(event);
+                }
+            }
+
+            // If no valid event, return an error
+            Err("Failed to get event".into())
+        }
+    }
+}
+
+impl MacOSBackend {
+    /// Convert Swift event data to BackendEvent
+    fn convert_event(&self, event_data: &BackendEventData) -> Option<BackendEvent> {
+        // Find the BackendWindow for this Swift window ID
+        let window = self
+            .windows
+            .iter()
+            .find(|(_, data)| data.swift_id == event_data.window_id)
+            .map(|(id, _)| BackendWindow(*id))?;
+
+        match event_data.event_type {
+            1 => Some(BackendEvent::Expose {
+                window,
+                x: event_data.x as u16,
+                y: event_data.y as u16,
+                width: event_data.width as u16,
+                height: event_data.height as u16,
+            }),
+            2 => Some(BackendEvent::Configure {
+                window,
+                x: event_data.x as i16,
+                y: event_data.y as i16,
+                width: event_data.width as u16,
+                height: event_data.height as u16,
+            }),
+            3 => Some(BackendEvent::KeyPress {
+                window,
+                keycode: event_data.keycode as u8,
+                state: event_data.state as u16,
+                time: event_data.time as u32,
+                x: event_data.x as i16,
+                y: event_data.y as i16,
+            }),
+            4 => Some(BackendEvent::KeyRelease {
+                window,
+                keycode: event_data.keycode as u8,
+                state: event_data.state as u16,
+                time: event_data.time as u32,
+                x: event_data.x as i16,
+                y: event_data.y as i16,
+            }),
+            5 => Some(BackendEvent::ButtonPress {
+                window,
+                button: event_data.button as u8,
+                state: event_data.state as u16,
+                time: event_data.time as u32,
+                x: event_data.x as i16,
+                y: event_data.y as i16,
+            }),
+            6 => Some(BackendEvent::ButtonRelease {
+                window,
+                button: event_data.button as u8,
+                state: event_data.state as u16,
+                time: event_data.time as u32,
+                x: event_data.x as i16,
+                y: event_data.y as i16,
+            }),
+            7 => Some(BackendEvent::MotionNotify {
+                window,
+                state: event_data.state as u16,
+                time: event_data.time as u32,
+                x: event_data.x as i16,
+                y: event_data.y as i16,
+            }),
+            8 => Some(BackendEvent::FocusIn { window }),
+            9 => Some(BackendEvent::FocusOut { window }),
+            _ => None,
+        }
     }
 }
 
