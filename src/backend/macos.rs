@@ -244,6 +244,26 @@ impl MacOSBackend {
         let b = (color & 0xff) as f32 / 255.0;
         (r, g, b)
     }
+
+    /// Get drawable ID from BackendDrawable
+    fn get_drawable_id(&self, drawable: BackendDrawable) -> BackendResult<(i32, i32)> {
+        match drawable {
+            BackendDrawable::Window(w) => {
+                if let Some(data) = self.windows.get(&w.0) {
+                    Ok((1, data.swift_id))
+                } else {
+                    Err("Window not found".into())
+                }
+            }
+            BackendDrawable::Pixmap(p) => {
+                if let Some(&swift_id) = self.pixmaps.get(&p) {
+                    Ok((0, swift_id))
+                } else {
+                    Err("Pixmap not found".into())
+                }
+            }
+        }
+    }
 }
 
 // Implement Send for MacOSBackend since Swift handles thread safety
@@ -641,8 +661,8 @@ impl Backend for MacOSBackend {
         arcs: &[crate::protocol::Arc],
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = self.get_drawable_id(drawable);
-            let (r, g, b) = color_to_rgb_f32(gc.foreground);
+            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let (r, g, b) = Self::color_to_rgb(gc.foreground);
             let line_width = gc.line_width as f32;
 
             for arc in arcs {
@@ -674,8 +694,8 @@ impl Backend for MacOSBackend {
         arcs: &[crate::protocol::Arc],
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = self.get_drawable_id(drawable);
-            let (r, g, b) = color_to_rgb_f32(gc.foreground);
+            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let (r, g, b) = Self::color_to_rgb(gc.foreground);
 
             for arc in arcs {
                 macos_backend_fill_arc(
@@ -705,8 +725,8 @@ impl Backend for MacOSBackend {
         points: &[crate::protocol::Point],
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = self.get_drawable_id(drawable);
-            let (r, g, b) = color_to_rgb_f32(gc.foreground);
+            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let (r, g, b) = Self::color_to_rgb(gc.foreground);
 
             // Convert points to flat array of i32
             let coords: Vec<i32> = points

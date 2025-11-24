@@ -5,7 +5,7 @@
 //! and drawing commands to their Windows equivalents.
 
 use super::*;
-use crate::protocol::*;
+use crate::protocol::{self, *};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::iter::once;
@@ -572,7 +572,7 @@ impl Backend for WindowsBackend {
     ) -> BackendResult<()> {
         unsafe {
             let hdc = self.get_dc(drawable)?;
-            let pen = self.create_pen(gc)?;
+            let pen = self.create_pen(gc);
             let old_pen = SelectObject(hdc, pen);
 
             for arc in arcs {
@@ -600,7 +600,7 @@ impl Backend for WindowsBackend {
                 let end_y = (center_y - radius_y * end_angle.sin()) as i32;
 
                 // Use Arc() to draw the arc
-                winapi::um::wingdi::Arc(
+                windows_sys::Win32::Graphics::Gdi::Arc(
                     hdc, left, top, right, bottom, start_x, start_y, end_x, end_y,
                 );
             }
@@ -619,7 +619,7 @@ impl Backend for WindowsBackend {
     ) -> BackendResult<()> {
         unsafe {
             let hdc = self.get_dc(drawable)?;
-            let brush = self.create_brush(gc)?;
+            let brush = self.create_brush(gc);
             let old_brush = SelectObject(hdc, brush);
 
             for arc in arcs {
@@ -662,7 +662,7 @@ impl Backend for WindowsBackend {
     ) -> BackendResult<()> {
         unsafe {
             let hdc = self.get_dc(drawable)?;
-            let brush = self.create_brush(gc)?;
+            let brush = self.create_brush(gc);
             let old_brush = SelectObject(hdc, brush);
 
             // Convert points to Windows POINT structure
