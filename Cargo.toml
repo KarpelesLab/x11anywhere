@@ -1,0 +1,68 @@
+[package]
+name = "x11anywhere"
+version = "0.1.0"
+edition = "2021"
+authors = ["Karpeles Lab Inc"]
+description = "A portable X11 server implementation with modular backends"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/KarpelesLab/x11anywhere"
+keywords = ["x11", "display-server", "wayland", "graphics"]
+categories = ["gui", "network-programming"]
+
+[dependencies]
+# Core dependencies (always needed)
+byteorder = "1.5"
+log = "0.4"
+env_logger = "0.11"
+
+# Unix-specific dependencies
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["socket", "net"] }
+x11rb = { version = "0.13", optional = true, default-features = false, features = ["allow-unsafe-code"] }
+wayland-client = { version = "0.31", optional = true }
+
+# macOS-only backend dependencies
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = { version = "0.25", optional = true }
+core-graphics = { version = "0.23", optional = true }
+objc = { version = "0.2", optional = true }
+
+# Windows-only backend dependencies
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.52", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+] }
+
+[features]
+# Default: enable all backends - platform-specific dependencies will only compile on their platforms
+# - Linux/BSD: gets X11 + Wayland (both useful)
+# - macOS: gets macOS native (x11rb won't link without XQuartz)
+# - Windows: gets Windows native (Unix deps won't compile)
+default = ["backend-x11", "backend-wayland", "backend-macos", "backend-windows"]
+
+# Individual backend features
+backend-x11 = ["x11rb"]
+backend-wayland = ["wayland-client"]
+backend-macos = ["cocoa", "core-graphics", "objc"]
+backend-windows = ["windows-sys"]
+
+# Convenience bundles for minimal builds
+minimal-x11 = ["backend-x11"]           # X11 only (smallest Unix build)
+minimal-wayland = ["backend-wayland"]   # Wayland only
+
+[[bin]]
+name = "x11anywhere"
+path = "src/main.rs"
+
+[lib]
+name = "x11anywhere"
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,244 @@
+/// X11Anywhere - Main entry point
+///
+/// A portable X11 server with modular backend support
+
+use x11anywhere::backend;
+use x11anywhere::security::SecurityPolicy;
+use std::env;
+use std::process;
+
+fn print_usage() {
+    println!("X11Anywhere v{}", x11anywhere::VERSION);
+    println!("A portable X11 server implementation");
+    println!();
+    println!("Usage: x11anywhere [OPTIONS]");
+    println!();
+    println!("Options:");
+    println!("  -display <n>          Display number (default: 1)");
+    println!("  -backend <type>       Backend type (x11, wayland, macos, windows)");
+    println!("  -tcp                  Listen on TCP (port 6000 + display)");
+    println!("  -unix                 Listen on Unix socket (default on Unix)");
+    println!("  -security <level>     Security level: permissive, default, strict");
+    println!("  -list-backends        List available backends");
+    println!("  -h, --help            Show this help message");
+    println!();
+    println!("Examples:");
+    println!("  x11anywhere -display 1 -backend x11");
+    println!("  x11anywhere -display 2 -backend wayland -tcp");
+    println!();
+}
+
+fn list_backends() {
+    println!("Available backends on this platform:");
+    let backends = backend::available_backends();
+    if backends.is_empty() {
+        println!("  (none available)");
+        println!();
+        println!("Note: Backends are enabled by default but may not be available on this platform.");
+    } else {
+        for backend in backends {
+            println!("  - {}", backend);
+        }
+        println!();
+        println!("These backends are enabled by default for your platform.");
+    }
+    println!();
+    println!("To build with specific backends only:");
+    println!("  cargo build --no-default-features --features backend-x11");
+    println!("  cargo build --no-default-features --features backend-wayland");
+    println!();
+    println!("Platform defaults:");
+    println!("  - Linux/BSD: X11 + Wayland");
+    println!("  - macOS: macOS native");
+    println!("  - Windows: Windows native");
+}
+
+#[derive(Debug)]
+struct Config {
+    display: u16,
+    backend_type: Option<String>,
+    listen_tcp: bool,
+    listen_unix: bool,
+    security: SecurityPolicy,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            display: 1,
+            backend_type: None,
+            #[cfg(unix)]
+            listen_tcp: false,
+            #[cfg(not(unix))]
+            listen_tcp: true,
+            #[cfg(unix)]
+            listen_unix: true,
+            #[cfg(not(unix))]
+            listen_unix: false,
+            security: SecurityPolicy::default(),
+        }
+    }
+}
+
+fn parse_args() -> Result<Config, String> {
+    let mut config = Config::default();
+    let args: Vec<String> = env::args().collect();
+    let mut i = 1;
+
+    while i < args.len() {
+        match args[i].as_str() {
+            "-h" | "--help" => {
+                print_usage();
+                process::exit(0);
+            }
+            "-list-backends" => {
+                list_backends();
+                process::exit(0);
+            }
+            "-display" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("Missing value for -display".to_string());
+                }
+                config.display = args[i].parse()
+                    .map_err(|_| "Invalid display number".to_string())?;
+            }
+            "-backend" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("Missing value for -backend".to_string());
+                }
+                config.backend_type = Some(args[i].clone());
+            }
+            "-tcp" => {
+                config.listen_tcp = true;
+            }
+            "-unix" => {
+                config.listen_unix = true;
+            }
+            "-security" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("Missing value for -security".to_string());
+                }
+                config.security = match args[i].as_str() {
+                    "permissive" => SecurityPolicy::permissive(),
+                    "default" => SecurityPolicy::default(),
+                    "strict" => SecurityPolicy::strict(),
+                    _ => return Err(format!("Invalid security level: {}", args[i])),
+                };
+            }
+            arg => {
+                return Err(format!("Unknown option: {}", arg));
+            }
+        }
+        i += 1;
+    }
+
+    Ok(config)
+}
+
+fn auto_detect_backend() -> Option<String> {
+    // Try to auto-detect the best backend for this platform
+    let available = backend::available_backends();
+
+    if available.is_empty() {
+        return None;
+    }
+
+    // Platform-specific preferences
+    #[cfg(target_os = "linux")]
+    {
+        // Prefer Wayland on Linux if available, fall back to X11
+        if available.contains(&"wayland") {
+            return Some("wayland".to_string());
+        }
+        if available.contains(&"x11") {
+            return Some("x11".to_string());
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if available.contains(&"macos") {
+            return Some("macos".to_string());
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if available.contains(&"windows") {
+            return Some("windows".to_string());
+        }
+    }
+
+    // Fall back to first available
+    available.first().map(|s| s.to_string())
+}
+
+fn main() {
+    // Initialize logger
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    // Parse command line arguments
+    let config = match parse_args() {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("Error: {}", err);
+            eprintln!();
+            print_usage();
+            process::exit(1);
+        }
+    };
+
+    // Determine backend
+    let backend_type = match config.backend_type {
+        Some(ref b) => b.clone(),
+        None => match auto_detect_backend() {
+            Some(b) => {
+                log::info!("Auto-detected backend: {}", b);
+                b
+            }
+            None => {
+                eprintln!("Error: No backends available!");
+                eprintln!("Please compile with backend features enabled.");
+                eprintln!();
+                list_backends();
+                process::exit(1);
+            }
+        }
+    };
+
+    // Validate backend is available
+    let available = backend::available_backends();
+    if !available.contains(&backend_type.as_str()) {
+        eprintln!("Error: Backend '{}' is not available", backend_type);
+        eprintln!();
+        list_backends();
+        process::exit(1);
+    }
+
+    log::info!("X11Anywhere v{}", x11anywhere::VERSION);
+    log::info!("Display: :{}", config.display);
+    log::info!("Backend: {}", backend_type);
+    log::info!("TCP listening: {}", config.listen_tcp);
+    log::info!("Unix socket listening: {}", config.listen_unix);
+    log::info!("Security policy: window_isolation={}, global_selections={}",
+               config.security.window_isolation,
+               config.security.allow_global_selections);
+
+    // TODO: Initialize backend and start server
+    log::warn!("Server initialization not yet implemented");
+    log::info!("The project structure is ready for implementation!");
+
+    println!();
+    println!("X11Anywhere server would start here with:");
+    println!("  Display: :{}", config.display);
+    println!("  Backend: {}", backend_type);
+    if config.listen_tcp {
+        println!("  TCP: 0.0.0.0:{}", 6000 + config.display);
+    }
+    if config.listen_unix {
+        println!("  Unix: /tmp/.X11-unix/X{}", config.display);
+    }
+}
