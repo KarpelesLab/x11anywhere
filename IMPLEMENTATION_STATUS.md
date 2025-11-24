@@ -14,8 +14,8 @@ This document tracks the implementation status of X11 protocol features across d
 | Backend | Status | Priority | Notes |
 |---------|--------|----------|-------|
 | X11 (Linux/BSD) | 🟡 Partial | High | Primary backend, basic passthrough working |
-| Windows | ✅ Implemented | High | Full Win32/GDI implementation complete, needs testing |
-| macOS | ✅ Implemented | High | Full Cocoa/Core Graphics implementation complete, needs testing |
+| Windows | ✅ Implemented | High | Full Win32/GDI implementation complete, **compiles & passes CI** |
+| macOS | ❌ Broken | High | Implementation exists but uses non-existent Core Graphics APIs - **does not compile** |
 | Wayland | ❌ Not Started | Medium | Planned for future |
 
 ---
@@ -202,29 +202,30 @@ This document tracks the implementation status of X11 protocol features across d
 - **Next Steps**: Test with real X11 applications, enhance event handling
 
 ### macOS Backend
-- **Status**: ✅ **Fully implemented** (needs testing on macOS)
+- **Status**: ❌ **BROKEN - Does not compile**
 - **Architecture**: X11 protocol → Cocoa/Core Graphics translation
-- **Implemented APIs**:
-  - Window management: `NSWindow`, `NSApplication`, `makeKeyAndOrderFront`, `orderOut`, `setFrame`
-  - Drawing: Core Graphics (`CGContext::stroke_rect`, `fill_rect`, `stroke_path`, `fill_path`)
-  - Resources: `CGContext::create_bitmap_context` for pixmaps
-  - Events: Cocoa event loop (`nextEventMatchingMask`, `sendEvent`)
-  - Text: `NSString::drawAtPoint`
-- **Working Features**:
-  - ✅ Window creation, mapping, configuration, raising/lowering
-  - ✅ Coordinate conversion (X11 top-left ↔ macOS bottom-left)
-  - ✅ Basic drawing: rectangles, lines, points, text
-  - ✅ Pixmaps (CGContext bitmap contexts)
-  - ✅ Event polling and blocking wait
-  - ✅ GC state tracking and color conversion (RGB → CGColor)
-  - ✅ Proper memory management with autorelease pools
-- **Known Limitations**:
-  - Event handling needs enhancement (basic framework in place)
-  - copy_area() is simplified (fills dest, needs proper CGImage implementation)
-  - No arc/polygon drawing
-  - No image operations (PutImage/GetImage)
-  - Retina display handling may need refinement
-- **Next Steps**: Test with real X11 applications, enhance event handling, improve copy_area()
+- **Critical Issues**:
+  - ❌ **API Incompatibility**: Code uses Core Graphics methods that don't exist in `core-graphics 0.23` crate:
+    - `CGContext::stroke_rect`, `fill_rect` (don't exist - need to use C FFI: `CGContextStrokeRect`, `CGContextFillRect`)
+    - `CGContext::begin_path`, `move_to_point`, `add_line_to_point` (don't exist - need C FFI equivalents)
+    - `CGContext::set_rgb_fill_color`, `set_rgb_stroke_color`, `set_line_width` (don't exist)
+    - `CGColor::components()` method doesn't exist
+    - `CGContextRef::is_null()` - wrong type checking method
+  - ❌ **Thread Safety**: Backend uses raw pointers (`*mut Object`, `*mut ()`) stored in struct fields, but `Backend` trait requires `Send`
+    - Need to wrap in thread-safe types or use different approach
+- **Attempted Implementation** (non-functional):
+  - Window management: `NSWindow`, `NSApplication` (this part works)
+  - Drawing: Attempted Core Graphics usage (broken APIs)
+  - Resources: Attempted `CGContext` bitmap contexts
+  - Events: Cocoa event loop basics implemented
+- **Required Fixes**:
+  1. Replace all high-level Core Graphics API calls with low-level C FFI calls from `core_graphics::sys`
+  2. Fix thread safety by either:
+     - Using `Arc<Mutex<>>` or similar for Cocoa objects
+     - Restructuring to avoid storing raw Cocoa pointers
+  3. Properly test on actual macOS hardware
+  4. Consider using `core-graphics 0.25+` if APIs have improved
+- **Next Steps**: Complete rewrite of drawing operations to use correct Core Graphics C APIs, fix thread safety issues
 
 ### Wayland Backend
 - **Status**: Not started
