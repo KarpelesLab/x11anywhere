@@ -35,20 +35,42 @@ fn build_swift_backend() {
         "debug"
     };
 
+    // Get SDK path for proper cross-compilation
+    let sdk_path = if let Ok(output) = Command::new("xcrun")
+        .args(["--sdk", "macosx", "--show-sdk-path"])
+        .output()
+    {
+        if output.status.success() {
+            String::from_utf8(output.stdout).unwrap().trim().to_string()
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
     // Build the Swift package for the target architecture
     println!("cargo:warning=Building Swift backend for {}...", swift_arch);
-    let status = Command::new("swift")
-        .args([
-            "build",
-            "-c",
-            build_config,
-            "--arch",
-            swift_arch,
-            "--package-path",
-            swift_dir.to_str().unwrap(),
-        ])
-        .status()
-        .expect("Failed to execute swift build");
+    let mut swift_build = Command::new("swift");
+    swift_build.args([
+        "build",
+        "-c",
+        build_config,
+        "--arch",
+        swift_arch,
+        "--package-path",
+        swift_dir.to_str().unwrap(),
+    ]);
+
+    // Add SDK and target triple for proper cross-compilation
+    if !sdk_path.is_empty() {
+        swift_build.args(["--sdk", &sdk_path]);
+        // Set explicit target triple for cross-compilation
+        let target_triple = format!("{}-apple-macosx", swift_arch);
+        swift_build.args(["--triple", &target_triple]);
+    }
+
+    let status = swift_build.status().expect("Failed to execute swift build");
 
     if !status.success() {
         panic!("Swift build failed");
@@ -72,6 +94,33 @@ fn build_swift_backend() {
     println!("cargo:rustc-link-lib=framework=CoreGraphics");
     println!("cargo:rustc-link-lib=framework=AppKit");
 
+    // Find and add Swift toolchain library paths for the target architecture
+    if let Ok(output) = Command::new("xcrun").args(["--find", "swift"]).output() {
+        if output.status.success() {
+            if let Ok(swift_path) = String::from_utf8(output.stdout) {
+                let swift_path = swift_path.trim();
+                if let Some(swift_dir) = PathBuf::from(swift_path).parent() {
+                    if let Some(toolchain_dir) = swift_dir.parent() {
+                        let lib_path = toolchain_dir.join("lib").join("swift").join("macosx");
+                        if lib_path.exists() {
+                            // Add as library search path for linker
+                            println!("cargo:rustc-link-search=native={}", lib_path.display());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Also try SDK path for Swift libraries
+    if !sdk_path.is_empty() {
+        let sdk_swift_lib = format!("{}/usr/lib/swift", sdk_path);
+        let sdk_swift_path = PathBuf::from(&sdk_swift_lib);
+        if sdk_swift_path.exists() {
+            println!("cargo:rustc-link-search=native={}", sdk_swift_lib);
+        }
+    }
+
     // Link Swift runtime
     println!("cargo:rustc-link-lib=dylib=swiftCore");
     println!("cargo:rustc-link-lib=dylib=swiftFoundation");
@@ -80,17 +129,12 @@ fn build_swift_backend() {
 
     // Add Swift toolchain library path to rpath
     // This ensures the Swift runtime libraries can be found at runtime
-    if let Ok(output) = Command::new("xcrun").args(["--show-sdk-path"]).output() {
-        if output.status.success() {
-            if let Ok(sdk_path) = String::from_utf8(output.stdout) {
-                let sdk_path = sdk_path.trim();
-                let swift_lib_path = format!("{}/usr/lib/swift", sdk_path);
-                println!("cargo:rustc-link-arg=-Wl,-rpath,{}", swift_lib_path);
-            }
-        }
+    if !sdk_path.is_empty() {
+        let swift_lib_path = format!("{}/usr/lib/swift", sdk_path);
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", swift_lib_path);
     }
 
-    // Also add the toolchain's Swift library path
+    // Also add the toolchain's Swift library path to rpath
     if let Ok(output) = Command::new("xcrun").args(["--find", "swift"]).output() {
         if output.status.success() {
             if let Ok(swift_path) = String::from_utf8(output.stdout) {
@@ -107,4 +151,9 @@ fn build_swift_backend() {
             }
         }
     }
+
+    // Add additional fallback rpaths that macOS searches
+    println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+    println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path");
+    println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path");
 }
