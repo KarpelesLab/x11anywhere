@@ -243,9 +243,35 @@ fn main() {
         config.security.allow_global_selections
     );
 
-    // Initialize backend
-    // For now, use null backend for all platforms (minimal implementation)
-    let backend: Box<dyn backend::Backend> = Box::new(backend::null::NullBackend::new());
+    // Initialize backend based on platform
+    let backend: Box<dyn backend::Backend> = {
+        #[cfg(all(feature = "backend-windows", target_os = "windows"))]
+        {
+            Box::new(backend::windows::WindowsBackend::new())
+        }
+
+        #[cfg(all(feature = "backend-macos", target_os = "macos"))]
+        {
+            Box::new(backend::macos::MacOSBackend::new())
+        }
+
+        #[cfg(all(feature = "backend-x11", target_family = "unix", not(target_os = "macos")))]
+        {
+            // X11 backend requires a target display
+            let target_display = env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
+            Box::new(backend::x11::X11Backend::new(&target_display))
+        }
+
+        #[cfg(not(any(
+            all(feature = "backend-windows", target_os = "windows"),
+            all(feature = "backend-macos", target_os = "macos"),
+            all(feature = "backend-x11", target_family = "unix", not(target_os = "macos"))
+        )))]
+        {
+            // Fall back to null backend if no real backend is available
+            Box::new(backend::null::NullBackend::new())
+        }
+    };
 
     // Create server
     let server = match server::Server::new(backend) {
