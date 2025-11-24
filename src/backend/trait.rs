@@ -389,6 +389,7 @@ pub trait Backend: Send {
     /// * `depth` - Bits per pixel (1, 8, 16, 24, 32)
     /// * `format` - Image format (0=Bitmap, 1=XYPixmap, 2=ZPixmap)
     /// * `data` - Raw image data
+    #[allow(clippy::too_many_arguments)]
     fn put_image(
         &mut self,
         drawable: BackendDrawable,
@@ -415,6 +416,7 @@ pub trait Backend: Send {
     ///
     /// # Returns
     /// Returns image data as Vec<u8> in the requested format
+    #[allow(clippy::too_many_arguments)]
     fn get_image(
         &mut self,
         drawable: BackendDrawable,
