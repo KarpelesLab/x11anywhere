@@ -101,22 +101,23 @@ jobs:
       - name: Create test output directory
         run: mkdir -p visual_output
 
-      - name: Run visual test (if display available)
+      - name: Start x11anywhere server
         run: |
-          # Check if we can connect to a display
-          if [ ! -z "$DISPLAY" ]; then
-            ./target/release/x11anywhere &
-            X11ANYWHERE_PID=$!
-            sleep 2
-            cargo test --test visual_test -- --nocapture || true
-            kill $X11ANYWHERE_PID || true
-          else
-            echo "No display available on GitHub Actions macOS runner"
-            echo "Visual tests require a display server - skipping"
-          fi
+          ./target/release/x11anywhere -display 1 -tcp &
+          echo "X11ANYWHERE_PID=$!" >> $GITHUB_ENV
+          sleep 2
+        continue-on-error: true
+
+      - name: Run visual test
+        run: cargo test --test visual_test -- --nocapture
         continue-on-error: true
         env:
           VISUAL_TEST_OUTPUT: ${{ github.workspace }}/visual_output
+          DISPLAY: :1
+
+      - name: Cleanup
+        if: always()
+        run: kill $X11ANYWHERE_PID || true
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
@@ -149,8 +150,14 @@ jobs:
       - name: Start x11anywhere server
         shell: powershell
         run: |
-          Start-Process -FilePath ".\target\release\x11anywhere.exe" -ArgumentList "-display","1","-tcp" -NoNewWindow
-          Start-Sleep -Seconds 2
+          $env:RUST_LOG = "debug"
+          Start-Process -FilePath ".\target\release\x11anywhere.exe" -ArgumentList "-display","1","-tcp" -RedirectStandardOutput "server_stdout.log" -RedirectStandardError "server_stderr.log"
+          Start-Sleep -Seconds 3
+          # Verify server is running
+          Get-Process x11anywhere -ErrorAction SilentlyContinue
+          if (Test-Path "server_stderr.log") { Get-Content "server_stderr.log" }
+          # Check if port 6001 is listening
+          netstat -an | Select-String "6001"
 
       - name: Run visual test
         shell: powershell
@@ -160,6 +167,13 @@ jobs:
         env:
           VISUAL_TEST_OUTPUT: ${{ github.workspace }}/visual_output
           DISPLAY: :1
+
+      - name: Show server logs
+        if: always()
+        shell: powershell
+        run: |
+          if (Test-Path "server_stdout.log") { Get-Content "server_stdout.log" }
+          if (Test-Path "server_stderr.log") { Get-Content "server_stderr.log" }
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
