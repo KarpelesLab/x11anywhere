@@ -31,6 +31,14 @@ pub enum Request {
     ImageText8(ImageText8Request),
     CreatePixmap(CreatePixmapRequest),
     FreePixmap(FreePixmapRequest),
+    PutImage(PutImageRequest),
+    OpenFont(OpenFontRequest),
+    CloseFont(CloseFontRequest),
+    CreateGlyphCursor(CreateGlyphCursorRequest),
+    AllocNamedColor(AllocNamedColorRequest),
+    QueryExtension(QueryExtensionRequest),
+    GetInputFocus,
+    ExtensionRequest { opcode: u8, data: Vec<u8> },
     NoOperation,
 }
 
@@ -216,6 +224,49 @@ pub struct FreePixmapRequest {
     pub pixmap: Pixmap,
 }
 
+#[derive(Debug, Clone)]
+pub struct PutImageRequest {
+    pub format: u8,
+    pub drawable: Drawable,
+    pub gc: GContext,
+    pub width: u16,
+    pub height: u16,
+    pub dst_x: i16,
+    pub dst_y: i16,
+    pub left_pad: u8,
+    pub depth: u8,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OpenFontRequest {
+    pub fid: u32,
+    pub name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CloseFontRequest {
+    pub font: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateGlyphCursorRequest {
+    pub cid: u32,
+    pub source_font: u32,
+    pub mask_font: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct AllocNamedColorRequest {
+    pub colormap: u32,
+    pub name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct QueryExtensionRequest {
+    pub name: String,
+}
+
 /// Request parser
 pub struct ProtocolParser {
     byte_order: ByteOrder,
@@ -271,10 +322,26 @@ impl ProtocolParser {
             Some(RequestOpcode::ImageText8) => self.parse_image_text8(detail, request_data)?,
             Some(RequestOpcode::CreatePixmap) => self.parse_create_pixmap(detail, request_data)?,
             Some(RequestOpcode::FreePixmap) => self.parse_free_pixmap(request_data)?,
+            Some(RequestOpcode::PutImage) => self.parse_put_image(detail, request_data)?,
+            Some(RequestOpcode::OpenFont) => self.parse_open_font(request_data)?,
+            Some(RequestOpcode::CloseFont) => self.parse_close_font(request_data)?,
+            Some(RequestOpcode::CreateGlyphCursor) => self.parse_create_glyph_cursor(request_data)?,
+            Some(RequestOpcode::AllocNamedColor) => self.parse_alloc_named_color(request_data)?,
+            Some(RequestOpcode::QueryExtension) => self.parse_query_extension(request_data)?,
+            Some(RequestOpcode::GetInputFocus) => Request::GetInputFocus,
             Some(RequestOpcode::NoOperation) => Request::NoOperation,
             _ => {
-                log::warn!("Unimplemented request opcode: {}", opcode);
-                return Err(X11Error::implementation_error(sequence, opcode));
+                // Handle extension requests (opcodes >= 128)
+                if opcode >= 128 {
+                    log::debug!("Extension request: opcode={}, length={}", opcode, request_size);
+                    Request::ExtensionRequest {
+                        opcode,
+                        data: request_data.to_vec(),
+                    }
+                } else {
+                    log::warn!("Unimplemented request opcode: {}", opcode);
+                    return Err(X11Error::implementation_error(sequence, opcode));
+                }
             }
         };
 
@@ -619,5 +686,69 @@ impl ProtocolParser {
     fn parse_free_pixmap(&self, data: &[u8]) -> Result<Request, X11Error> {
         let pixmap = Pixmap::new(self.read_u32(&data[0..4]));
         Ok(Request::FreePixmap(FreePixmapRequest { pixmap }))
+    }
+
+    fn parse_put_image(&self, format: u8, data: &[u8]) -> Result<Request, X11Error> {
+        let drawable = Drawable::from_id(self.read_u32(&data[0..4]));
+        let gc = GContext::new(self.read_u32(&data[4..8]));
+        let width = self.read_u16(&data[8..10]);
+        let height = self.read_u16(&data[10..12]);
+        let dst_x = self.read_i16(&data[12..14]);
+        let dst_y = self.read_i16(&data[14..16]);
+        let left_pad = data[16];
+        let depth = data[17];
+        let image_data = data[20..].to_vec();
+
+        Ok(Request::PutImage(PutImageRequest {
+            format,
+            drawable,
+            gc,
+            width,
+            height,
+            dst_x,
+            dst_y,
+            left_pad,
+            depth,
+            data: image_data,
+        }))
+    }
+
+    fn parse_open_font(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let fid = self.read_u32(&data[0..4]);
+        let name_len = self.read_u16(&data[4..6]) as usize;
+        let name = String::from_utf8_lossy(&data[8..8 + name_len]).to_string();
+        Ok(Request::OpenFont(OpenFontRequest { fid, name }))
+    }
+
+    fn parse_close_font(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let font = self.read_u32(&data[0..4]);
+        Ok(Request::CloseFont(CloseFontRequest { font }))
+    }
+
+    fn parse_create_glyph_cursor(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let cid = self.read_u32(&data[0..4]);
+        let source_font = self.read_u32(&data[4..8]);
+        let mask_font = self.read_u32(&data[8..12]);
+        Ok(Request::CreateGlyphCursor(CreateGlyphCursorRequest {
+            cid,
+            source_font,
+            mask_font,
+        }))
+    }
+
+    fn parse_alloc_named_color(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let colormap = self.read_u32(&data[0..4]);
+        let name_len = self.read_u16(&data[4..6]) as usize;
+        let name = String::from_utf8_lossy(&data[8..8 + name_len]).to_string();
+        Ok(Request::AllocNamedColor(AllocNamedColorRequest {
+            colormap,
+            name,
+        }))
+    }
+
+    fn parse_query_extension(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let name_len = self.read_u16(&data[0..2]) as usize;
+        let name = String::from_utf8_lossy(&data[4..4 + name_len]).to_string();
+        Ok(Request::QueryExtension(QueryExtensionRequest { name }))
     }
 }

@@ -8,6 +8,14 @@ use crate::backend::{Backend, BackendWindow};
 use std::collections::HashMap;
 use std::error::Error;
 
+/// Extension information
+#[derive(Debug, Clone)]
+pub struct ExtensionInfo {
+    pub major_opcode: u8,
+    pub first_event: u8,
+    pub first_error: u8,
+}
+
 /// The main X11 server
 pub struct Server {
     /// The display backend
@@ -21,6 +29,18 @@ pub struct Server {
 
     /// Next resource ID to allocate
     next_resource_id: u32,
+
+    /// Atom name -> ID mapping
+    atom_names: HashMap<String, Atom>,
+
+    /// Atom ID -> name mapping (reverse lookup)
+    atom_ids: HashMap<Atom, String>,
+
+    /// Next atom ID to allocate (predefined atoms use 1-68)
+    next_atom_id: u32,
+
+    /// Extension name -> info mapping
+    extensions: HashMap<String, ExtensionInfo>,
 }
 
 impl Server {
@@ -32,12 +52,105 @@ impl Server {
         // Create root window
         let root_window = Window::new(1); // Root is always ID 1
 
-        Ok(Server {
+        let mut server = Server {
             backend,
             windows: HashMap::new(),
             root_window,
             next_resource_id: 0x200, // Start after reserved IDs
-        })
+            atom_names: HashMap::new(),
+            atom_ids: HashMap::new(),
+            next_atom_id: 69, // Predefined atoms use 1-68
+            extensions: HashMap::new(),
+        };
+
+        // Register predefined atoms
+        server.init_predefined_atoms();
+
+        // Register common extensions
+        server.init_extensions();
+
+        Ok(server)
+    }
+
+    /// Initialize predefined atoms (from X11 protocol spec)
+    fn init_predefined_atoms(&mut self) {
+        // Most commonly used predefined atoms
+        let predefined = vec![
+            (1, "PRIMARY"),
+            (2, "SECONDARY"),
+            (3, "ARC"),
+            (4, "ATOM"),
+            (5, "BITMAP"),
+            (6, "CARDINAL"),
+            (7, "COLORMAP"),
+            (8, "CURSOR"),
+            (9, "CUT_BUFFER0"),
+            (10, "CUT_BUFFER1"),
+            (11, "CUT_BUFFER2"),
+            (12, "CUT_BUFFER3"),
+            (13, "CUT_BUFFER4"),
+            (14, "CUT_BUFFER5"),
+            (15, "CUT_BUFFER6"),
+            (16, "CUT_BUFFER7"),
+            (17, "DRAWABLE"),
+            (18, "FONT"),
+            (19, "INTEGER"),
+            (20, "PIXMAP"),
+            (21, "POINT"),
+            (22, "RECTANGLE"),
+            (23, "RESOURCE_MANAGER"),
+            (24, "RGB_COLOR_MAP"),
+            (25, "RGB_BEST_MAP"),
+            (26, "RGB_BLUE_MAP"),
+            (27, "RGB_DEFAULT_MAP"),
+            (28, "RGB_GRAY_MAP"),
+            (29, "RGB_GREEN_MAP"),
+            (30, "RGB_RED_MAP"),
+            (31, "STRING"),
+            (32, "VISUALID"),
+            (33, "WINDOW"),
+            (34, "WM_COMMAND"),
+            (35, "WM_HINTS"),
+            (36, "WM_CLIENT_MACHINE"),
+            (37, "WM_ICON_NAME"),
+            (38, "WM_ICON_SIZE"),
+            (39, "WM_NAME"),
+            (40, "WM_NORMAL_HINTS"),
+            (41, "WM_SIZE_HINTS"),
+            (42, "WM_ZOOM_HINTS"),
+            (43, "MIN_SPACE"),
+            (44, "NORM_SPACE"),
+            (45, "MAX_SPACE"),
+            (46, "END_SPACE"),
+            (47, "SUPERSCRIPT_X"),
+            (48, "SUPERSCRIPT_Y"),
+            (49, "SUBSCRIPT_X"),
+            (50, "SUBSCRIPT_Y"),
+            (51, "UNDERLINE_POSITION"),
+            (52, "UNDERLINE_THICKNESS"),
+            (53, "STRIKEOUT_ASCENT"),
+            (54, "STRIKEOUT_DESCENT"),
+            (55, "ITALIC_ANGLE"),
+            (56, "X_HEIGHT"),
+            (57, "QUAD_WIDTH"),
+            (58, "WEIGHT"),
+            (59, "POINT_SIZE"),
+            (60, "RESOLUTION"),
+            (61, "COPYRIGHT"),
+            (62, "NOTICE"),
+            (63, "FONT_NAME"),
+            (64, "FAMILY_NAME"),
+            (65, "FULL_NAME"),
+            (66, "CAP_HEIGHT"),
+            (67, "WM_CLASS"),
+            (68, "WM_TRANSIENT_FOR"),
+        ];
+
+        for (id, name) in predefined {
+            let atom = Atom::new(id);
+            self.atom_names.insert(name.to_string(), atom);
+            self.atom_ids.insert(atom, name.to_string());
+        }
     }
 
     /// Get the root window
@@ -50,5 +163,73 @@ impl Server {
         let id = self.next_resource_id;
         self.next_resource_id += 1;
         id
+    }
+
+    /// Intern an atom (register a name)
+    /// Returns existing atom if already registered, or creates a new one
+    pub fn intern_atom(&mut self, name: &str, only_if_exists: bool) -> Option<Atom> {
+        // Check if atom already exists
+        if let Some(&atom) = self.atom_names.get(name) {
+            return Some(atom);
+        }
+
+        // If only_if_exists is true, return None (atom 0)
+        if only_if_exists {
+            return None;
+        }
+
+        // Allocate new atom
+        let atom_id = self.next_atom_id;
+        self.next_atom_id += 1;
+        let atom = Atom::new(atom_id);
+
+        // Register in both directions
+        self.atom_names.insert(name.to_string(), atom);
+        self.atom_ids.insert(atom, name.to_string());
+
+        Some(atom)
+    }
+
+    /// Get atom name by ID
+    pub fn get_atom_name(&self, atom: Atom) -> Option<&str> {
+        self.atom_ids.get(&atom).map(|s| s.as_str())
+    }
+
+    /// Initialize common X11 extensions
+    fn init_extensions(&mut self) {
+        // BIG-REQUESTS extension (allows requests larger than 256KB)
+        self.extensions.insert(
+            "BIG-REQUESTS".to_string(),
+            ExtensionInfo {
+                major_opcode: 133,
+                first_event: 0,
+                first_error: 0,
+            },
+        );
+
+        // XKEYBOARD extension (advanced keyboard input)
+        self.extensions.insert(
+            "XKEYBOARD".to_string(),
+            ExtensionInfo {
+                major_opcode: 135,
+                first_event: 85,
+                first_error: 0,
+            },
+        );
+
+        // RENDER extension (anti-aliased rendering)
+        self.extensions.insert(
+            "RENDER".to_string(),
+            ExtensionInfo {
+                major_opcode: 138,
+                first_event: 140,
+                first_error: 0,
+            },
+        );
+    }
+
+    /// Query extension by name
+    pub fn query_extension(&self, name: &str) -> Option<ExtensionInfo> {
+        self.extensions.get(name).cloned()
     }
 }

@@ -8,7 +8,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::thread;
 use std::fs;
 use std::os::fd::{FromRawFd, AsRawFd};
+use std::collections::HashMap;
 use x11anywhere::protocol::*;
+use x11anywhere::server::ExtensionInfo;
 
 fn handle_client(mut stream: UnixStream, client_id: usize) {
     log::info!("[Client {}] Connected", client_id);
@@ -98,6 +100,24 @@ fn handle_client(mut stream: UnixStream, client_id: usize) {
     // Create parser
     let parser = ProtocolParser::new(byte_order);
     let encoder = ProtocolEncoder::new(byte_order);
+
+    // Register common extensions
+    let mut extensions = HashMap::new();
+    extensions.insert("BIG-REQUESTS".to_string(), ExtensionInfo {
+        major_opcode: 133,
+        first_event: 0,
+        first_error: 0,
+    });
+    extensions.insert("XKEYBOARD".to_string(), ExtensionInfo {
+        major_opcode: 135,
+        first_event: 85,
+        first_error: 0,
+    });
+    extensions.insert("RENDER".to_string(), ExtensionInfo {
+        major_opcode: 138,
+        first_event: 140,
+        first_error: 0,
+    });
 
     // Read and process requests
     let mut sequence: u16 = 0;
@@ -203,6 +223,23 @@ fn handle_client(mut stream: UnixStream, client_id: usize) {
                         log::info!("[Client {}] GetAtomName: {}", client_id, req.atom.get());
                         Some(encoder.encode_get_atom_name_reply(sequence, "TEST_ATOM"))
                     }
+                    Request::QueryExtension(req) => {
+                        log::info!("[Client {}] QueryExtension: '{}'", client_id, req.name);
+                        if let Some(ext) = extensions.get(&req.name) {
+                            log::info!("[Client {}]   -> Present: opcode={}, first_event={}, first_error={}",
+                                client_id, ext.major_opcode, ext.first_event, ext.first_error);
+                            Some(encoder.encode_query_extension_reply(
+                                sequence,
+                                true,
+                                ext.major_opcode,
+                                ext.first_event,
+                                ext.first_error,
+                            ))
+                        } else {
+                            log::info!("[Client {}]   -> Not present", client_id);
+                            Some(encoder.encode_query_extension_reply(sequence, false, 0, 0, 0))
+                        }
+                    }
                     Request::GetProperty(req) => {
                         log::info!("[Client {}] GetProperty: window={}, property={}",
                             client_id, req.window.id(), req.property.get());
@@ -218,9 +255,90 @@ fn handle_client(mut stream: UnixStream, client_id: usize) {
                     Request::CreateWindow(_) |
                     Request::MapWindow(_) |
                     Request::CreateGC(_) |
+                    Request::CreatePixmap(_) |
+                    Request::FreePixmap(_) |
+                    Request::PutImage(_) |
+                    Request::OpenFont(_) |
+                    Request::CloseFont(_) |
+                    Request::CreateGlyphCursor(_) |
                     Request::ChangeProperty(_) => {
                         // These don't return replies, just succeed silently
                         None
+                    }
+                    Request::GetInputFocus => {
+                        log::info!("[Client {}] GetInputFocus", client_id);
+                        // Return root window as focus, revert_to = PointerRoot (1)
+                        Some(encoder.encode_get_input_focus_reply(
+                            sequence,
+                            Window::new(1), // Root window
+                            1, // RevertTo::PointerRoot
+                        ))
+                    }
+                    Request::AllocNamedColor(req) => {
+                        log::info!("[Client {}] AllocNamedColor: colormap=0x{:08x}, name={}", client_id, req.colormap, req.name);
+                        // Simple color allocation - return white for simplicity
+                        let (r, g, b) = (0xFFFF, 0xFFFF, 0xFFFF);
+                        Some(encoder.encode_alloc_named_color_reply(
+                            sequence,
+                            0xFFFFFF, // pixel value (white)
+                            r, g, b,  // exact RGB
+                            r, g, b,  // visual RGB (same as exact)
+                        ))
+                    }
+                    Request::ExtensionRequest { opcode, data } => {
+                        log::info!("[Client {}] Extension request: opcode={}", client_id, opcode);
+                        // BIG-REQUESTS enable (opcode 133) returns maximum request length
+                        if opcode == 133 {
+                            let mut reply = vec![0u8; 32];
+                            reply[0] = 1; // Reply type
+                            // Write sequence number (little-endian for LSBFirst)
+                            reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+                            // Write length (0 = 32 bytes total)
+                            reply[4..8].copy_from_slice(&0u32.to_le_bytes());
+                            // Write maximum request length
+                            reply[8..12].copy_from_slice(&0x3FFFFFu32.to_le_bytes());
+                            Some(reply)
+                        } else if opcode == 135 && !data.is_empty() && data[0] == 1 {
+                            // XKEYBOARD UseExtension (minor opcode 1)
+                            log::info!("[Client {}]   -> XKEYBOARD UseExtension", client_id);
+                            let mut reply = vec![0u8; 32];
+                            reply[0] = 1; // Reply type
+                            reply[1] = 1; // Supported = yes
+                            reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+                            reply[4..8].copy_from_slice(&0u32.to_le_bytes()); // Length = 0
+                            // Server version: 1.0
+                            reply[8..10].copy_from_slice(&1u16.to_le_bytes()); // Major version
+                            reply[10..12].copy_from_slice(&0u16.to_le_bytes()); // Minor version
+                            Some(reply)
+                        } else if opcode == 138 && data.len() >= 8 {
+                            // RENDER QueryVersion (minor opcode 0)
+                            log::info!("[Client {}]   -> RENDER QueryVersion", client_id);
+                            let mut reply = vec![0u8; 32];
+                            reply[0] = 1; // Reply type
+                            reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+                            reply[4..8].copy_from_slice(&0u32.to_le_bytes()); // Length = 0
+                            // Server version: 0.11 (same as client requested)
+                            reply[8..12].copy_from_slice(&0u32.to_le_bytes()); // Major version
+                            reply[12..16].copy_from_slice(&11u32.to_le_bytes()); // Minor version
+                            Some(reply)
+                        } else if opcode == 138 && data.is_empty() {
+                            // RENDER QueryPictFormats (minor opcode 1)
+                            log::info!("[Client {}]   -> RENDER QueryPictFormats", client_id);
+                            let mut reply = vec![0u8; 32];
+                            reply[0] = 1; // Reply type
+                            reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+                            reply[4..8].copy_from_slice(&0u32.to_le_bytes()); // Length = 0
+                            // Return empty format list (no formats supported)
+                            reply[8..12].copy_from_slice(&0u32.to_le_bytes()); // num_formats = 0
+                            reply[12..16].copy_from_slice(&0u32.to_le_bytes()); // num_screens = 0
+                            reply[16..20].copy_from_slice(&0u32.to_le_bytes()); // num_depths = 0
+                            reply[20..24].copy_from_slice(&0u32.to_le_bytes()); // num_visuals = 0
+                            reply[24..28].copy_from_slice(&0u32.to_le_bytes()); // num_subpixel = 0
+                            Some(reply)
+                        } else {
+                            // Other extension requests don't reply
+                            None
+                        }
                     }
                     Request::NoOperation => {
                         log::info!("[Client {}] NoOperation", client_id);

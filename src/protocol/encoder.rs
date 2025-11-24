@@ -213,6 +213,74 @@ impl ProtocolEncoder {
         buffer
     }
 
+    /// Encode QueryExtension reply
+    pub fn encode_query_extension_reply(
+        &self,
+        sequence: u16,
+        present: bool,
+        major_opcode: u8,
+        first_event: u8,
+        first_error: u8,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 1; // Reply
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(0)); // No additional data
+        buffer[8] = if present { 1 } else { 0 };
+        buffer[9] = major_opcode;
+        buffer[10] = first_event;
+        buffer[11] = first_error;
+
+        buffer
+    }
+
+    /// Encode GetInputFocus reply
+    pub fn encode_get_input_focus_reply(
+        &self,
+        sequence: u16,
+        focus: Window,
+        revert_to: u8,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 1; // Reply
+        buffer[1] = revert_to;
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(0)); // No additional data
+        buffer[8..12].copy_from_slice(&self.write_u32(focus.id().0));
+
+        buffer
+    }
+
+    /// Encode AllocNamedColor reply
+    pub fn encode_alloc_named_color_reply(
+        &self,
+        sequence: u16,
+        pixel: u32,
+        exact_red: u16,
+        exact_green: u16,
+        exact_blue: u16,
+        visual_red: u16,
+        visual_green: u16,
+        visual_blue: u16,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 1; // Reply
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(0)); // No additional data
+        buffer[8..12].copy_from_slice(&self.write_u32(pixel));
+        buffer[12..14].copy_from_slice(&self.write_u16(exact_red));
+        buffer[14..16].copy_from_slice(&self.write_u16(exact_green));
+        buffer[16..18].copy_from_slice(&self.write_u16(exact_blue));
+        buffer[18..20].copy_from_slice(&self.write_u16(visual_red));
+        buffer[20..22].copy_from_slice(&self.write_u16(visual_green));
+        buffer[22..24].copy_from_slice(&self.write_u16(visual_blue));
+
+        buffer
+    }
+
     /// Encode a simple success reply (no data)
     pub fn encode_void_reply(&self, sequence: u16) -> Vec<u8> {
         let mut buffer = vec![0u8; 32];
