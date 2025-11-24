@@ -135,7 +135,7 @@ impl ProtocolEncoder {
         }
 
         // Pad to 4-byte boundary
-        while buffer.len() % 4 != 0 {
+        while !buffer.len().is_multiple_of(4) {
             buffer.push(0);
         }
 
@@ -170,7 +170,7 @@ impl ProtocolEncoder {
         buffer.extend_from_slice(name.as_bytes());
 
         // Pad to 4-byte boundary
-        while buffer.len() % 4 != 0 {
+        while !buffer.len().is_multiple_of(4) {
             buffer.push(0);
         }
 
@@ -208,7 +208,7 @@ impl ProtocolEncoder {
         buffer.extend_from_slice(value);
 
         // Pad to 4-byte boundary
-        while buffer.len() % 4 != 0 {
+        while !buffer.len().is_multiple_of(4) {
             buffer.push(0);
         }
 
