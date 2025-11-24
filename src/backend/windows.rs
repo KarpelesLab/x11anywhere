@@ -3,20 +3,56 @@
 //! This backend provides X11 protocol support on Windows using native
 //! Win32 APIs and GDI for drawing. It translates X11 window operations
 //! and drawing commands to their Windows equivalents.
-//!
-//! Note: This is currently a stub implementation to support Windows builds.
-//! Full functionality will be implemented in future iterations.
 
 use super::*;
 use crate::protocol::*;
 use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::iter::once;
+use std::mem;
+use std::os::windows::ffi::OsStrExt;
+use std::ptr;
+use windows_sys::Win32::Foundation::*;
+use windows_sys::Win32::Graphics::Gdi::*;
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-#[allow(dead_code)]
+const WINDOW_CLASS_NAME: &str = "X11AnywhereWindow";
+
+/// Convert Rust string to wide string for Windows APIs
+fn to_wide_string(s: &str) -> Vec<u16> {
+    OsStr::new(s).encode_wide().chain(once(0)).collect()
+}
+
+/// RGB color helper
+fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
+    (r as u32) | ((g as u32) << 8) | ((b as u32) << 16)
+}
+
+/// Extract RGB components from u32 color (0xRRGGBB)
+fn color_to_rgb(color: u32) -> (u8, u8, u8) {
+    let r = ((color >> 16) & 0xff) as u8;
+    let g = ((color >> 8) & 0xff) as u8;
+    let b = (color & 0xff) as u8;
+    (r, g, b)
+}
+
+/// Window data stored per-window
+struct WindowData {
+    hwnd: HWND,
+    hdc: HDC,
+    width: u16,
+    height: u16,
+}
+
 pub struct WindowsBackend {
     /// Whether the backend has been initialized
     initialized: bool,
 
-    /// Screen dimensions (will be queried from GetSystemMetrics)
+    /// Module handle for window class
+    hinstance: HINSTANCE,
+
+    /// Screen dimensions
     screen_width: u16,
     screen_height: u16,
 
@@ -24,14 +60,17 @@ pub struct WindowsBackend {
     screen_width_mm: u16,
     screen_height_mm: u16,
 
-    /// Window handle mapping (X11 window ID -> HWND)
-    windows: HashMap<usize, usize>,
+    /// Window handle mapping (Backend window ID -> WindowData)
+    windows: HashMap<usize, WindowData>,
 
-    /// Pixmap handle mapping (X11 pixmap ID -> HDC/HBITMAP)
-    pixmaps: HashMap<usize, usize>,
+    /// Pixmap handle mapping (X11 pixmap ID -> (HDC, HBITMAP))
+    pixmaps: HashMap<usize, (HDC, HBITMAP)>,
 
     /// Next resource ID to allocate
     next_resource_id: usize,
+
+    /// Event queue
+    event_queue: Vec<BackendEvent>,
 
     /// Debug mode flag
     debug: bool,
@@ -42,6 +81,7 @@ impl WindowsBackend {
     pub fn new() -> Self {
         Self {
             initialized: false,
+            hinstance: 0,
             screen_width: 1920,
             screen_height: 1080,
             screen_width_mm: 508,
@@ -49,6 +89,7 @@ impl WindowsBackend {
             windows: HashMap::new(),
             pixmaps: HashMap::new(),
             next_resource_id: 1,
+            event_queue: Vec::new(),
             debug: false,
         }
     }
@@ -59,15 +100,136 @@ impl WindowsBackend {
         self.debug = debug;
         self
     }
+
+    /// Window procedure for handling messages
+    unsafe extern "system" fn wnd_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        match msg {
+            WM_CLOSE => {
+                // Don't destroy - let X11 client decide
+                0
+            }
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                0
+            }
+            WM_PAINT => {
+                let mut ps: PAINTSTRUCT = mem::zeroed();
+                let hdc = BeginPaint(hwnd, &mut ps);
+                // Actual painting is done via X11 drawing commands
+                EndPaint(hwnd, &ps);
+                0
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
+    }
+
+    /// Register window class
+    unsafe fn register_window_class(&self) -> Result<(), String> {
+        let class_name = to_wide_string(WINDOW_CLASS_NAME);
+
+        let wc = WNDCLASSW {
+            style: CS_HREDRAW | CS_VREDRAW | CS_OWNDC,
+            lpfnWndProc: Some(Self::wnd_proc),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: self.hinstance,
+            hIcon: LoadIconW(0, IDI_APPLICATION),
+            hCursor: LoadCursorW(0, IDC_ARROW),
+            hbrBackground: GetStockObject(WHITE_BRUSH) as HBRUSH,
+            lpszMenuName: ptr::null(),
+            lpszClassName: class_name.as_ptr(),
+        };
+
+        if RegisterClassW(&wc) == 0 {
+            return Err(format!("Failed to register window class"));
+        }
+
+        Ok(())
+    }
+
+    /// Get actual HWND for a backend window
+    fn get_hwnd(&self, window: BackendWindow) -> Result<HWND, String> {
+        self.windows
+            .get(&window.0)
+            .map(|w| w.hwnd)
+            .ok_or_else(|| format!("Invalid window ID: {}", window.0))
+    }
+
+    /// Get window data
+    fn get_window_data(&self, window: BackendWindow) -> Result<&WindowData, String> {
+        self.windows
+            .get(&window.0)
+            .ok_or_else(|| format!("Invalid window ID: {}", window.0))
+    }
+
+    /// Get device context for drawable
+    fn get_dc(&self, drawable: BackendDrawable) -> Result<HDC, String> {
+        match drawable {
+            BackendDrawable::Window(win) => {
+                let data = self.get_window_data(win)?;
+                Ok(data.hdc)
+            }
+            BackendDrawable::Pixmap(id) => self
+                .pixmaps
+                .get(&id)
+                .map(|(hdc, _)| *hdc)
+                .ok_or_else(|| format!("Invalid pixmap ID: {}", id)),
+        }
+    }
+
+    /// Create GDI pen from GC
+    unsafe fn create_pen(&self, gc: &BackendGC) -> HPEN {
+        let (r, g, b) = color_to_rgb(gc.foreground);
+        let style = match gc.line_style {
+            LineStyle::Solid => PS_SOLID,
+            LineStyle::OnOffDash => PS_DASH,
+            LineStyle::DoubleDash => PS_DASH,
+        };
+        CreatePen(style as i32, gc.line_width as i32, rgb(r, g, b))
+    }
+
+    /// Create GDI brush from GC
+    unsafe fn create_brush(&self, gc: &BackendGC) -> HBRUSH {
+        let (r, g, b) = color_to_rgb(gc.foreground);
+        CreateSolidBrush(rgb(r, g, b))
+    }
 }
 
 impl Backend for WindowsBackend {
     fn init(&mut self) -> BackendResult<()> {
-        // TODO: Initialize Win32 message handling
-        // TODO: Get actual screen dimensions from GetSystemMetrics
-        // TODO: Register window class (WNDCLASS)
-        self.initialized = true;
-        Ok(())
+        unsafe {
+            // Get module handle
+            self.hinstance = GetModuleHandleW(ptr::null());
+            if self.hinstance == 0 {
+                return Err("Failed to get module handle".into());
+            }
+
+            // Get actual screen dimensions
+            self.screen_width = GetSystemMetrics(SM_CXSCREEN) as u16;
+            self.screen_height = GetSystemMetrics(SM_CYSCREEN) as u16;
+
+            // Get physical dimensions in mm (approximate using DPI)
+            let hdc = GetDC(0);
+            if hdc != 0 {
+                let dpi_x = GetDeviceCaps(hdc, LOGPIXELSX);
+                let dpi_y = GetDeviceCaps(hdc, LOGPIXELSY);
+                // Convert pixels to mm (25.4mm per inch)
+                self.screen_width_mm = ((self.screen_width as f32 * 25.4) / dpi_x as f32) as u16;
+                self.screen_height_mm = ((self.screen_height as f32 * 25.4) / dpi_y as f32) as u16;
+                ReleaseDC(0, hdc);
+            }
+
+            // Register window class
+            self.register_window_class()?;
+
+            self.initialized = true;
+            Ok(())
+        }
     }
 
     fn get_screen_info(&self) -> BackendResult<ScreenInfo> {
@@ -80,7 +242,7 @@ impl Backend for WindowsBackend {
             height: self.screen_height,
             width_mm: self.screen_width_mm,
             height_mm: self.screen_height_mm,
-            root_visual: VisualID::new(0x21), // Default visual ID
+            root_visual: VisualID::new(0x21),
             root_depth: 24,
             white_pixel: 0xffffff,
             black_pixel: 0x000000,
@@ -104,169 +266,528 @@ impl Backend for WindowsBackend {
         }])
     }
 
-    fn create_window(&mut self, _params: WindowParams) -> BackendResult<BackendWindow> {
-        // TODO: Call CreateWindowEx to create native window
-        let id = self.next_resource_id;
-        self.next_resource_id += 1;
-        self.windows.insert(id, 0);
-        Ok(BackendWindow(id))
+    fn create_window(&mut self, params: WindowParams) -> BackendResult<BackendWindow> {
+        unsafe {
+            let class_name = to_wide_string(WINDOW_CLASS_NAME);
+            let window_name = to_wide_string("X11 Window");
+
+            // Determine window style
+            let style = WS_OVERLAPPEDWINDOW;
+            let ex_style = WS_EX_APPWINDOW;
+
+            // Create the window
+            let hwnd = CreateWindowExW(
+                ex_style,
+                class_name.as_ptr(),
+                window_name.as_ptr(),
+                style,
+                params.x as i32,
+                params.y as i32,
+                params.width as i32,
+                params.height as i32,
+                0,
+                0,
+                self.hinstance,
+                ptr::null(),
+            );
+
+            if hwnd == 0 {
+                return Err("Failed to create window".into());
+            }
+
+            // Get device context for drawing
+            let hdc = GetDC(hwnd);
+            if hdc == 0 {
+                DestroyWindow(hwnd);
+                return Err("Failed to get device context".into());
+            }
+
+            let id = self.next_resource_id;
+            self.next_resource_id += 1;
+
+            self.windows.insert(
+                id,
+                WindowData {
+                    hwnd,
+                    hdc,
+                    width: params.width,
+                    height: params.height,
+                },
+            );
+
+            Ok(BackendWindow(id))
+        }
     }
 
     fn destroy_window(&mut self, window: BackendWindow) -> BackendResult<()> {
-        // TODO: Call DestroyWindow on native handle
-        self.windows.remove(&window.0);
-        Ok(())
+        unsafe {
+            if let Some(data) = self.windows.remove(&window.0) {
+                ReleaseDC(data.hwnd, data.hdc);
+                DestroyWindow(data.hwnd);
+            }
+            Ok(())
+        }
     }
 
-    fn map_window(&mut self, _window: BackendWindow) -> BackendResult<()> {
-        // TODO: Call ShowWindow(SW_SHOW)
-        Ok(())
+    fn map_window(&mut self, window: BackendWindow) -> BackendResult<()> {
+        unsafe {
+            let hwnd = self.get_hwnd(window)?;
+            ShowWindow(hwnd, SW_SHOW);
+            UpdateWindow(hwnd);
+            Ok(())
+        }
     }
 
-    fn unmap_window(&mut self, _window: BackendWindow) -> BackendResult<()> {
-        // TODO: Call ShowWindow(SW_HIDE)
-        Ok(())
+    fn unmap_window(&mut self, window: BackendWindow) -> BackendResult<()> {
+        unsafe {
+            let hwnd = self.get_hwnd(window)?;
+            ShowWindow(hwnd, SW_HIDE);
+            Ok(())
+        }
     }
 
     fn configure_window(
         &mut self,
-        _window: BackendWindow,
-        _config: WindowConfig,
+        window: BackendWindow,
+        config: WindowConfig,
     ) -> BackendResult<()> {
-        // TODO: Call SetWindowPos to configure window geometry
-        Ok(())
+        unsafe {
+            let hwnd = self.get_hwnd(window)?;
+
+            // Get current window rect if we need to preserve some values
+            let mut rect: RECT = mem::zeroed();
+            GetWindowRect(hwnd, &mut rect);
+
+            let x = config.x.unwrap_or(rect.left as i16) as i32;
+            let y = config.y.unwrap_or(rect.top as i16) as i32;
+            let width = config.width.unwrap_or((rect.right - rect.left) as u16) as i32;
+            let height = config.height.unwrap_or((rect.bottom - rect.top) as u16) as i32;
+
+            let flags = SWP_NOZORDER | SWP_NOACTIVATE;
+            SetWindowPos(hwnd, 0, x, y, width, height, flags);
+
+            // Update stored dimensions
+            if let Some(data) = self.windows.get_mut(&window.0) {
+                if let Some(w) = config.width {
+                    data.width = w;
+                }
+                if let Some(h) = config.height {
+                    data.height = h;
+                }
+            }
+
+            Ok(())
+        }
     }
 
-    fn raise_window(&mut self, _window: BackendWindow) -> BackendResult<()> {
-        // TODO: Call SetWindowPos with HWND_TOP
-        Ok(())
+    fn raise_window(&mut self, window: BackendWindow) -> BackendResult<()> {
+        unsafe {
+            let hwnd = self.get_hwnd(window)?;
+            SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            Ok(())
+        }
     }
 
-    fn lower_window(&mut self, _window: BackendWindow) -> BackendResult<()> {
-        // TODO: Call SetWindowPos with HWND_BOTTOM
-        Ok(())
+    fn lower_window(&mut self, window: BackendWindow) -> BackendResult<()> {
+        unsafe {
+            let hwnd = self.get_hwnd(window)?;
+            SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            Ok(())
+        }
     }
 
-    fn set_window_title(&mut self, _window: BackendWindow, _title: &str) -> BackendResult<()> {
-        // TODO: Call SetWindowText
-        Ok(())
+    fn set_window_title(&mut self, window: BackendWindow, title: &str) -> BackendResult<()> {
+        unsafe {
+            let hwnd = self.get_hwnd(window)?;
+            let title_wide = to_wide_string(title);
+            SetWindowTextW(hwnd, title_wide.as_ptr());
+            Ok(())
+        }
     }
 
     fn clear_area(
         &mut self,
-        _window: BackendWindow,
-        _x: i16,
-        _y: i16,
-        _width: u16,
-        _height: u16,
+        window: BackendWindow,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
     ) -> BackendResult<()> {
-        // TODO: Use FillRect with background brush
-        Ok(())
+        unsafe {
+            let data = self.get_window_data(window)?;
+            let hdc = data.hdc;
+
+            let rect = RECT {
+                left: x as i32,
+                top: y as i32,
+                right: (x as i32 + width as i32),
+                bottom: (y as i32 + height as i32),
+            };
+
+            let brush = GetStockObject(WHITE_BRUSH) as HBRUSH;
+            FillRect(hdc, &rect, brush);
+
+            Ok(())
+        }
     }
 
     fn draw_rectangle(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _x: i16,
-        _y: i16,
-        _width: u16,
-        _height: u16,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
     ) -> BackendResult<()> {
-        // TODO: Use Rectangle GDI function
-        Ok(())
+        unsafe {
+            let hdc = self.get_dc(drawable)?;
+
+            let pen = self.create_pen(gc);
+            let old_pen = SelectObject(hdc, pen as isize);
+
+            // Set brush to null for outline only
+            let old_brush = SelectObject(hdc, GetStockObject(NULL_BRUSH) as isize);
+
+            Rectangle(
+                hdc,
+                x as i32,
+                y as i32,
+                (x as i32 + width as i32),
+                (y as i32 + height as i32),
+            );
+
+            SelectObject(hdc, old_brush);
+            SelectObject(hdc, old_pen);
+            DeleteObject(pen as isize);
+
+            Ok(())
+        }
     }
 
     fn fill_rectangle(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _x: i16,
-        _y: i16,
-        _width: u16,
-        _height: u16,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
     ) -> BackendResult<()> {
-        // TODO: Use FillRect GDI function
-        Ok(())
+        unsafe {
+            let hdc = self.get_dc(drawable)?;
+
+            let brush = self.create_brush(gc);
+            let rect = RECT {
+                left: x as i32,
+                top: y as i32,
+                right: (x as i32 + width as i32),
+                bottom: (y as i32 + height as i32),
+            };
+
+            FillRect(hdc, &rect, brush);
+            DeleteObject(brush as isize);
+
+            Ok(())
+        }
     }
 
     fn draw_line(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _x1: i16,
-        _y1: i16,
-        _x2: i16,
-        _y2: i16,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        x1: i16,
+        y1: i16,
+        x2: i16,
+        y2: i16,
     ) -> BackendResult<()> {
-        // TODO: Use MoveToEx and LineTo GDI functions
-        Ok(())
+        unsafe {
+            let hdc = self.get_dc(drawable)?;
+
+            let pen = self.create_pen(gc);
+            let old_pen = SelectObject(hdc, pen as isize);
+
+            MoveToEx(hdc, x1 as i32, y1 as i32, ptr::null_mut());
+            LineTo(hdc, x2 as i32, y2 as i32);
+
+            SelectObject(hdc, old_pen);
+            DeleteObject(pen as isize);
+
+            Ok(())
+        }
     }
 
     fn draw_points(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _points: &[Point],
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        points: &[Point],
     ) -> BackendResult<()> {
-        // TODO: Use SetPixel for each point
-        Ok(())
+        unsafe {
+            let hdc = self.get_dc(drawable)?;
+            let (r, g, b) = color_to_rgb(gc.foreground);
+            let color = rgb(r, g, b);
+
+            for point in points {
+                SetPixel(hdc, point.x as i32, point.y as i32, color);
+            }
+
+            Ok(())
+        }
     }
 
     fn draw_text(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _x: i16,
-        _y: i16,
-        _text: &str,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        x: i16,
+        y: i16,
+        text: &str,
     ) -> BackendResult<()> {
-        // TODO: Use TextOut or DrawText GDI function
-        Ok(())
+        unsafe {
+            let hdc = self.get_dc(drawable)?;
+            let text_wide = to_wide_string(text);
+
+            let (r, g, b) = color_to_rgb(gc.foreground);
+            SetTextColor(hdc, rgb(r, g, b));
+            SetBkMode(hdc, TRANSPARENT as i32);
+
+            TextOutW(
+                hdc,
+                x as i32,
+                y as i32,
+                text_wide.as_ptr(),
+                (text_wide.len() - 1) as i32,
+            );
+
+            Ok(())
+        }
     }
 
     fn copy_area(
         &mut self,
-        _src: BackendDrawable,
-        _dst: BackendDrawable,
+        src: BackendDrawable,
+        dst: BackendDrawable,
         _gc: &BackendGC,
-        _src_x: i16,
-        _src_y: i16,
-        _width: u16,
-        _height: u16,
-        _dst_x: i16,
-        _dst_y: i16,
+        src_x: i16,
+        src_y: i16,
+        width: u16,
+        height: u16,
+        dst_x: i16,
+        dst_y: i16,
     ) -> BackendResult<()> {
-        // TODO: Use BitBlt GDI function
-        Ok(())
+        unsafe {
+            let src_hdc = self.get_dc(src)?;
+            let dst_hdc = self.get_dc(dst)?;
+
+            BitBlt(
+                dst_hdc,
+                dst_x as i32,
+                dst_y as i32,
+                width as i32,
+                height as i32,
+                src_hdc,
+                src_x as i32,
+                src_y as i32,
+                SRCCOPY,
+            );
+
+            Ok(())
+        }
     }
 
-    fn create_pixmap(&mut self, _width: u16, _height: u16, _depth: u8) -> BackendResult<usize> {
-        // TODO: Create compatible DC and bitmap (CreateCompatibleDC, CreateCompatibleBitmap)
-        let id = self.next_resource_id;
-        self.next_resource_id += 1;
-        self.pixmaps.insert(id, 0);
-        Ok(id)
+    fn create_pixmap(&mut self, width: u16, height: u16, _depth: u8) -> BackendResult<usize> {
+        unsafe {
+            // Create a memory DC compatible with the screen
+            let screen_dc = GetDC(0);
+            let mem_dc = CreateCompatibleDC(screen_dc);
+            let bitmap = CreateCompatibleBitmap(screen_dc, width as i32, height as i32);
+            ReleaseDC(0, screen_dc);
+
+            if mem_dc == 0 || bitmap == 0 {
+                if mem_dc != 0 {
+                    DeleteDC(mem_dc);
+                }
+                return Err("Failed to create pixmap".into());
+            }
+
+            // Select bitmap into DC
+            SelectObject(mem_dc, bitmap as isize);
+
+            let id = self.next_resource_id;
+            self.next_resource_id += 1;
+            self.pixmaps.insert(id, (mem_dc, bitmap));
+
+            Ok(id)
+        }
     }
 
     fn free_pixmap(&mut self, pixmap: usize) -> BackendResult<()> {
-        // TODO: Delete DC and bitmap (DeleteDC, DeleteObject)
-        self.pixmaps.remove(&pixmap);
-        Ok(())
+        unsafe {
+            if let Some((hdc, hbitmap)) = self.pixmaps.remove(&pixmap) {
+                DeleteObject(hbitmap as isize);
+                DeleteDC(hdc);
+            }
+            Ok(())
+        }
     }
 
     fn poll_events(&mut self) -> BackendResult<Vec<BackendEvent>> {
-        // TODO: Use PeekMessage to poll Windows message queue
-        Ok(Vec::new())
+        unsafe {
+            let mut msg: MSG = mem::zeroed();
+
+            // Process all available messages without blocking
+            while PeekMessageW(&mut msg, 0, 0, 0, PM_REMOVE) != 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+
+                // Convert Windows messages to Backend events
+                match msg.message {
+                    WM_PAINT => {
+                        // Find which window this is for
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            self.event_queue.push(BackendEvent::Expose {
+                                window: BackendWindow(*id),
+                                x: 0,
+                                y: 0,
+                                width: 0,
+                                height: 0,
+                            });
+                        }
+                    }
+                    WM_SIZE => {
+                        if let Some((id, data)) = self
+                            .windows
+                            .iter_mut()
+                            .find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            let width = (msg.lparam & 0xffff) as u16;
+                            let height = ((msg.lparam >> 16) & 0xffff) as u16;
+                            data.width = width;
+                            data.height = height;
+
+                            self.event_queue.push(BackendEvent::Configure {
+                                window: BackendWindow(*id),
+                                x: 0,
+                                y: 0,
+                                width,
+                                height,
+                            });
+                        }
+                    }
+                    WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            let button = match msg.message {
+                                WM_LBUTTONDOWN => 1,
+                                WM_RBUTTONDOWN => 3,
+                                WM_MBUTTONDOWN => 2,
+                                _ => 1,
+                            };
+                            let x = (msg.lparam & 0xffff) as i16;
+                            let y = ((msg.lparam >> 16) & 0xffff) as i16;
+
+                            self.event_queue.push(BackendEvent::ButtonPress {
+                                window: BackendWindow(*id),
+                                button,
+                                state: 0,
+                                time: msg.time,
+                                x,
+                                y,
+                            });
+                        }
+                    }
+                    WM_KEYDOWN => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            self.event_queue.push(BackendEvent::KeyPress {
+                                window: BackendWindow(*id),
+                                keycode: msg.wparam as u8,
+                                state: 0,
+                                time: msg.time,
+                                x: 0,
+                                y: 0,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // Return accumulated events
+            Ok(std::mem::take(&mut self.event_queue))
+        }
     }
 
     fn flush(&mut self) -> BackendResult<()> {
-        // TODO: Call GdiFlush if needed
-        Ok(())
+        unsafe {
+            // Flush GDI queue
+            GdiFlush();
+            Ok(())
+        }
     }
 
     fn wait_for_event(&mut self) -> BackendResult<BackendEvent> {
-        // TODO: Use GetMessage to wait for Windows messages
-        Err("wait_for_event not yet implemented for Windows backend".into())
+        unsafe {
+            loop {
+                // First check if we have queued events
+                if let Some(event) = self.event_queue.pop() {
+                    return Ok(event);
+                }
+
+                // Wait for a message (blocking)
+                let mut msg: MSG = mem::zeroed();
+                let ret = GetMessageW(&mut msg, 0, 0, 0);
+
+                if ret == 0 || ret == -1 {
+                    return Err("GetMessage failed or received WM_QUIT".into());
+                }
+
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+
+                // Process the message and add to queue
+                match msg.message {
+                    WM_PAINT => {
+                        if let Some((id, _)) =
+                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            return Ok(BackendEvent::Expose {
+                                window: BackendWindow(*id),
+                                x: 0,
+                                y: 0,
+                                width: 0,
+                                height: 0,
+                            });
+                        }
+                    }
+                    WM_SIZE => {
+                        if let Some((id, data)) = self
+                            .windows
+                            .iter_mut()
+                            .find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            let width = (msg.lparam & 0xffff) as u16;
+                            let height = ((msg.lparam >> 16) & 0xffff) as u16;
+                            data.width = width;
+                            data.height = height;
+
+                            return Ok(BackendEvent::Configure {
+                                window: BackendWindow(*id),
+                                x: 0,
+                                y: 0,
+                                width,
+                                height,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 }
