@@ -58,8 +58,10 @@ impl X11Backend {
     }
 
     /// Allocate a resource ID on the connected X server
-    fn allocate_server_resource_id(&self) -> u32 {
-        self.resource_id_base | (self.next_resource_id as u32 & self.resource_id_mask)
+    fn allocate_server_resource_id(&mut self) -> u32 {
+        let id = self.resource_id_base | (self.next_resource_id as u32 & self.resource_id_mask);
+        self.next_resource_id += 1;
+        id
     }
 
     /// Send a request to the X server
@@ -874,10 +876,12 @@ impl Backend for X11Backend {
         self.create_server_gc(server_drawable, gc_id, gc)?;
 
         // Build PolyFillRectangle request (opcode 70)
+        // Format: opcode(1), pad(1), length(2), drawable(4), gc(4), rectangles(8 each)
+        // Length = 3 + 2*n words where n = number of rectangles
         let mut req = Vec::new();
         req.push(70); // Opcode: PolyFillRectangle
         req.push(0); // Padding
-        req.extend_from_slice(&4u16.to_le_bytes()); // Length: 4 words = 16 bytes
+        req.extend_from_slice(&5u16.to_le_bytes()); // Length: 5 words = 20 bytes (1 rectangle)
         req.extend_from_slice(&server_drawable.to_le_bytes()); // drawable
         req.extend_from_slice(&gc_id.to_le_bytes()); // gc
         req.extend_from_slice(&x.to_le_bytes()); // x
@@ -889,8 +893,10 @@ impl Backend for X11Backend {
 
         if self.debug {
             log::debug!(
-                "Filled rectangle: drawable=0x{:x}, x={}, y={}, {}x{}",
+                "Filled rectangle: drawable=0x{:x}, gc=0x{:x}, fg=0x{:x}, x={}, y={}, {}x{}",
                 server_drawable,
+                gc_id,
+                gc.foreground,
                 x,
                 y,
                 width,
