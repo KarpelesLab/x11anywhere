@@ -69,4 +69,40 @@ fn build_swift_backend() {
     println!("cargo:rustc-link-lib=dylib=swiftFoundation");
     println!("cargo:rustc-link-lib=dylib=swiftCoreGraphics");
     println!("cargo:rustc-link-lib=dylib=swiftAppKit");
+
+    // Add Swift toolchain library path to rpath
+    // This ensures the Swift runtime libraries can be found at runtime
+    if let Ok(output) = Command::new("xcrun")
+        .args(["--show-sdk-path"])
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(sdk_path) = String::from_utf8(output.stdout) {
+                let sdk_path = sdk_path.trim();
+                let swift_lib_path = format!("{}/usr/lib/swift", sdk_path);
+                println!("cargo:rustc-link-arg=-Wl,-rpath,{}", swift_lib_path);
+            }
+        }
+    }
+
+    // Also add the toolchain's Swift library path
+    if let Ok(output) = Command::new("xcrun")
+        .args(["--find", "swift"])
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(swift_path) = String::from_utf8(output.stdout) {
+                let swift_path = swift_path.trim();
+                // Get the directory containing swift binary, then go up to get the toolchain lib
+                if let Some(swift_dir) = PathBuf::from(swift_path).parent() {
+                    if let Some(toolchain_dir) = swift_dir.parent() {
+                        let lib_path = toolchain_dir.join("lib").join("swift").join("macosx");
+                        if lib_path.exists() {
+                            println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_path.display());
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
