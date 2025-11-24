@@ -63,8 +63,8 @@ This document tracks the implementation status of X11 protocol features across d
 | CopyArea | 🟡 | ✅ | 🟡 | ⚪ | BitBlt on Windows; macOS simplified (fills dest) |
 | ImageText8 | 🟡 | ✅ | ✅ | ⚪ | TextOutW on Windows, NSString on macOS |
 | ImageText16 | 🟡 | ✅ | ✅ | ⚪ | Unicode text rendering supported |
-| PutImage | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
-| GetImage | 🟡 | ❌ | ❌ | ⚪ | Not yet implemented |
+| PutImage | 🟡 | ✅ | ✅ | ⚪ | SetDIBitsToDevice on Windows, CGImage on macOS |
+| GetImage | 🟡 | ✅ | ✅ | ⚪ | GetDIBits on Windows, CGContext.makeImage on macOS |
 
 ### Graphics Context (GC)
 
@@ -192,15 +192,15 @@ This document tracks the implementation status of X11 protocol features across d
   - ✅ Window creation, mapping, configuration, raising/lowering
   - ✅ Basic drawing: rectangles, lines, points, text
   - ✅ Arc and polygon drawing (Arc, Pie, Polygon GDI functions)
+  - ✅ Image operations (SetDIBitsToDevice for PutImage, GetDIBits for GetImage)
   - ✅ Pixmaps (off-screen drawing with compatible DCs)
   - ✅ Enhanced event handling: KeyPress/Release, ButtonPress/Release, MotionNotify, FocusIn/Out
   - ✅ Event polling and blocking wait
   - ✅ GC state tracking (foreground, background, line width/style)
 - **Known Limitations**:
   - No advanced raster operations (SetROP2)
-  - No image operations (PutImage/GetImage)
   - Missing EnterNotify/LeaveNotify events
-- **Next Steps**: Test with real X11 applications, implement image operations
+- **Next Steps**: Test with real X11 applications
 
 ### macOS Backend
 - **Status**: ✅ **Fully implemented** with Swift FFI (compiles & passes CI for ARM64 and x86_64)
@@ -214,10 +214,11 @@ This document tracks the implementation status of X11 protocol features across d
   - Window management: `NSWindow`, `NSApplication` with proper lifecycle management
   - Drawing: Core Graphics (`CGContext`) with native APIs (`stroke`, `fill`, `setStrokeColor`, etc.)
   - Arc and polygon drawing: CGContext ellipse transforms, path-based polygon filling
+  - Image operations: CGImage for PutImage, CGContext.makeImage for GetImage
   - Resources: CGContext-based bitmap contexts for pixmaps
   - Events: Cocoa event loop with `NSApp.nextEvent`
   - Enhanced event handling: KeyPress/Release, ButtonPress/Release, MotionNotify, FocusIn/Out, DestroyNotify
-  - Supported operations: rectangles, lines, points, arcs, polygons, text, clear area, copy area (basic)
+  - Supported operations: rectangles, lines, points, arcs, polygons, text, images, clear area, copy area (basic)
   - GC state tracking: foreground/background colors, line width
 - **Build System**:
   - Swift Package Manager integration via `build.rs`
@@ -225,10 +226,9 @@ This document tracks the implementation status of X11 protocol features across d
   - Runtime library search paths via rpath
   - Proper linkage of Cocoa, Foundation, CoreGraphics, AppKit frameworks
 - **Known Limitations**:
-  - No image operations (PutImage/GetImage)
   - copy_area() is simplified (fills destination rectangle with color)
   - Missing EnterNotify/LeaveNotify events
-- **Next Steps**: Test with real X11 applications, implement image operations, improve copy_area
+- **Next Steps**: Test with real X11 applications, improve copy_area
 
 ### Wayland Backend
 - **Status**: Not started
@@ -270,8 +270,8 @@ This document tracks the implementation status of X11 protocol features across d
 ### Phase 3: Advanced Features (Current Phase)
 - [x] **Both**: Enhanced event handling (ButtonRelease, MotionNotify, Focus events) ✅ **COMPLETED**
 - [x] **Both**: Arc and polygon drawing operations ✅ **COMPLETED**
+- [x] **Both**: Image operations (PutImage, GetImage) ✅ **COMPLETED**
 - [ ] **macOS**: Improve copy_area() with proper CGImage implementation
-- [ ] **Both**: Image operations (PutImage, GetImage)
 - [ ] **Both**: Advanced font handling
 - [ ] **Both**: Advanced color management
 - [ ] **Both**: Cursor support
