@@ -23,9 +23,11 @@ pub struct X11Backend {
     // Resource ID mapping (our IDs -> real server IDs)
     window_map: Arc<Mutex<HashMap<usize, u32>>>,
     pixmap_map: Arc<Mutex<HashMap<usize, u32>>>,
+    gc_map: Arc<Mutex<HashMap<usize, u32>>>,
 
     // For generating our own resource IDs
     next_resource_id: usize,
+    next_gc_id: usize,
     resource_id_base: u32,
     resource_id_mask: u32,
 
@@ -41,7 +43,9 @@ impl X11Backend {
             byte_order: ByteOrder::LSBFirst,
             window_map: Arc::new(Mutex::new(HashMap::new())),
             pixmap_map: Arc::new(Mutex::new(HashMap::new())),
+            gc_map: Arc::new(Mutex::new(HashMap::new())),
             next_resource_id: 1,
+            next_gc_id: 1,
             resource_id_base: 0,
             resource_id_mask: 0,
             debug: true,
@@ -51,6 +55,112 @@ impl X11Backend {
     pub fn with_debug(mut self, debug: bool) -> Self {
         self.debug = debug;
         self
+    }
+
+    /// Allocate a resource ID on the connected X server
+    fn allocate_server_resource_id(&self) -> u32 {
+        self.resource_id_base | (self.next_resource_id as u32 & self.resource_id_mask)
+    }
+
+    /// Send a request to the X server
+    fn send_request(&mut self, data: &[u8]) -> BackendResult<()> {
+        if let Some(ref mut conn) = self.connection {
+            conn.write_all(data)
+                .map_err(|e| format!("Failed to send X11 request: {}", e))?;
+            if self.debug {
+                log::debug!("Sent {} bytes to X server", data.len());
+            }
+            Ok(())
+        } else {
+            Err("Not connected to X server".into())
+        }
+    }
+
+    /// Create a GC on the server
+    fn create_server_gc(&mut self, drawable: u32, gc_id: u32, gc: &BackendGC) -> BackendResult<()> {
+        // Build CreateGC request (opcode 55)
+        let mut req = Vec::new();
+        req.push(55); // Opcode: CreateGC
+        req.push(0); // Padding
+        req.extend_from_slice(&4u16.to_le_bytes()); // Length placeholder
+        req.extend_from_slice(&gc_id.to_le_bytes()); // cid
+        req.extend_from_slice(&drawable.to_le_bytes()); // drawable
+
+        // Value mask and value list
+        let mut value_mask = 0u32;
+        let mut value_list = Vec::new();
+
+        // Foreground (bit 2)
+        value_mask |= 0x00000004;
+        value_list.extend_from_slice(&gc.foreground.to_le_bytes());
+
+        // Background (bit 3)
+        value_mask |= 0x00000008;
+        value_list.extend_from_slice(&gc.background.to_le_bytes());
+
+        req.extend_from_slice(&value_mask.to_le_bytes());
+        req.extend_from_slice(&value_list);
+
+        // Update length
+        let len_words = (req.len() + 3) / 4;
+        req[2..4].copy_from_slice(&(len_words as u16).to_le_bytes());
+
+        // Pad to 4-byte boundary
+        while req.len() % 4 != 0 {
+            req.push(0);
+        }
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!("Created GC: id=0x{:x}, fg=0x{:x}, bg=0x{:x}",
+                gc_id, gc.foreground, gc.background);
+        }
+
+        Ok(())
+    }
+
+    /// Change a GC on the server
+    fn change_server_gc(&mut self, gc_id: u32, gc: &BackendGC) -> BackendResult<()> {
+        // Build ChangeGC request (opcode 56)
+        let mut req = Vec::new();
+        req.push(56); // Opcode: ChangeGC
+        req.push(0); // Padding
+        req.extend_from_slice(&3u16.to_le_bytes()); // Length placeholder
+        req.extend_from_slice(&gc_id.to_le_bytes()); // gc
+
+        // Value mask and value list
+        let mut value_mask = 0u32;
+        let mut value_list = Vec::new();
+
+        // Foreground (bit 2)
+        value_mask |= 0x00000004;
+        value_list.extend_from_slice(&gc.foreground.to_le_bytes());
+
+        // Background (bit 3)
+        value_mask |= 0x00000008;
+        value_list.extend_from_slice(&gc.background.to_le_bytes());
+
+        req.extend_from_slice(&value_mask.to_le_bytes());
+        req.extend_from_slice(&value_list);
+
+        // Update length
+        let len_words = (req.len() + 3) / 4;
+        req[2..4].copy_from_slice(&(len_words as u16).to_le_bytes());
+
+        // Pad to 4-byte boundary
+        while req.len() % 4 != 0 {
+            req.push(0);
+        }
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!("Changed GC: id=0x{:x}, fg=0x{:x}, bg=0x{:x}",
+                gc_id, gc.foreground, gc.background);
+        }
+
+        Ok(())
     }
 
     fn connect_to_display(&mut self) -> BackendResult<()> {
@@ -557,19 +667,107 @@ impl Backend for X11Backend {
         Ok(visuals)
     }
 
-    fn create_window(&mut self, _params: WindowParams) -> BackendResult<BackendWindow> {
-        // For passthrough, just return a handle
-        // In a real implementation, we'd send CreateWindow request to the real server
-        let id = self.next_resource_id;
+    fn create_window(&mut self, params: WindowParams) -> BackendResult<BackendWindow> {
+        // Allocate IDs
+        let our_id = self.next_resource_id;
         self.next_resource_id += 1;
-        Ok(BackendWindow(id))
+        let server_wid = self.allocate_server_resource_id();
+
+        // Get parent window ID (root is from setup)
+        let parent_id = if let Some(parent) = params.parent {
+            *self.window_map.lock().unwrap().get(&parent.0).unwrap_or(&server_wid)
+        } else {
+            // Use root window from setup
+            if let Some(ref setup) = self.setup_info {
+                setup.roots[0].root.id().get()
+            } else {
+                return Err("Not initialized".into());
+            }
+        };
+
+        // Get visual ID
+        let visual_id = if let Some(ref setup) = self.setup_info {
+            setup.roots[0].root_visual.get()
+        } else {
+            return Err("Not initialized".into());
+        };
+
+        // Build CreateWindow request (opcode 1)
+        let mut req = Vec::new();
+        req.push(1); // Opcode: CreateWindow
+        req.push(24); // Depth
+        req.extend_from_slice(&(8u16.to_le_bytes())); // Length in 4-byte units (8 = 32 bytes)
+        req.extend_from_slice(&server_wid.to_le_bytes()); // wid
+        req.extend_from_slice(&parent_id.to_le_bytes()); // parent
+        req.extend_from_slice(&params.x.to_le_bytes()); // x
+        req.extend_from_slice(&params.y.to_le_bytes()); // y
+        req.extend_from_slice(&params.width.to_le_bytes()); // width
+        req.extend_from_slice(&params.height.to_le_bytes()); // height
+        req.extend_from_slice(&params.border_width.to_le_bytes()); // border_width
+        req.extend_from_slice(&1u16.to_le_bytes()); // class: InputOutput
+        req.extend_from_slice(&visual_id.to_le_bytes()); // visual
+
+        // Value mask and value list
+        let mut value_mask = 0u32;
+        let mut value_list = Vec::new();
+
+        if let Some(bg) = params.background_pixel {
+            value_mask |= 0x00000002; // CWBackPixel
+            value_list.extend_from_slice(&bg.to_le_bytes());
+        }
+
+        if params.event_mask != 0 {
+            value_mask |= 0x00000800; // CWEventMask
+            value_list.extend_from_slice(&params.event_mask.to_le_bytes());
+        }
+
+        req.extend_from_slice(&value_mask.to_le_bytes());
+        req.extend_from_slice(&value_list);
+
+        // Update length field
+        let total_len = req.len();
+        let len_words = (total_len + 3) / 4;
+        req[2..4].copy_from_slice(&(len_words as u16).to_le_bytes());
+
+        // Pad to 4-byte boundary
+        while req.len() % 4 != 0 {
+            req.push(0);
+        }
+
+        self.send_request(&req)?;
+
+        // Store mapping
+        self.window_map.lock().unwrap().insert(our_id, server_wid);
+
+        if self.debug {
+            log::debug!("Created window: our_id={}, server_id=0x{:x}", our_id, server_wid);
+        }
+
+        Ok(BackendWindow(our_id))
     }
 
     fn destroy_window(&mut self, _window: BackendWindow) -> BackendResult<()> {
         Ok(())
     }
 
-    fn map_window(&mut self, _window: BackendWindow) -> BackendResult<()> {
+    fn map_window(&mut self, window: BackendWindow) -> BackendResult<()> {
+        // Get server window ID
+        let server_wid = *self.window_map.lock().unwrap().get(&window.0)
+            .ok_or("Window not found")?;
+
+        // Build MapWindow request (opcode 8)
+        let mut req = Vec::new();
+        req.push(8); // Opcode: MapWindow
+        req.push(0); // Padding
+        req.extend_from_slice(&2u16.to_le_bytes()); // Length: 2 words = 8 bytes
+        req.extend_from_slice(&server_wid.to_le_bytes()); // window
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!("Mapped window: our_id={}, server_id=0x{:x}", window.0, server_wid);
+        }
+
         Ok(())
     }
 
@@ -622,13 +820,49 @@ impl Backend for X11Backend {
 
     fn fill_rectangle(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _x: i16,
-        _y: i16,
-        _width: u16,
-        _height: u16,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
     ) -> BackendResult<()> {
+        // Get server drawable ID
+        let server_drawable = match drawable {
+            BackendDrawable::Window(w) => {
+                *self.window_map.lock().unwrap().get(&w.0)
+                    .ok_or("Window not found")?
+            }
+            BackendDrawable::Pixmap(p) => {
+                *self.pixmap_map.lock().unwrap().get(&p)
+                    .ok_or("Pixmap not found")?
+            }
+        };
+
+        // Create or get GC on server
+        // For simplicity, create a temporary GC for each draw call
+        let gc_id = self.allocate_server_resource_id();
+        self.create_server_gc(server_drawable, gc_id, gc)?;
+
+        // Build PolyFillRectangle request (opcode 70)
+        let mut req = Vec::new();
+        req.push(70); // Opcode: PolyFillRectangle
+        req.push(0); // Padding
+        req.extend_from_slice(&4u16.to_le_bytes()); // Length: 4 words = 16 bytes
+        req.extend_from_slice(&server_drawable.to_le_bytes()); // drawable
+        req.extend_from_slice(&gc_id.to_le_bytes()); // gc
+        req.extend_from_slice(&x.to_le_bytes()); // x
+        req.extend_from_slice(&y.to_le_bytes()); // y
+        req.extend_from_slice(&width.to_le_bytes()); // width
+        req.extend_from_slice(&height.to_le_bytes()); // height
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!("Filled rectangle: drawable=0x{:x}, x={}, y={}, {}x{}",
+                server_drawable, x, y, width, height);
+        }
+
         Ok(())
     }
 
