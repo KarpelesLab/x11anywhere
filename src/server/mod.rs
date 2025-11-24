@@ -9,7 +9,7 @@
 mod client;
 pub mod listener;
 
-use crate::backend::{Backend, BackendWindow};
+use crate::backend::{Backend, BackendGC, BackendWindow};
 use crate::protocol::*;
 use crate::resources::ResourceTracker;
 use crate::security::SecurityPolicy;
@@ -32,8 +32,14 @@ pub struct Server {
     /// Window mapping: X11 Window ID -> Backend Window
     windows: HashMap<Window, BackendWindow>,
 
+    /// GC mapping: X11 GContext ID -> Backend GC
+    gcs: HashMap<GContext, BackendGC>,
+
     /// Root window
     root_window: Window,
+
+    /// Root backend window
+    root_backend_window: Option<BackendWindow>,
 
     /// Next resource ID to allocate
     next_resource_id: u32,
@@ -69,7 +75,9 @@ impl Server {
         let mut server = Server {
             backend,
             windows: HashMap::new(),
+            gcs: HashMap::new(),
             root_window,
+            root_backend_window: None,
             next_resource_id: 0x200, // Start after reserved IDs
             atom_names: HashMap::new(),
             atom_ids: HashMap::new(),
@@ -349,5 +357,123 @@ impl Server {
         client_id: u32,
     ) -> Vec<crate::resources::CleanupRequest> {
         self.unregister_client(client_id)
+    }
+
+    /// Create a window
+    pub fn create_window(
+        &mut self,
+        window: Window,
+        parent: Window,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        border_width: u16,
+        class: WindowClass,
+        _visual: VisualID,
+        background_pixel: Option<u32>,
+        event_mask: u32,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Get parent backend window (root or existing window)
+        let parent_backend = if parent == self.root_window {
+            self.root_backend_window
+        } else {
+            self.windows.get(&parent).copied()
+        };
+
+        let params = crate::backend::WindowParams {
+            parent: parent_backend,
+            x,
+            y,
+            width,
+            height,
+            border_width,
+            class,
+            background_pixel,
+            event_mask,
+        };
+
+        let backend_window = self.backend.create_window(params)?;
+        self.windows.insert(window, backend_window);
+
+        // Store root backend window if this is the root
+        if window == self.root_window && self.root_backend_window.is_none() {
+            self.root_backend_window = Some(backend_window);
+        }
+
+        Ok(())
+    }
+
+    /// Map a window (make it visible)
+    pub fn map_window(&mut self, window: Window) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(&backend_window) = self.windows.get(&window) {
+            self.backend.map_window(backend_window)?;
+        }
+        Ok(())
+    }
+
+    /// Create a graphics context
+    pub fn create_gc(
+        &mut self,
+        gc: GContext,
+        _drawable: Drawable,
+        foreground: Option<u32>,
+        background: Option<u32>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut backend_gc = crate::backend::BackendGC::default();
+
+        if let Some(fg) = foreground {
+            backend_gc.foreground = fg;
+        }
+        if let Some(bg) = background {
+            backend_gc.background = bg;
+        }
+
+        self.gcs.insert(gc, backend_gc);
+        Ok(())
+    }
+
+    /// Change GC attributes
+    pub fn change_gc(
+        &mut self,
+        gc: GContext,
+        foreground: Option<u32>,
+        background: Option<u32>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(backend_gc) = self.gcs.get_mut(&gc) {
+            if let Some(fg) = foreground {
+                backend_gc.foreground = fg;
+            }
+            if let Some(bg) = background {
+                backend_gc.background = bg;
+            }
+        }
+        Ok(())
+    }
+
+    /// Fill rectangles
+    pub fn fill_rectangles(
+        &mut self,
+        drawable: Drawable,
+        gc: GContext,
+        rectangles: &[Rectangle],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Get backend GC
+        let backend_gc = self.gcs.get(&gc).ok_or("Invalid GC")?;
+
+        // Get backend drawable
+        let backend_drawable = match drawable {
+            Drawable::Window(w) => {
+                let backend_window = self.windows.get(&w).ok_or("Invalid window")?;
+                crate::backend::BackendDrawable::Window(*backend_window)
+            }
+            Drawable::Pixmap(p) => crate::backend::BackendDrawable::Pixmap(p.id().get() as usize),
+        };
+
+        // Draw all rectangles
+        self.backend.fill_rectangles(backend_drawable, backend_gc, rectangles)?;
+        self.backend.flush()?;
+
+        Ok(())
     }
 }
