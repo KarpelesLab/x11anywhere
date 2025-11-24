@@ -142,6 +142,32 @@ extern "C" {
         b: f32,
     ) -> i32;
 
+    fn macos_backend_put_image(
+        handle: BackendHandle,
+        is_window: i32,
+        drawable_id: i32,
+        width: i32,
+        height: i32,
+        dst_x: i32,
+        dst_y: i32,
+        depth: i32,
+        format: i32,
+        data: *const u8,
+        data_length: i32,
+    ) -> i32;
+
+    fn macos_backend_get_image(
+        handle: BackendHandle,
+        is_window: i32,
+        drawable_id: i32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        buffer: *mut u8,
+        buffer_size: i32,
+    ) -> i32;
+
     fn macos_backend_flush(handle: BackendHandle) -> i32;
 
     fn macos_backend_poll_event(
@@ -787,6 +813,80 @@ impl Backend for MacOSBackend {
                 macos_backend_free_pixmap(self.handle, swift_id);
             }
             Ok(())
+        }
+    }
+
+    fn put_image(
+        &mut self,
+        drawable: BackendDrawable,
+        _gc: &BackendGC,
+        width: u16,
+        height: u16,
+        dst_x: i16,
+        dst_y: i16,
+        depth: u8,
+        format: u8,
+        data: &[u8],
+    ) -> BackendResult<()> {
+        unsafe {
+            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+
+            let result = macos_backend_put_image(
+                self.handle,
+                is_window,
+                drawable_id,
+                width as i32,
+                height as i32,
+                dst_x as i32,
+                dst_y as i32,
+                depth as i32,
+                format as i32,
+                data.as_ptr(),
+                data.len() as i32,
+            );
+
+            if result == 0 {
+                Err("Failed to put image".into())
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn get_image(
+        &mut self,
+        drawable: BackendDrawable,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        _plane_mask: u32,
+        _format: u8,
+    ) -> BackendResult<Vec<u8>> {
+        unsafe {
+            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+
+            // Allocate buffer for 32bpp RGBA data
+            let buffer_size = (width as usize) * (height as usize) * 4;
+            let mut buffer = vec![0u8; buffer_size];
+
+            let result = macos_backend_get_image(
+                self.handle,
+                is_window,
+                drawable_id,
+                x as i32,
+                y as i32,
+                width as i32,
+                height as i32,
+                buffer.as_mut_ptr(),
+                buffer_size as i32,
+            );
+
+            if result == 0 {
+                Err("Failed to get image".into())
+            } else {
+                Ok(buffer)
+            }
         }
     }
 

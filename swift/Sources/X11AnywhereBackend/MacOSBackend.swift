@@ -520,6 +520,155 @@ public func macos_backend_fill_polygon(_ handle: BackendHandle, isWindow: Int32,
     return BackendResult.success.rawValue
 }
 
+@_cdecl("macos_backend_put_image")
+public func macos_backend_put_image(_ handle: BackendHandle, isWindow: Int32, drawableId: Int32,
+                                    width: Int32, height: Int32, dst_x: Int32, dst_y: Int32,
+                                    depth: Int32, format: Int32, data: UnsafePointer<UInt8>, dataLength: Int32) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+
+    let context: CGContext?
+    if isWindow != 0 {
+        context = backend.getWindowContext(id: Int(drawableId))
+    } else {
+        context = backend.getPixmapContext(id: Int(drawableId))
+    }
+
+    guard let ctx = context else { return BackendResult.error.rawValue }
+
+    // X11 image formats:
+    // 0 = Bitmap, 1 = XYPixmap, 2 = ZPixmap (packed pixels)
+    if format == 2 {
+        // ZPixmap - packed pixel format
+        // Determine bytes per pixel from depth
+        let bytesPerPixel: Int
+        if depth <= 8 {
+            bytesPerPixel = 1
+        } else if depth <= 16 {
+            bytesPerPixel = 2
+        } else if depth <= 24 {
+            bytesPerPixel = 3
+        } else {
+            bytesPerPixel = 4
+        }
+
+        let bytesPerRow = Int(width) * bytesPerPixel
+
+        // Create a data provider from the raw image data
+        guard let dataProvider = CGDataProvider(dataInfo: nil,
+                                                 data: data,
+                                                 size: Int(dataLength),
+                                                 releaseData: { _, _, _ in }) else {
+            if isWindow != 0 {
+                backend.releaseWindowContext(id: Int(drawableId))
+            }
+            return BackendResult.error.rawValue
+        }
+
+        // Create CGImage from the data
+        // Assuming BGRA format for 32bpp, RGB for 24bpp, etc.
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo: CGBitmapInfo
+
+        if bytesPerPixel == 4 {
+            bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        } else if bytesPerPixel == 3 {
+            bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue)
+        } else {
+            // Unsupported depth for now
+            if isWindow != 0 {
+                backend.releaseWindowContext(id: Int(drawableId))
+            }
+            return BackendResult.error.rawValue
+        }
+
+        guard let cgImage = CGImage(width: Int(width),
+                                    height: Int(height),
+                                    bitsPerComponent: 8,
+                                    bitsPerPixel: bytesPerPixel * 8,
+                                    bytesPerRow: bytesPerRow,
+                                    space: colorSpace,
+                                    bitmapInfo: bitmapInfo,
+                                    provider: dataProvider,
+                                    decode: nil,
+                                    shouldInterpolate: false,
+                                    intent: .defaultIntent) else {
+            if isWindow != 0 {
+                backend.releaseWindowContext(id: Int(drawableId))
+            }
+            return BackendResult.error.rawValue
+        }
+
+        // Draw the image
+        let rect = CGRect(x: CGFloat(dst_x), y: CGFloat(dst_y), width: CGFloat(width), height: CGFloat(height))
+        ctx.draw(cgImage, in: rect)
+    }
+
+    if isWindow != 0 {
+        backend.releaseWindowContext(id: Int(drawableId))
+    }
+    return BackendResult.success.rawValue
+}
+
+@_cdecl("macos_backend_get_image")
+public func macos_backend_get_image(_ handle: BackendHandle, isWindow: Int32, drawableId: Int32,
+                                    x: Int32, y: Int32, width: Int32, height: Int32,
+                                    buffer: UnsafeMutablePointer<UInt8>, bufferSize: Int32) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+
+    let context: CGContext?
+    if isWindow != 0 {
+        context = backend.getWindowContext(id: Int(drawableId))
+    } else {
+        context = backend.getPixmapContext(id: Int(drawableId))
+    }
+
+    guard let ctx = context else { return BackendResult.error.rawValue }
+
+    // Create a CGImage from the context
+    guard let cgImage = ctx.makeImage() else {
+        if isWindow != 0 {
+            backend.releaseWindowContext(id: Int(drawableId))
+        }
+        return BackendResult.error.rawValue
+    }
+
+    // Crop to the requested region
+    let cropRect = CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))
+    guard let croppedImage = cgImage.cropping(to: cropRect) else {
+        if isWindow != 0 {
+            backend.releaseWindowContext(id: Int(drawableId))
+        }
+        return BackendResult.error.rawValue
+    }
+
+    // Create a bitmap context to read the pixels
+    let bytesPerPixel = 4 // RGBA
+    let bytesPerRow = Int(width) * bytesPerPixel
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+
+    guard let bitmapContext = CGContext(data: buffer,
+                                        width: Int(width),
+                                        height: Int(height),
+                                        bitsPerComponent: 8,
+                                        bytesPerRow: bytesPerRow,
+                                        space: colorSpace,
+                                        bitmapInfo: bitmapInfo.rawValue) else {
+        if isWindow != 0 {
+            backend.releaseWindowContext(id: Int(drawableId))
+        }
+        return BackendResult.error.rawValue
+    }
+
+    // Draw the cropped image into the bitmap context (this copies the pixels to our buffer)
+    bitmapContext.draw(croppedImage, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+
+    if isWindow != 0 {
+        backend.releaseWindowContext(id: Int(drawableId))
+    }
+    return BackendResult.success.rawValue
+}
+
 @_cdecl("macos_backend_flush")
 public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     DispatchQueue.main.sync {

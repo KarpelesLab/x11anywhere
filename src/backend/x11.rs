@@ -719,6 +719,36 @@ impl Backend for X11Backend {
         Ok(())
     }
 
+    fn put_image(
+        &mut self,
+        _drawable: BackendDrawable,
+        _gc: &BackendGC,
+        _width: u16,
+        _height: u16,
+        _dst_x: i16,
+        _dst_y: i16,
+        _depth: u8,
+        _format: u8,
+        _data: &[u8],
+    ) -> BackendResult<()> {
+        // TODO: Implement PutImage request to X11 server
+        Ok(())
+    }
+
+    fn get_image(
+        &mut self,
+        _drawable: BackendDrawable,
+        _x: i16,
+        _y: i16,
+        _width: u16,
+        _height: u16,
+        _plane_mask: u32,
+        _format: u8,
+    ) -> BackendResult<Vec<u8>> {
+        // TODO: Implement GetImage request to X11 server
+        Ok(Vec::new())
+    }
+
     fn poll_events(&mut self) -> BackendResult<Vec<BackendEvent>> {
         Ok(Vec::new())
     }

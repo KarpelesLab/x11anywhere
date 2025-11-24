@@ -375,6 +375,57 @@ pub trait Backend: Send {
     /// Free a pixmap
     fn free_pixmap(&mut self, pixmap: usize) -> BackendResult<()>;
 
+    // Image operations
+
+    /// Put image data to a drawable
+    ///
+    /// # Arguments
+    /// * `drawable` - Target window or pixmap
+    /// * `gc` - Graphics context (for clipping, etc.)
+    /// * `width` - Image width in pixels
+    /// * `height` - Image height in pixels
+    /// * `dst_x` - Destination X coordinate
+    /// * `dst_y` - Destination Y coordinate
+    /// * `depth` - Bits per pixel (1, 8, 16, 24, 32)
+    /// * `format` - Image format (0=Bitmap, 1=XYPixmap, 2=ZPixmap)
+    /// * `data` - Raw image data
+    fn put_image(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        width: u16,
+        height: u16,
+        dst_x: i16,
+        dst_y: i16,
+        depth: u8,
+        format: u8,
+        data: &[u8],
+    ) -> BackendResult<()>;
+
+    /// Get image data from a drawable
+    ///
+    /// # Arguments
+    /// * `drawable` - Source window or pixmap
+    /// * `x` - Source X coordinate
+    /// * `y` - Source Y coordinate
+    /// * `width` - Image width in pixels
+    /// * `height` - Image height in pixels
+    /// * `plane_mask` - Plane mask (usually 0xFFFFFFFF for all planes)
+    /// * `format` - Desired image format (typically 2=ZPixmap)
+    ///
+    /// # Returns
+    /// Returns image data as Vec<u8> in the requested format
+    fn get_image(
+        &mut self,
+        drawable: BackendDrawable,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        plane_mask: u32,
+        format: u8,
+    ) -> BackendResult<Vec<u8>>;
+
     // Event handling
 
     /// Poll for events from the backend

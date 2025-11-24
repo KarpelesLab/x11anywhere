@@ -751,6 +751,182 @@ impl Backend for WindowsBackend {
         }
     }
 
+    fn put_image(
+        &mut self,
+        drawable: BackendDrawable,
+        _gc: &BackendGC,
+        width: u16,
+        height: u16,
+        dst_x: i16,
+        dst_y: i16,
+        depth: u8,
+        format: u8,
+        data: &[u8],
+    ) -> BackendResult<()> {
+        unsafe {
+            let hdc = self.get_dc(drawable)?;
+
+            // X11 image formats:
+            // 0 = Bitmap (1 bit per pixel)
+            // 1 = XYPixmap (planar format)
+            // 2 = ZPixmap (packed pixels - most common)
+
+            match format {
+                2 => {
+                    // ZPixmap format - packed pixels (RGBA/RGB)
+                    // Create a BITMAPINFO structure for the image
+                    let bits_per_pixel = if depth == 1 {
+                        1
+                    } else if depth <= 8 {
+                        8
+                    } else if depth <= 16 {
+                        16
+                    } else if depth <= 24 {
+                        24
+                    } else {
+                        32
+                    };
+
+                    let mut bmi = BITMAPINFO {
+                        bmiHeader: BITMAPINFOHEADER {
+                            biSize: mem::size_of::<BITMAPINFOHEADER>() as u32,
+                            biWidth: width as i32,
+                            biHeight: -(height as i32), // Negative for top-down bitmap
+                            biPlanes: 1,
+                            biBitCount: bits_per_pixel,
+                            biCompression: BI_RGB,
+                            biSizeImage: 0,
+                            biXPelsPerMeter: 0,
+                            biYPelsPerMeter: 0,
+                            biClrUsed: 0,
+                            biClrImportant: 0,
+                        },
+                        bmiColors: [RGBQUAD {
+                            rgbBlue: 0,
+                            rgbGreen: 0,
+                            rgbRed: 0,
+                            rgbReserved: 0,
+                        }],
+                    };
+
+                    // Draw the image using SetDIBitsToDevice
+                    SetDIBitsToDevice(
+                        hdc,
+                        dst_x as i32,
+                        dst_y as i32,
+                        width as u32,
+                        height as u32,
+                        0,
+                        0,
+                        0,
+                        height as u32,
+                        data.as_ptr() as *const _,
+                        &bmi as *const _,
+                        DIB_RGB_COLORS,
+                    );
+
+                    Ok(())
+                }
+                0 | 1 => {
+                    // Bitmap or XYPixmap formats - not commonly used, stub for now
+                    Err(format!("Image format {} not yet implemented", format).into())
+                }
+                _ => Err(format!("Unknown image format: {}", format).into()),
+            }
+        }
+    }
+
+    fn get_image(
+        &mut self,
+        drawable: BackendDrawable,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        _plane_mask: u32,
+        format: u8,
+    ) -> BackendResult<Vec<u8>> {
+        unsafe {
+            let hdc = self.get_dc(drawable)?;
+
+            match format {
+                2 => {
+                    // ZPixmap format - return 32bpp RGBA data
+                    let mut bmi = BITMAPINFO {
+                        bmiHeader: BITMAPINFOHEADER {
+                            biSize: mem::size_of::<BITMAPINFOHEADER>() as u32,
+                            biWidth: width as i32,
+                            biHeight: -(height as i32), // Negative for top-down
+                            biPlanes: 1,
+                            biBitCount: 32, // Always return 32bpp
+                            biCompression: BI_RGB,
+                            biSizeImage: 0,
+                            biXPelsPerMeter: 0,
+                            biYPelsPerMeter: 0,
+                            biClrUsed: 0,
+                            biClrImportant: 0,
+                        },
+                        bmiColors: [RGBQUAD {
+                            rgbBlue: 0,
+                            rgbGreen: 0,
+                            rgbRed: 0,
+                            rgbReserved: 0,
+                        }],
+                    };
+
+                    // Allocate buffer for pixel data (4 bytes per pixel for 32bpp)
+                    let buffer_size = (width as usize) * (height as usize) * 4;
+                    let mut buffer = vec![0u8; buffer_size];
+
+                    // Create a compatible bitmap to read from
+                    let hbitmap = CreateCompatibleBitmap(hdc, width as i32, height as i32);
+                    let mem_dc = CreateCompatibleDC(hdc);
+                    let old_bitmap = SelectObject(mem_dc, hbitmap);
+
+                    // Copy the area from source DC to memory DC
+                    BitBlt(
+                        mem_dc,
+                        0,
+                        0,
+                        width as i32,
+                        height as i32,
+                        hdc,
+                        x as i32,
+                        y as i32,
+                        SRCCOPY,
+                    );
+
+                    // Read the pixels from the bitmap
+                    let result = GetDIBits(
+                        mem_dc,
+                        hbitmap,
+                        0,
+                        height as u32,
+                        buffer.as_mut_ptr() as *mut _,
+                        &mut bmi as *mut _,
+                        DIB_RGB_COLORS,
+                    );
+
+                    // Cleanup
+                    SelectObject(mem_dc, old_bitmap);
+                    DeleteObject(hbitmap);
+                    DeleteDC(mem_dc);
+
+                    if result == 0 {
+                        return Err("GetDIBits failed".into());
+                    }
+
+                    Ok(buffer)
+                }
+                0 | 1 => {
+                    // Bitmap or XYPixmap formats
+                    Err(format!("Image format {} not yet implemented", format).into())
+                }
+                _ => Err(format!("Unknown image format: {}", format).into()),
+            }
+        }
+    }
+
     fn poll_events(&mut self) -> BackendResult<Vec<BackendEvent>> {
         unsafe {
             let mut msg: MSG = mem::zeroed();
