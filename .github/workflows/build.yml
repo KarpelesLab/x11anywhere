@@ -38,13 +38,13 @@ jobs:
           # macOS x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: x11anywhere-macos-amd64
+            artifact_name: x11anywhere-macos-amd64-single
             use_cross: false
 
           # macOS ARM64 (Apple Silicon)
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: x11anywhere-macos-arm64
+            artifact_name: x11anywhere-macos-arm64-single
             use_cross: false
 
           # Windows x86_64
@@ -148,6 +148,43 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+  macos-universal:
+    name: Create macOS Universal Binary
+    needs: build
+    runs-on: macos-latest
+
+    steps:
+      - name: Download x86_64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: x11anywhere-macos-amd64-single
+          path: ./macos-x86_64
+
+      - name: Download ARM64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: x11anywhere-macos-arm64-single
+          path: ./macos-arm64
+
+      - name: Create universal binary
+        run: |
+          mkdir -p artifacts
+          lipo -create \
+            ./macos-x86_64/x11anywhere-macos-amd64-single \
+            ./macos-arm64/x11anywhere-macos-arm64-single \
+            -output artifacts/x11anywhere-macos-universal
+
+          # Verify the universal binary
+          file artifacts/x11anywhere-macos-universal
+          lipo -info artifacts/x11anywhere-macos-universal
+
+      - name: Upload universal binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: x11anywhere-macos-universal
+          path: artifacts/x11anywhere-macos-universal
+          if-no-files-found: error
 
   release:
     name: Create Release
