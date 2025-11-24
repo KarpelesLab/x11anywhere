@@ -15,7 +15,7 @@ This document tracks the implementation status of X11 protocol features across d
 |---------|--------|----------|-------|
 | X11 (Linux/BSD) | 🟡 Partial | High | Primary backend, basic passthrough working |
 | Windows | ✅ Implemented | High | Full Win32/GDI implementation complete, **compiles & passes CI** |
-| macOS | ❌ Broken | High | Implementation exists but uses non-existent Core Graphics APIs - **does not compile** |
+| macOS | ✅ Implemented | High | Swift FFI implementation complete for both ARM64 & x86_64, **compiles & passes CI** |
 | Wayland | ❌ Not Started | Medium | Planned for future |
 
 ---
@@ -202,30 +202,31 @@ This document tracks the implementation status of X11 protocol features across d
 - **Next Steps**: Test with real X11 applications, enhance event handling
 
 ### macOS Backend
-- **Status**: ❌ **BROKEN - Does not compile**
-- **Architecture**: X11 protocol → Cocoa/Core Graphics translation
-- **Critical Issues**:
-  - ❌ **API Incompatibility**: Code uses Core Graphics methods that don't exist in `core-graphics 0.23` crate:
-    - `CGContext::stroke_rect`, `fill_rect` (don't exist - need to use C FFI: `CGContextStrokeRect`, `CGContextFillRect`)
-    - `CGContext::begin_path`, `move_to_point`, `add_line_to_point` (don't exist - need C FFI equivalents)
-    - `CGContext::set_rgb_fill_color`, `set_rgb_stroke_color`, `set_line_width` (don't exist)
-    - `CGColor::components()` method doesn't exist
-    - `CGContextRef::is_null()` - wrong type checking method
-  - ❌ **Thread Safety**: Backend uses raw pointers (`*mut Object`, `*mut ()`) stored in struct fields, but `Backend` trait requires `Send`
-    - Need to wrap in thread-safe types or use different approach
-- **Attempted Implementation** (non-functional):
-  - Window management: `NSWindow`, `NSApplication` (this part works)
-  - Drawing: Attempted Core Graphics usage (broken APIs)
-  - Resources: Attempted `CGContext` bitmap contexts
-  - Events: Cocoa event loop basics implemented
-- **Required Fixes**:
-  1. Replace all high-level Core Graphics API calls with low-level C FFI calls from `core_graphics::sys`
-  2. Fix thread safety by either:
-     - Using `Arc<Mutex<>>` or similar for Cocoa objects
-     - Restructuring to avoid storing raw Cocoa pointers
-  3. Properly test on actual macOS hardware
-  4. Consider using `core-graphics 0.25+` if APIs have improved
-- **Next Steps**: Complete rewrite of drawing operations to use correct Core Graphics C APIs, fix thread safety issues
+- **Status**: ✅ **Fully implemented** with Swift FFI (compiles & passes CI for ARM64 and x86_64)
+- **Architecture**: X11 protocol → Swift module → Cocoa/Core Graphics
+- **Implementation Approach**:
+  - ✅ **Swift C API Module**: Created `swift/Sources/X11AnywhereBackend/MacOSBackend.swift` with native Cocoa/Core Graphics access
+  - ✅ **FFI Bridge**: Rust backend (`src/backend/macos.rs`) calls Swift functions via C FFI (`@_cdecl`)
+  - ✅ **Thread Safety**: Swift module handles all Cocoa objects on main thread using `DispatchQueue.main.sync`, Rust only holds opaque pointer
+  - ✅ **Cross-Compilation**: Build system properly compiles Swift for both ARM64 and x86_64 architectures using target triples
+- **Implemented Features**:
+  - Window management: `NSWindow`, `NSApplication` with proper lifecycle management
+  - Drawing: Core Graphics (`CGContext`) with native APIs (`stroke`, `fill`, `setStrokeColor`, etc.)
+  - Resources: CGContext-based bitmap contexts for pixmaps
+  - Events: Cocoa event loop with `NSApp.nextEvent`
+  - Supported operations: rectangles, lines, points, text, clear area, copy area (basic)
+  - GC state tracking: foreground/background colors, line width
+- **Build System**:
+  - Swift Package Manager integration via `build.rs`
+  - Automatic SDK path detection with `xcrun`
+  - Runtime library search paths via rpath
+  - Proper linkage of Cocoa, Foundation, CoreGraphics, AppKit frameworks
+- **Known Limitations**:
+  - Event handling is basic (missing ButtonRelease, MotionNotify, Focus events)
+  - No arc/polygon drawing yet
+  - No image operations (PutImage/GetImage)
+  - copy_area() is simplified (fills destination rectangle with color)
+- **Next Steps**: Test with real X11 applications, enhance event handling, improve copy_area
 
 ### Wayland Backend
 - **Status**: Not started
@@ -243,8 +244,8 @@ This document tracks the implementation status of X11 protocol features across d
 | Backend | Unit Tests | Integration Tests | Manual Testing | Notes |
 |---------|------------|-------------------|----------------|-------|
 | X11 | 🟡 Basic | 🟡 xcalc works | ✅ | Basic apps work |
-| Windows | ❌ | ❌ | ⏳ Pending | Implementation complete, needs Windows testing |
-| macOS | ❌ | ❌ | ⏳ Pending | Implementation complete, needs macOS testing |
+| Windows | ❌ | ❌ | ⏳ Pending | Implementation complete, **compiles & passes CI**, needs Windows runtime testing |
+| macOS | ❌ | ❌ | ⏳ Pending | Implementation complete, **compiles & passes CI for both ARM64 & x86_64**, needs macOS runtime testing |
 | Wayland | ❌ | ❌ | ❌ | Not started |
 
 ---
