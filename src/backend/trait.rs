@@ -328,6 +328,30 @@ pub trait Backend: Send {
         text: &str,
     ) -> BackendResult<()>;
 
+    /// Draw arcs (elliptical arcs)
+    fn draw_arcs(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        arcs: &[Arc],
+    ) -> BackendResult<()>;
+
+    /// Fill arcs (pie slices)
+    fn fill_arcs(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        arcs: &[Arc],
+    ) -> BackendResult<()>;
+
+    /// Fill polygon
+    fn fill_polygon(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        points: &[Point],
+    ) -> BackendResult<()>;
+
     /// Copy area from one drawable to another
     #[allow(clippy::too_many_arguments)]
     fn copy_area(

@@ -388,6 +388,138 @@ public func macos_backend_draw_line(_ handle: BackendHandle, isWindow: Int32, dr
     return BackendResult.success.rawValue
 }
 
+@_cdecl("macos_backend_draw_arc")
+public func macos_backend_draw_arc(_ handle: BackendHandle, isWindow: Int32, drawableId: Int32,
+                                   x: Int32, y: Int32, width: Int32, height: Int32,
+                                   angle1: Int32, angle2: Int32,
+                                   r: Float, g: Float, b: Float, lineWidth: Float) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+
+    let context: CGContext?
+    if isWindow != 0 {
+        context = backend.getWindowContext(id: Int(drawableId))
+    } else {
+        context = backend.getPixmapContext(id: Int(drawableId))
+    }
+
+    guard let ctx = context else { return BackendResult.error.rawValue }
+
+    // Convert X11 angles (1/64 degrees, 0 at 3 o'clock counterclockwise) to radians
+    let startAngle = CGFloat(angle1) * CGFloat.pi / (180.0 * 64.0)
+    let endAngle = CGFloat(angle1 + angle2) * CGFloat.pi / (180.0 * 64.0)
+
+    // Calculate ellipse center and radii
+    let centerX = CGFloat(x) + CGFloat(width) / 2.0
+    let centerY = CGFloat(y) + CGFloat(height) / 2.0
+    let radiusX = CGFloat(width) / 2.0
+    let radiusY = CGFloat(height) / 2.0
+
+    ctx.setStrokeColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
+    ctx.setLineWidth(CGFloat(lineWidth))
+
+    // Save context state
+    ctx.saveGState()
+
+    // Transform to draw ellipse as circle, then scale
+    ctx.translateBy(x: centerX, y: centerY)
+    ctx.scaleBy(x: radiusX, y: radiusY)
+
+    // Draw arc (Core Graphics uses clockwise from 3 o'clock, opposite of X11)
+    ctx.addArc(center: CGPoint.zero, radius: 1.0, startAngle: -startAngle, endAngle: -endAngle, clockwise: true)
+    ctx.strokePath()
+
+    ctx.restoreGState()
+
+    if isWindow != 0 {
+        backend.releaseWindowContext(id: Int(drawableId))
+    }
+    return BackendResult.success.rawValue
+}
+
+@_cdecl("macos_backend_fill_arc")
+public func macos_backend_fill_arc(_ handle: BackendHandle, isWindow: Int32, drawableId: Int32,
+                                   x: Int32, y: Int32, width: Int32, height: Int32,
+                                   angle1: Int32, angle2: Int32,
+                                   r: Float, g: Float, b: Float) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+
+    let context: CGContext?
+    if isWindow != 0 {
+        context = backend.getWindowContext(id: Int(drawableId))
+    } else {
+        context = backend.getPixmapContext(id: Int(drawableId))
+    }
+
+    guard let ctx = context else { return BackendResult.error.rawValue }
+
+    let startAngle = CGFloat(angle1) * CGFloat.pi / (180.0 * 64.0)
+    let endAngle = CGFloat(angle1 + angle2) * CGFloat.pi / (180.0 * 64.0)
+
+    let centerX = CGFloat(x) + CGFloat(width) / 2.0
+    let centerY = CGFloat(y) + CGFloat(height) / 2.0
+    let radiusX = CGFloat(width) / 2.0
+    let radiusY = CGFloat(height) / 2.0
+
+    ctx.setFillColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
+
+    ctx.saveGState()
+    ctx.translateBy(x: centerX, y: centerY)
+    ctx.scaleBy(x: radiusX, y: radiusY)
+
+    // Draw pie slice
+    ctx.move(to: CGPoint.zero)
+    ctx.addArc(center: CGPoint.zero, radius: 1.0, startAngle: -startAngle, endAngle: -endAngle, clockwise: true)
+    ctx.closePath()
+    ctx.fillPath()
+
+    ctx.restoreGState()
+
+    if isWindow != 0 {
+        backend.releaseWindowContext(id: Int(drawableId))
+    }
+    return BackendResult.success.rawValue
+}
+
+@_cdecl("macos_backend_fill_polygon")
+public func macos_backend_fill_polygon(_ handle: BackendHandle, isWindow: Int32, drawableId: Int32,
+                                       points: UnsafePointer<Int32>, pointCount: Int32,
+                                       r: Float, g: Float, b: Float) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+
+    let context: CGContext?
+    if isWindow != 0 {
+        context = backend.getWindowContext(id: Int(drawableId))
+    } else {
+        context = backend.getPixmapContext(id: Int(drawableId))
+    }
+
+    guard let ctx = context else { return BackendResult.error.rawValue }
+
+    ctx.setFillColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
+
+    if pointCount > 0 {
+        // First point - move to
+        let x0 = CGFloat(points[0])
+        let y0 = CGFloat(points[1])
+        ctx.move(to: CGPoint(x: x0, y: y0))
+
+        // Remaining points - add lines
+        for i in 1..<Int(pointCount) {
+            let x = CGFloat(points[i * 2])
+            let y = CGFloat(points[i * 2 + 1])
+            ctx.addLine(to: CGPoint(x: x, y: y))
+        }
+
+        ctx.closePath()
+        ctx.fillPath()
+    }
+
+    if isWindow != 0 {
+        backend.releaseWindowContext(id: Int(drawableId))
+    }
+    return BackendResult.success.rawValue
+}
+
 @_cdecl("macos_backend_flush")
 public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     DispatchQueue.main.sync {

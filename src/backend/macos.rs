@@ -100,6 +100,48 @@ extern "C" {
         line_width: f32,
     ) -> i32;
 
+    fn macos_backend_draw_arc(
+        handle: BackendHandle,
+        is_window: i32,
+        drawable_id: i32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        angle1: i32,
+        angle2: i32,
+        r: f32,
+        g: f32,
+        b: f32,
+        line_width: f32,
+    ) -> i32;
+
+    fn macos_backend_fill_arc(
+        handle: BackendHandle,
+        is_window: i32,
+        drawable_id: i32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        angle1: i32,
+        angle2: i32,
+        r: f32,
+        g: f32,
+        b: f32,
+    ) -> i32;
+
+    fn macos_backend_fill_polygon(
+        handle: BackendHandle,
+        is_window: i32,
+        drawable_id: i32,
+        points: *const i32,
+        point_count: i32,
+        r: f32,
+        g: f32,
+        b: f32,
+    ) -> i32;
+
     fn macos_backend_flush(handle: BackendHandle) -> i32;
 
     fn macos_backend_poll_event(
@@ -590,6 +632,101 @@ impl Backend for MacOSBackend {
     ) -> BackendResult<()> {
         // TODO: Implement text drawing
         Ok(())
+    }
+
+    fn draw_arcs(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        arcs: &[crate::protocol::Arc],
+    ) -> BackendResult<()> {
+        unsafe {
+            let (is_window, drawable_id) = self.get_drawable_id(drawable);
+            let (r, g, b) = color_to_rgb_f32(gc.foreground);
+            let line_width = gc.line_width as f32;
+
+            for arc in arcs {
+                macos_backend_draw_arc(
+                    self.handle,
+                    is_window,
+                    drawable_id,
+                    arc.x as i32,
+                    arc.y as i32,
+                    arc.width as i32,
+                    arc.height as i32,
+                    arc.angle1 as i32,
+                    arc.angle2 as i32,
+                    r,
+                    g,
+                    b,
+                    line_width,
+                );
+            }
+
+            Ok(())
+        }
+    }
+
+    fn fill_arcs(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        arcs: &[crate::protocol::Arc],
+    ) -> BackendResult<()> {
+        unsafe {
+            let (is_window, drawable_id) = self.get_drawable_id(drawable);
+            let (r, g, b) = color_to_rgb_f32(gc.foreground);
+
+            for arc in arcs {
+                macos_backend_fill_arc(
+                    self.handle,
+                    is_window,
+                    drawable_id,
+                    arc.x as i32,
+                    arc.y as i32,
+                    arc.width as i32,
+                    arc.height as i32,
+                    arc.angle1 as i32,
+                    arc.angle2 as i32,
+                    r,
+                    g,
+                    b,
+                );
+            }
+
+            Ok(())
+        }
+    }
+
+    fn fill_polygon(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        points: &[crate::protocol::Point],
+    ) -> BackendResult<()> {
+        unsafe {
+            let (is_window, drawable_id) = self.get_drawable_id(drawable);
+            let (r, g, b) = color_to_rgb_f32(gc.foreground);
+
+            // Convert points to flat array of i32
+            let coords: Vec<i32> = points
+                .iter()
+                .flat_map(|p| vec![p.x as i32, p.y as i32])
+                .collect();
+
+            macos_backend_fill_polygon(
+                self.handle,
+                is_window,
+                drawable_id,
+                coords.as_ptr(),
+                points.len() as i32,
+                r,
+                g,
+                b,
+            );
+
+            Ok(())
+        }
     }
 
     fn copy_area(

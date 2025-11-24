@@ -664,6 +664,36 @@ impl Backend for X11Backend {
         Ok(())
     }
 
+    fn draw_arcs(
+        &mut self,
+        _drawable: BackendDrawable,
+        _gc: &BackendGC,
+        _arcs: &[crate::protocol::Arc],
+    ) -> BackendResult<()> {
+        // TODO: Implement X11 arc drawing via PolyArc request
+        Ok(())
+    }
+
+    fn fill_arcs(
+        &mut self,
+        _drawable: BackendDrawable,
+        _gc: &BackendGC,
+        _arcs: &[crate::protocol::Arc],
+    ) -> BackendResult<()> {
+        // TODO: Implement X11 filled arc drawing via FillPoly request
+        Ok(())
+    }
+
+    fn fill_polygon(
+        &mut self,
+        _drawable: BackendDrawable,
+        _gc: &BackendGC,
+        _points: &[crate::protocol::Point],
+    ) -> BackendResult<()> {
+        // TODO: Implement X11 polygon filling via FillPoly request
+        Ok(())
+    }
+
     fn copy_area(
         &mut self,
         _src: BackendDrawable,

@@ -564,6 +564,125 @@ impl Backend for WindowsBackend {
         }
     }
 
+    fn draw_arcs(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        arcs: &[crate::protocol::Arc],
+    ) -> BackendResult<()> {
+        unsafe {
+            let hdc = self.get_dc(drawable)?;
+            let pen = self.create_pen(gc)?;
+            let old_pen = SelectObject(hdc, pen);
+
+            for arc in arcs {
+                // X11 arcs are defined by a bounding rectangle and start/end angles
+                // Angles are in 1/64th of a degree, with 0 at 3 o'clock, counterclockwise
+                let left = arc.x as i32;
+                let top = arc.y as i32;
+                let right = (arc.x + arc.width as i16) as i32;
+                let bottom = (arc.y + arc.height as i16) as i32;
+
+                // Convert X11 angles (1/64 degrees) to radians
+                let start_angle = (arc.angle1 as f64) * std::f64::consts::PI / (180.0 * 64.0);
+                let end_angle =
+                    ((arc.angle1 + arc.angle2) as f64) * std::f64::consts::PI / (180.0 * 64.0);
+
+                // Calculate start and end points on the ellipse
+                let center_x = (left + right) as f64 / 2.0;
+                let center_y = (top + bottom) as f64 / 2.0;
+                let radius_x = (right - left) as f64 / 2.0;
+                let radius_y = (bottom - top) as f64 / 2.0;
+
+                let start_x = (center_x + radius_x * start_angle.cos()) as i32;
+                let start_y = (center_y - radius_y * start_angle.sin()) as i32;
+                let end_x = (center_x + radius_x * end_angle.cos()) as i32;
+                let end_y = (center_y - radius_y * end_angle.sin()) as i32;
+
+                // Use Arc() to draw the arc
+                winapi::um::wingdi::Arc(
+                    hdc, left, top, right, bottom, start_x, start_y, end_x, end_y,
+                );
+            }
+
+            SelectObject(hdc, old_pen);
+            DeleteObject(pen);
+            Ok(())
+        }
+    }
+
+    fn fill_arcs(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        arcs: &[crate::protocol::Arc],
+    ) -> BackendResult<()> {
+        unsafe {
+            let hdc = self.get_dc(drawable)?;
+            let brush = self.create_brush(gc)?;
+            let old_brush = SelectObject(hdc, brush);
+
+            for arc in arcs {
+                let left = arc.x as i32;
+                let top = arc.y as i32;
+                let right = (arc.x + arc.width as i16) as i32;
+                let bottom = (arc.y + arc.height as i16) as i32;
+
+                let start_angle = (arc.angle1 as f64) * std::f64::consts::PI / (180.0 * 64.0);
+                let end_angle =
+                    ((arc.angle1 + arc.angle2) as f64) * std::f64::consts::PI / (180.0 * 64.0);
+
+                let center_x = (left + right) as f64 / 2.0;
+                let center_y = (top + bottom) as f64 / 2.0;
+                let radius_x = (right - left) as f64 / 2.0;
+                let radius_y = (bottom - top) as f64 / 2.0;
+
+                let start_x = (center_x + radius_x * start_angle.cos()) as i32;
+                let start_y = (center_y - radius_y * start_angle.sin()) as i32;
+                let end_x = (center_x + radius_x * end_angle.cos()) as i32;
+                let end_y = (center_y - radius_y * end_angle.sin()) as i32;
+
+                // Use Pie() to draw filled pie slices
+                Pie(
+                    hdc, left, top, right, bottom, start_x, start_y, end_x, end_y,
+                );
+            }
+
+            SelectObject(hdc, old_brush);
+            DeleteObject(brush);
+            Ok(())
+        }
+    }
+
+    fn fill_polygon(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        points: &[crate::protocol::Point],
+    ) -> BackendResult<()> {
+        unsafe {
+            let hdc = self.get_dc(drawable)?;
+            let brush = self.create_brush(gc)?;
+            let old_brush = SelectObject(hdc, brush);
+
+            // Convert points to Windows POINT structure
+            let win_points: Vec<POINT> = points
+                .iter()
+                .map(|p| POINT {
+                    x: p.x as i32,
+                    y: p.y as i32,
+                })
+                .collect();
+
+            // Draw filled polygon
+            Polygon(hdc, win_points.as_ptr(), win_points.len() as i32);
+
+            SelectObject(hdc, old_brush);
+            DeleteObject(brush);
+            Ok(())
+        }
+    }
+
     fn copy_area(
         &mut self,
         src: BackendDrawable,
