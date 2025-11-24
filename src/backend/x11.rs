@@ -626,4 +626,14 @@ impl X11Backend {
     pub fn setup_info(&self) -> Option<&SetupSuccess> {
         self.setup_info.as_ref()
     }
+
+    /// Get a cloned connection to the real X server for direct passthrough
+    /// This is useful for bidirectional proxying
+    pub fn clone_connection(&self) -> BackendResult<UnixStream> {
+        match &self.connection {
+            Some(stream) => stream.try_clone()
+                .map_err(|e| format!("Failed to clone connection: {}", e).into()),
+            None => Err("Backend not initialized".into()),
+        }
+    }
 }

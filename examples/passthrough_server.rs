@@ -60,23 +60,82 @@ fn handle_client(mut stream: UnixStream, client_id: usize, backend: &mut X11Back
 
     log::info!("[Client {}] Setup reply sent successfully", client_id);
 
-    // Just keep the connection open for now
-    let mut buffer = [0u8; 1024];
+    // Now set up bidirectional forwarding
+    log::info!("[Client {}] Setting up bidirectional proxy...", client_id);
+
+    let mut server = match backend.clone_connection() {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("[Client {}] Failed to clone backend connection: {}", client_id, e);
+            return;
+        }
+    };
+
+    let mut server_reader = match server.try_clone() {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("[Client {}] Failed to clone server stream: {}", client_id, e);
+            return;
+        }
+    };
+
+    let mut client_writer = match stream.try_clone() {
+        Ok(c) => c,
+        Err(e) => {
+            log::error!("[Client {}] Failed to clone client stream: {}", client_id, e);
+            return;
+        }
+    };
+
+    // Thread to forward server -> client
+    let cid = client_id;
+    let server_to_client_thread = thread::spawn(move || {
+        let mut buffer = vec![0u8; 8192];
+        loop {
+            match server_reader.read(&mut buffer) {
+                Ok(0) => {
+                    log::info!("[Client {}] Server closed connection", cid);
+                    break;
+                }
+                Ok(n) => {
+                    log::debug!("[Client {}] SERVER -> CLIENT: {} bytes", cid, n);
+                    if let Err(e) = client_writer.write_all(&buffer[..n]) {
+                        log::error!("[Client {}] Error writing to client: {}", cid, e);
+                        break;
+                    }
+                }
+                Err(e) => {
+                    log::error!("[Client {}] Error reading from server: {}", cid, e);
+                    break;
+                }
+            }
+        }
+    });
+
+    // Main thread forwards client -> server
+    let mut buffer = vec![0u8; 8192];
     loop {
         match stream.read(&mut buffer) {
             Ok(0) => {
-                log::info!("[Client {}] Connection closed", client_id);
+                log::info!("[Client {}] Client closed connection", client_id);
                 break;
             }
             Ok(n) => {
-                log::info!("[Client {}] Received {} bytes (not processing requests yet)", client_id, n);
+                log::debug!("[Client {}] CLIENT -> SERVER: {} bytes", client_id, n);
+                if let Err(e) = server.write_all(&buffer[..n]) {
+                    log::error!("[Client {}] Error writing to server: {}", client_id, e);
+                    break;
+                }
             }
             Err(e) => {
-                log::error!("[Client {}] Read error: {}", client_id, e);
+                log::error!("[Client {}] Error reading from client: {}", client_id, e);
                 break;
             }
         }
     }
+
+    let _ = server_to_client_thread.join();
+    log::info!("[Client {}] Disconnected", client_id);
 }
 
 fn main() {
