@@ -320,7 +320,12 @@ pub struct Rectangle {
 
 impl Rectangle {
     pub fn new(x: i16, y: i16, width: u16, height: u16) -> Self {
-        Rectangle { x, y, width, height }
+        Rectangle {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 }
 
@@ -331,8 +336,8 @@ pub struct Arc {
     pub y: i16,
     pub width: u16,
     pub height: u16,
-    pub angle1: i16,  // Start angle in 1/64 degrees
-    pub angle2: i16,  // Arc angle in 1/64 degrees
+    pub angle1: i16, // Start angle in 1/64 degrees
+    pub angle2: i16, // Arc angle in 1/64 degrees
 }
 
 /// Window class

@@ -19,7 +19,8 @@ impl SetupRequest {
     /// Parse setup request from stream
     pub fn parse<R: Read>(stream: &mut R) -> Result<Self, X11Error> {
         let mut header = [0u8; 12];
-        stream.read_exact(&mut header)
+        stream
+            .read_exact(&mut header)
             .map_err(|_| X11Error::bad_length(0, 0))?;
 
         // Byte 0: byte order ('B' = MSB, 'l' = LSB)
@@ -45,15 +46,17 @@ impl SetupRequest {
         // Read authorization protocol name (padded to 4 bytes)
         let auth_name_padded = padded_len(auth_proto_name_len);
         let mut auth_name_buf = vec![0u8; auth_name_padded];
-        stream.read_exact(&mut auth_name_buf)
+        stream
+            .read_exact(&mut auth_name_buf)
             .map_err(|_| X11Error::bad_length(0, 0))?;
-        let authorization_protocol_name = String::from_utf8_lossy(&auth_name_buf[..auth_proto_name_len])
-            .to_string();
+        let authorization_protocol_name =
+            String::from_utf8_lossy(&auth_name_buf[..auth_proto_name_len]).to_string();
 
         // Read authorization protocol data (padded to 4 bytes)
         let auth_data_padded = padded_len(auth_proto_data_len);
         let mut authorization_protocol_data = vec![0u8; auth_data_padded];
-        stream.read_exact(&mut authorization_protocol_data)
+        stream
+            .read_exact(&mut authorization_protocol_data)
             .map_err(|_| X11Error::bad_length(0, 0))?;
         authorization_protocol_data.truncate(auth_proto_data_len);
 
@@ -106,18 +109,14 @@ pub struct VisualType {
 
 impl VisualType {
     pub fn encode(&self, buffer: &mut Vec<u8>, byte_order: ByteOrder) {
-        let write_u16 = |buf: &mut Vec<u8>, val: u16| {
-            match byte_order {
-                ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
-                ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
-            }
+        let write_u16 = |buf: &mut Vec<u8>, val: u16| match byte_order {
+            ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
+            ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
         };
 
-        let write_u32 = |buf: &mut Vec<u8>, val: u32| {
-            match byte_order {
-                ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
-                ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
-            }
+        let write_u32 = |buf: &mut Vec<u8>, val: u32| match byte_order {
+            ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
+            ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
         };
 
         write_u32(buffer, self.visual_id.get());
@@ -140,11 +139,9 @@ pub struct Depth {
 
 impl Depth {
     pub fn encode(&self, buffer: &mut Vec<u8>, byte_order: ByteOrder) {
-        let write_u16 = |buf: &mut Vec<u8>, val: u16| {
-            match byte_order {
-                ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
-                ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
-            }
+        let write_u16 = |buf: &mut Vec<u8>, val: u16| match byte_order {
+            ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
+            ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
         };
 
         buffer.push(self.depth);
@@ -181,18 +178,14 @@ pub struct Screen {
 
 impl Screen {
     pub fn encode(&self, buffer: &mut Vec<u8>, byte_order: ByteOrder) {
-        let write_u16 = |buf: &mut Vec<u8>, val: u16| {
-            match byte_order {
-                ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
-                ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
-            }
+        let write_u16 = |buf: &mut Vec<u8>, val: u16| match byte_order {
+            ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
+            ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
         };
 
-        let write_u32 = |buf: &mut Vec<u8>, val: u32| {
-            match byte_order {
-                ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
-                ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
-            }
+        let write_u32 = |buf: &mut Vec<u8>, val: u32| match byte_order {
+            ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
+            ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
         };
 
         write_u32(buffer, self.root.id().get());
@@ -243,18 +236,14 @@ impl SetupSuccess {
     pub fn encode<W: Write>(&self, stream: &mut W, byte_order: ByteOrder) -> std::io::Result<()> {
         let mut buffer = Vec::new();
 
-        let write_u16 = |buf: &mut Vec<u8>, val: u16| {
-            match byte_order {
-                ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
-                ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
-            }
+        let write_u16 = |buf: &mut Vec<u8>, val: u16| match byte_order {
+            ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
+            ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
         };
 
-        let write_u32 = |buf: &mut Vec<u8>, val: u32| {
-            match byte_order {
-                ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
-                ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
-            }
+        let write_u32 = |buf: &mut Vec<u8>, val: u32| match byte_order {
+            ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
+            ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
         };
 
         // Status (1 = Success)
@@ -342,11 +331,9 @@ impl SetupFailed {
     pub fn encode<W: Write>(&self, stream: &mut W, byte_order: ByteOrder) -> std::io::Result<()> {
         let mut buffer = Vec::new();
 
-        let write_u16 = |buf: &mut Vec<u8>, val: u16| {
-            match byte_order {
-                ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
-                ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
-            }
+        let write_u16 = |buf: &mut Vec<u8>, val: u16| match byte_order {
+            ByteOrder::MSBFirst => buf.extend_from_slice(&val.to_be_bytes()),
+            ByteOrder::LSBFirst => buf.extend_from_slice(&val.to_le_bytes()),
         };
 
         // Status (0 = Failed)

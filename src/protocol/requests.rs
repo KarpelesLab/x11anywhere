@@ -2,8 +2,8 @@
 //!
 //! This module defines the X11 request opcodes and structures for parsing requests.
 
-use super::types::*;
 use super::errors::*;
+use super::types::*;
 
 /// X11 request opcodes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,7 +224,7 @@ impl RequestOpcode {
 pub struct RequestHeader {
     pub opcode: u8,
     pub detail: u8,  // Request-specific detail byte
-    pub length: u16,  // Length in 4-byte units
+    pub length: u16, // Length in 4-byte units
 }
 
 impl RequestHeader {
@@ -269,10 +269,7 @@ impl<'a> RequestReader<'a> {
     }
 
     pub fn read_u16(&mut self) -> u16 {
-        let val = u16::from_ne_bytes([
-            self.buffer[self.offset],
-            self.buffer[self.offset + 1],
-        ]);
+        let val = u16::from_ne_bytes([self.buffer[self.offset], self.buffer[self.offset + 1]]);
         self.offset += 2;
         val
     }
@@ -289,10 +286,7 @@ impl<'a> RequestReader<'a> {
     }
 
     pub fn read_i16(&mut self) -> i16 {
-        let val = i16::from_ne_bytes([
-            self.buffer[self.offset],
-            self.buffer[self.offset + 1],
-        ]);
+        let val = i16::from_ne_bytes([self.buffer[self.offset], self.buffer[self.offset + 1]]);
         self.offset += 2;
         val
     }

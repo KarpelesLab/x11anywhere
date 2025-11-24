@@ -8,11 +8,11 @@
 
 use super::*;
 use crate::protocol::*;
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 pub struct X11Backend {
     display: String,
@@ -55,7 +55,9 @@ impl X11Backend {
 
     fn connect_to_display(&mut self) -> BackendResult<()> {
         // Parse display number
-        let display_num: usize = self.display.trim_start_matches(':')
+        let display_num: usize = self
+            .display
+            .trim_start_matches(':')
             .parse()
             .map_err(|_| "Invalid display number")?;
 
@@ -63,7 +65,7 @@ impl X11Backend {
         #[cfg(target_os = "linux")]
         let stream = {
             use nix::sys::socket::*;
-            use std::os::fd::{FromRawFd, AsRawFd};
+            use std::os::fd::{AsRawFd, FromRawFd};
 
             // Create socket
             let socket_fd = socket(
@@ -71,7 +73,8 @@ impl X11Backend {
                 SockType::Stream,
                 SockFlag::SOCK_CLOEXEC,
                 None,
-            ).map_err(|e| format!("Failed to create socket: {}", e))?;
+            )
+            .map_err(|e| format!("Failed to create socket: {}", e))?;
 
             // Create abstract socket address
             let abstract_name = format!("/tmp/.X11-unix/X{}", display_num);
@@ -134,39 +137,57 @@ impl X11Backend {
 
         // Parse .Xauthority entries
         while offset < data.len() {
-            if offset + 2 > data.len() { break; }
+            if offset + 2 > data.len() {
+                break;
+            }
             let family = u16::from_be_bytes([data[offset], data[offset + 1]]);
             offset += 2;
 
             // Read address
-            if offset + 2 > data.len() { break; }
+            if offset + 2 > data.len() {
+                break;
+            }
             let addr_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
             offset += 2;
-            if offset + addr_len > data.len() { break; }
+            if offset + addr_len > data.len() {
+                break;
+            }
             let _address = &data[offset..offset + addr_len];
             offset += addr_len;
 
             // Read display number
-            if offset + 2 > data.len() { break; }
+            if offset + 2 > data.len() {
+                break;
+            }
             let num_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
             offset += 2;
-            if offset + num_len > data.len() { break; }
+            if offset + num_len > data.len() {
+                break;
+            }
             let number = String::from_utf8_lossy(&data[offset..offset + num_len]).to_string();
             offset += num_len;
 
             // Read auth name
-            if offset + 2 > data.len() { break; }
+            if offset + 2 > data.len() {
+                break;
+            }
             let name_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
             offset += 2;
-            if offset + name_len > data.len() { break; }
+            if offset + name_len > data.len() {
+                break;
+            }
             let name = String::from_utf8_lossy(&data[offset..offset + name_len]).to_string();
             offset += name_len;
 
             // Read auth data
-            if offset + 2 > data.len() { break; }
+            if offset + 2 > data.len() {
+                break;
+            }
             let data_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
             offset += 2;
-            if offset + data_len > data.len() { break; }
+            if offset + data_len > data.len() {
+                break;
+            }
             let auth_data = data[offset..offset + data_len].to_vec();
             offset += data_len;
 
@@ -189,28 +210,24 @@ impl X11Backend {
 
     fn perform_handshake(&mut self) -> BackendResult<()> {
         // Get display number for auth lookup
-        let display_num: usize = self.display.trim_start_matches(':')
-            .parse()
-            .unwrap_or(0);
+        let display_num: usize = self.display.trim_start_matches(':').parse().unwrap_or(0);
 
         // Try to get auth from .Xauthority (before borrowing connection)
-        let (auth_name, auth_data) = self.read_xauthority(display_num)
-            .unwrap_or_else(|e| {
-                if self.debug {
-                    log::debug!("Could not read auth: {}", e);
-                }
-                (String::new(), Vec::new())
-            });
+        let (auth_name, auth_data) = self.read_xauthority(display_num).unwrap_or_else(|e| {
+            if self.debug {
+                log::debug!("Could not read auth: {}", e);
+            }
+            (String::new(), Vec::new())
+        });
 
-        let stream = self.connection.as_mut()
-            .ok_or("Not connected")?;
+        let stream = self.connection.as_mut().ok_or("Not connected")?;
 
         // Send setup request
         let mut setup_bytes = Vec::new();
         setup_bytes.push(b'l'); // LSB first
         setup_bytes.push(0); // Padding
         setup_bytes.extend_from_slice(&11u16.to_le_bytes()); // Protocol major
-        setup_bytes.extend_from_slice(&0u16.to_le_bytes());  // Protocol minor
+        setup_bytes.extend_from_slice(&0u16.to_le_bytes()); // Protocol minor
 
         // Auth protocol name
         let auth_name_len = auth_name.len() as u16;
@@ -232,7 +249,8 @@ impl X11Backend {
         let auth_data_pad = (4 - (auth_data.len() % 4)) % 4;
         setup_bytes.extend_from_slice(&vec![0u8; auth_data_pad]);
 
-        stream.write_all(&setup_bytes)
+        stream
+            .write_all(&setup_bytes)
             .map_err(|e| format!("Failed to send setup: {}", e))?;
 
         if self.debug {
@@ -241,7 +259,8 @@ impl X11Backend {
 
         // Read setup reply
         let mut header = [0u8; 8];
-        stream.read_exact(&mut header)
+        stream
+            .read_exact(&mut header)
             .map_err(|e| format!("Failed to read setup reply: {}", e))?;
 
         let status = header[0];
@@ -259,11 +278,16 @@ impl X11Backend {
         // Read success data
         let data_len = (additional_length as usize) * 4;
         let mut data = vec![0u8; data_len];
-        stream.read_exact(&mut data)
+        stream
+            .read_exact(&mut data)
             .map_err(|e| format!("Failed to read setup data: {}", e))?;
 
         if self.debug {
-            log::debug!("Real X server sent {} byte header + {} bytes data:", header.len(), data.len());
+            log::debug!(
+                "Real X server sent {} byte header + {} bytes data:",
+                header.len(),
+                data.len()
+            );
             log::debug!("Header: {:02x?}", header);
             // Dump first 64 bytes of data
             for (i, chunk) in data.chunks(16).take(4).enumerate() {
@@ -302,8 +326,16 @@ impl X11Backend {
         let max_request_length = u16::from_le_bytes([data[18], data[19]]);
         let num_screens = data[20];
         let num_formats = data[21];
-        let image_byte_order = if data[22] == 0 { ByteOrder::LSBFirst } else { ByteOrder::MSBFirst };
-        let bitmap_bit_order = if data[23] == 0 { ByteOrder::LSBFirst } else { ByteOrder::MSBFirst };
+        let image_byte_order = if data[22] == 0 {
+            ByteOrder::LSBFirst
+        } else {
+            ByteOrder::MSBFirst
+        };
+        let bitmap_bit_order = if data[23] == 0 {
+            ByteOrder::LSBFirst
+        } else {
+            ByteOrder::MSBFirst
+        };
         let bitmap_scanline_unit = data[24];
         let bitmap_scanline_pad = data[25];
         let min_keycode = data[26];
@@ -336,22 +368,52 @@ impl X11Backend {
         let mut roots = Vec::new();
         for _ in 0..num_screens {
             if offset + 40 <= data.len() {
-                let root = u32::from_le_bytes([data[offset], data[offset+1], data[offset+2], data[offset+3]]);
-                let default_colormap = u32::from_le_bytes([data[offset+4], data[offset+5], data[offset+6], data[offset+7]]);
-                let white_pixel = u32::from_le_bytes([data[offset+8], data[offset+9], data[offset+10], data[offset+11]]);
-                let black_pixel = u32::from_le_bytes([data[offset+12], data[offset+13], data[offset+14], data[offset+15]]);
-                let current_input_masks = u32::from_le_bytes([data[offset+16], data[offset+17], data[offset+18], data[offset+19]]);
-                let width = u16::from_le_bytes([data[offset+20], data[offset+21]]);
-                let height = u16::from_le_bytes([data[offset+22], data[offset+23]]);
-                let width_mm = u16::from_le_bytes([data[offset+24], data[offset+25]]);
-                let height_mm = u16::from_le_bytes([data[offset+26], data[offset+27]]);
-                let min_maps = u16::from_le_bytes([data[offset+28], data[offset+29]]);
-                let max_maps = u16::from_le_bytes([data[offset+30], data[offset+31]]);
-                let root_visual = u32::from_le_bytes([data[offset+32], data[offset+33], data[offset+34], data[offset+35]]);
-                let backing_stores = data[offset+36];
-                let save_unders = data[offset+37] != 0;
-                let root_depth = data[offset+38];
-                let num_depths = data[offset+39];
+                let root = u32::from_le_bytes([
+                    data[offset],
+                    data[offset + 1],
+                    data[offset + 2],
+                    data[offset + 3],
+                ]);
+                let default_colormap = u32::from_le_bytes([
+                    data[offset + 4],
+                    data[offset + 5],
+                    data[offset + 6],
+                    data[offset + 7],
+                ]);
+                let white_pixel = u32::from_le_bytes([
+                    data[offset + 8],
+                    data[offset + 9],
+                    data[offset + 10],
+                    data[offset + 11],
+                ]);
+                let black_pixel = u32::from_le_bytes([
+                    data[offset + 12],
+                    data[offset + 13],
+                    data[offset + 14],
+                    data[offset + 15],
+                ]);
+                let current_input_masks = u32::from_le_bytes([
+                    data[offset + 16],
+                    data[offset + 17],
+                    data[offset + 18],
+                    data[offset + 19],
+                ]);
+                let width = u16::from_le_bytes([data[offset + 20], data[offset + 21]]);
+                let height = u16::from_le_bytes([data[offset + 22], data[offset + 23]]);
+                let width_mm = u16::from_le_bytes([data[offset + 24], data[offset + 25]]);
+                let height_mm = u16::from_le_bytes([data[offset + 26], data[offset + 27]]);
+                let min_maps = u16::from_le_bytes([data[offset + 28], data[offset + 29]]);
+                let max_maps = u16::from_le_bytes([data[offset + 30], data[offset + 31]]);
+                let root_visual = u32::from_le_bytes([
+                    data[offset + 32],
+                    data[offset + 33],
+                    data[offset + 34],
+                    data[offset + 35],
+                ]);
+                let backing_stores = data[offset + 36];
+                let save_unders = data[offset + 37] != 0;
+                let root_depth = data[offset + 38];
+                let num_depths = data[offset + 39];
 
                 offset += 40;
 
@@ -360,20 +422,43 @@ impl X11Backend {
                 for _ in 0..num_depths {
                     if offset + 8 <= data.len() {
                         let depth = data[offset];
-                        let num_visuals = u16::from_le_bytes([data[offset+2], data[offset+3]]);
+                        let num_visuals = u16::from_le_bytes([data[offset + 2], data[offset + 3]]);
                         offset += 8;
 
                         let mut visuals = Vec::new();
                         for _ in 0..num_visuals {
                             if offset + 24 <= data.len() {
                                 visuals.push(VisualType {
-                                    visual_id: VisualID::new(u32::from_le_bytes([data[offset], data[offset+1], data[offset+2], data[offset+3]])),
-                                    class: data[offset+4],
-                                    bits_per_rgb_value: data[offset+5],
-                                    colormap_entries: u16::from_le_bytes([data[offset+6], data[offset+7]]),
-                                    red_mask: u32::from_le_bytes([data[offset+8], data[offset+9], data[offset+10], data[offset+11]]),
-                                    green_mask: u32::from_le_bytes([data[offset+12], data[offset+13], data[offset+14], data[offset+15]]),
-                                    blue_mask: u32::from_le_bytes([data[offset+16], data[offset+17], data[offset+18], data[offset+19]]),
+                                    visual_id: VisualID::new(u32::from_le_bytes([
+                                        data[offset],
+                                        data[offset + 1],
+                                        data[offset + 2],
+                                        data[offset + 3],
+                                    ])),
+                                    class: data[offset + 4],
+                                    bits_per_rgb_value: data[offset + 5],
+                                    colormap_entries: u16::from_le_bytes([
+                                        data[offset + 6],
+                                        data[offset + 7],
+                                    ]),
+                                    red_mask: u32::from_le_bytes([
+                                        data[offset + 8],
+                                        data[offset + 9],
+                                        data[offset + 10],
+                                        data[offset + 11],
+                                    ]),
+                                    green_mask: u32::from_le_bytes([
+                                        data[offset + 12],
+                                        data[offset + 13],
+                                        data[offset + 14],
+                                        data[offset + 15],
+                                    ]),
+                                    blue_mask: u32::from_le_bytes([
+                                        data[offset + 16],
+                                        data[offset + 17],
+                                        data[offset + 18],
+                                        data[offset + 19],
+                                    ]),
                                 });
                                 offset += 24;
                             }
@@ -433,8 +518,7 @@ impl Backend for X11Backend {
     }
 
     fn get_screen_info(&self) -> BackendResult<ScreenInfo> {
-        let setup = self.setup_info.as_ref()
-            .ok_or("Not initialized")?;
+        let setup = self.setup_info.as_ref().ok_or("Not initialized")?;
 
         let screen = &setup.roots[0];
 
@@ -451,8 +535,7 @@ impl Backend for X11Backend {
     }
 
     fn get_visuals(&self) -> BackendResult<Vec<VisualInfo>> {
-        let setup = self.setup_info.as_ref()
-            .ok_or("Not initialized")?;
+        let setup = self.setup_info.as_ref().ok_or("Not initialized")?;
 
         let screen = &setup.roots[0];
         let mut visuals = Vec::new();
@@ -494,7 +577,11 @@ impl Backend for X11Backend {
         Ok(())
     }
 
-    fn configure_window(&mut self, _window: BackendWindow, _config: WindowConfig) -> BackendResult<()> {
+    fn configure_window(
+        &mut self,
+        _window: BackendWindow,
+        _config: WindowConfig,
+    ) -> BackendResult<()> {
         Ok(())
     }
 
@@ -631,7 +718,8 @@ impl X11Backend {
     /// This is useful for bidirectional proxying
     pub fn clone_connection(&self) -> BackendResult<UnixStream> {
         match &self.connection {
-            Some(stream) => stream.try_clone()
+            Some(stream) => stream
+                .try_clone()
                 .map_err(|e| format!("Failed to clone connection: {}", e).into()),
             None => Err("Backend not initialized".into()),
         }

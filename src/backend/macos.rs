@@ -123,7 +123,11 @@ impl Backend for MacOSBackend {
         Ok(())
     }
 
-    fn configure_window(&mut self, _window: BackendWindow, _config: WindowConfig) -> BackendResult<()> {
+    fn configure_window(
+        &mut self,
+        _window: BackendWindow,
+        _config: WindowConfig,
+    ) -> BackendResult<()> {
         Ok(())
     }
 

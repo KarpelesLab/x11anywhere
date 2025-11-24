@@ -302,12 +302,21 @@ impl ProtocolParser {
 
         let request_data = &buffer[4..request_size];
 
-        log::debug!("Parsing request: opcode={}, detail={}, length={}", opcode, detail, length);
+        log::debug!(
+            "Parsing request: opcode={}, detail={}, length={}",
+            opcode,
+            detail,
+            length
+        );
 
         let request = match RequestOpcode::from_u8(opcode) {
             Some(RequestOpcode::CreateWindow) => self.parse_create_window(detail, request_data)?,
-            Some(RequestOpcode::ChangeWindowAttributes) => self.parse_change_window_attributes(request_data)?,
-            Some(RequestOpcode::GetWindowAttributes) => self.parse_get_window_attributes(request_data)?,
+            Some(RequestOpcode::ChangeWindowAttributes) => {
+                self.parse_change_window_attributes(request_data)?
+            }
+            Some(RequestOpcode::GetWindowAttributes) => {
+                self.parse_get_window_attributes(request_data)?
+            }
             Some(RequestOpcode::DestroyWindow) => self.parse_destroy_window(request_data)?,
             Some(RequestOpcode::MapWindow) => self.parse_map_window(request_data)?,
             Some(RequestOpcode::UnmapWindow) => self.parse_unmap_window(request_data)?,
@@ -316,14 +325,18 @@ impl ProtocolParser {
             Some(RequestOpcode::QueryTree) => self.parse_query_tree(request_data)?,
             Some(RequestOpcode::InternAtom) => self.parse_intern_atom(detail, request_data)?,
             Some(RequestOpcode::GetAtomName) => self.parse_get_atom_name(request_data)?,
-            Some(RequestOpcode::ChangeProperty) => self.parse_change_property(detail, request_data)?,
+            Some(RequestOpcode::ChangeProperty) => {
+                self.parse_change_property(detail, request_data)?
+            }
             Some(RequestOpcode::GetProperty) => self.parse_get_property(detail, request_data)?,
             Some(RequestOpcode::CreateGC) => self.parse_create_gc(request_data)?,
             Some(RequestOpcode::ChangeGC) => self.parse_change_gc(request_data)?,
             Some(RequestOpcode::FreeGC) => self.parse_free_gc(request_data)?,
             Some(RequestOpcode::ClearArea) => self.parse_clear_area(detail, request_data)?,
             Some(RequestOpcode::PolyRectangle) => self.parse_poly_rectangle(request_data)?,
-            Some(RequestOpcode::PolyFillRectangle) => self.parse_poly_fill_rectangle(request_data)?,
+            Some(RequestOpcode::PolyFillRectangle) => {
+                self.parse_poly_fill_rectangle(request_data)?
+            }
             Some(RequestOpcode::PolyLine) => self.parse_poly_line(detail, request_data)?,
             Some(RequestOpcode::PolyPoint) => self.parse_poly_point(detail, request_data)?,
             Some(RequestOpcode::ImageText8) => self.parse_image_text8(detail, request_data)?,
@@ -332,7 +345,9 @@ impl ProtocolParser {
             Some(RequestOpcode::PutImage) => self.parse_put_image(detail, request_data)?,
             Some(RequestOpcode::OpenFont) => self.parse_open_font(request_data)?,
             Some(RequestOpcode::CloseFont) => self.parse_close_font(request_data)?,
-            Some(RequestOpcode::CreateGlyphCursor) => self.parse_create_glyph_cursor(request_data)?,
+            Some(RequestOpcode::CreateGlyphCursor) => {
+                self.parse_create_glyph_cursor(request_data)?
+            }
             Some(RequestOpcode::AllocNamedColor) => self.parse_alloc_named_color(request_data)?,
             Some(RequestOpcode::QueryFont) => self.parse_query_font(request_data)?,
             Some(RequestOpcode::QueryExtension) => self.parse_query_extension(request_data)?,
@@ -341,7 +356,11 @@ impl ProtocolParser {
             _ => {
                 // Handle extension requests (opcodes >= 128)
                 if opcode >= 128 {
-                    log::debug!("Extension request: opcode={}, length={}", opcode, request_size);
+                    log::debug!(
+                        "Extension request: opcode={}, length={}",
+                        opcode,
+                        request_size
+                    );
                     Request::ExtensionRequest {
                         opcode,
                         data: request_data.to_vec(),
@@ -398,15 +417,18 @@ impl ProtocolParser {
         let mut event_mask = None;
         let mut offset = 28;
 
-        if value_mask & (1 << 1) != 0 { // Background pixel
+        if value_mask & (1 << 1) != 0 {
+            // Background pixel
             background_pixel = Some(self.read_u32(&data[offset..offset + 4]));
             offset += 4;
         }
-        if value_mask & (1 << 3) != 0 { // Border pixel
+        if value_mask & (1 << 3) != 0 {
+            // Border pixel
             border_pixel = Some(self.read_u32(&data[offset..offset + 4]));
             offset += 4;
         }
-        if value_mask & (1 << 11) != 0 { // Event mask
+        if value_mask & (1 << 11) != 0 {
+            // Event mask
             event_mask = Some(self.read_u32(&data[offset..offset + 4]));
         }
 
@@ -429,16 +451,20 @@ impl ProtocolParser {
 
     fn parse_change_window_attributes(&self, data: &[u8]) -> Result<Request, X11Error> {
         let window = Window::new(self.read_u32(&data[0..4]));
-        Ok(Request::ChangeWindowAttributes(ChangeWindowAttributesRequest {
-            window,
-            background_pixel: None,
-            event_mask: None,
-        }))
+        Ok(Request::ChangeWindowAttributes(
+            ChangeWindowAttributesRequest {
+                window,
+                background_pixel: None,
+                event_mask: None,
+            },
+        ))
     }
 
     fn parse_get_window_attributes(&self, data: &[u8]) -> Result<Request, X11Error> {
         let window = Window::new(self.read_u32(&data[0..4]));
-        Ok(Request::GetWindowAttributes(GetWindowAttributesRequest { window }))
+        Ok(Request::GetWindowAttributes(GetWindowAttributesRequest {
+            window,
+        }))
     }
 
     fn parse_destroy_window(&self, data: &[u8]) -> Result<Request, X11Error> {
@@ -585,7 +611,12 @@ impl ProtocolParser {
             let y = self.read_i16(&data[offset + 2..offset + 4]);
             let width = self.read_u16(&data[offset + 4..offset + 6]);
             let height = self.read_u16(&data[offset + 6..offset + 8]);
-            rectangles.push(Rectangle { x, y, width, height });
+            rectangles.push(Rectangle {
+                x,
+                y,
+                width,
+                height,
+            });
             offset += 8;
         }
 
@@ -607,7 +638,12 @@ impl ProtocolParser {
             let y = self.read_i16(&data[offset + 2..offset + 4]);
             let width = self.read_u16(&data[offset + 4..offset + 6]);
             let height = self.read_u16(&data[offset + 6..offset + 8]);
-            rectangles.push(Rectangle { x, y, width, height });
+            rectangles.push(Rectangle {
+                x,
+                y,
+                width,
+                height,
+            });
             offset += 8;
         }
 

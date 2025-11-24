@@ -3,19 +3,19 @@
 //! This module implements the X11 wire protocol, including types, requests,
 //! replies, events, and errors.
 
-pub mod types;
+pub mod encoder;
 pub mod errors;
 pub mod events;
+pub mod parser;
 pub mod requests;
 pub mod setup;
-pub mod parser;
-pub mod encoder;
+pub mod types;
 
-pub use types::*;
 pub use errors::*;
+pub use parser::*;
 pub use requests::*;
 pub use setup::*;
-pub use parser::*;
+pub use types::*;
 
 /// X11 protocol version
 pub const PROTOCOL_MAJOR_VERSION: u16 = 11;

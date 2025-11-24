@@ -36,10 +36,10 @@ impl Default for SecurityPolicy {
         SecurityPolicy {
             window_isolation: true,
             allow_global_selections: false,
-            allow_synthetic_events: false,  // Block SendEvent from external clients
+            allow_synthetic_events: false, // Block SendEvent from external clients
             allow_keyboard_grabs: false,
-            allow_pointer_grabs: true,       // Allow for modal dialogs
-            allow_screen_capture: true,      // Allow GetImage
+            allow_pointer_grabs: true,  // Allow for modal dialogs
+            allow_screen_capture: true, // Allow GetImage
             max_windows_per_client: 1000,
             max_pixmaps_per_client: 1000,
         }
@@ -52,7 +52,7 @@ impl SecurityPolicy {
         SecurityPolicy {
             window_isolation: false,
             allow_global_selections: true,
-            allow_synthetic_events: true,  // Allow SendEvent
+            allow_synthetic_events: true, // Allow SendEvent
             allow_keyboard_grabs: true,
             allow_pointer_grabs: true,
             allow_screen_capture: true,
@@ -66,10 +66,10 @@ impl SecurityPolicy {
         SecurityPolicy {
             window_isolation: true,
             allow_global_selections: false,
-            allow_synthetic_events: false,  // Block SendEvent
+            allow_synthetic_events: false, // Block SendEvent
             allow_keyboard_grabs: false,
             allow_pointer_grabs: false,
-            allow_screen_capture: false,     // Block GetImage on non-owned windows
+            allow_screen_capture: false, // Block GetImage on non-owned windows
             max_windows_per_client: 100,
             max_pixmaps_per_client: 100,
         }

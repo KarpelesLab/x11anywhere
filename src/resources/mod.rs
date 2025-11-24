@@ -4,8 +4,8 @@
 //! backends (X11, Windows, macOS). It tracks all resources created by a client
 //! and generates cleanup requests when the client disconnects.
 
-use std::collections::{HashMap, HashSet};
 use crate::protocol::*;
+use std::collections::{HashMap, HashSet};
 
 /// Tracks all resources allocated by X11 clients
 #[derive(Debug, Default)]
@@ -364,29 +364,35 @@ mod tests {
         let client_id = tracker.register_client();
 
         // Create resources
-        tracker.track_request(client_id, &Request::CreateWindow(CreateWindowRequest {
-            depth: 24,
-            wid: Window::new(0x1000),
-            parent: Window::new(1),
-            x: 0,
-            y: 0,
-            width: 100,
-            height: 100,
-            border_width: 0,
-            class: WindowClass::InputOutput,
-            visual: VisualID::new(0),
-            background_pixel: None,
-            border_pixel: None,
-            event_mask: None,
-        }));
+        tracker.track_request(
+            client_id,
+            &Request::CreateWindow(CreateWindowRequest {
+                depth: 24,
+                wid: Window::new(0x1000),
+                parent: Window::new(1),
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 100,
+                border_width: 0,
+                class: WindowClass::InputOutput,
+                visual: VisualID::new(0),
+                background_pixel: None,
+                border_pixel: None,
+                event_mask: None,
+            }),
+        );
 
-        tracker.track_request(client_id, &Request::CreatePixmap(CreatePixmapRequest {
-            depth: 24,
-            pid: Pixmap::new(0x2000),
-            drawable: Drawable::Window(Window::new(1)),
-            width: 32,
-            height: 32,
-        }));
+        tracker.track_request(
+            client_id,
+            &Request::CreatePixmap(CreatePixmapRequest {
+                depth: 24,
+                pid: Pixmap::new(0x2000),
+                drawable: Drawable::Window(Window::new(1)),
+                width: 32,
+                height: 32,
+            }),
+        );
 
         // Unregister client
         let cleanup = tracker.unregister_client(client_id);

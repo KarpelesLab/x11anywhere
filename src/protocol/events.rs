@@ -146,7 +146,7 @@ macro_rules! define_key_button_event {
     ($name:ident, $code:expr) => {
         #[derive(Debug, Clone)]
         pub struct $name {
-            pub detail: u8,  // Keycode or button
+            pub detail: u8, // Keycode or button
             pub sequence: u16,
             pub time: Timestamp,
             pub root: Window,
@@ -156,7 +156,7 @@ macro_rules! define_key_button_event {
             pub root_y: i16,
             pub event_x: i16,
             pub event_y: i16,
-            pub state: u16,  // Modifier mask
+            pub state: u16, // Modifier mask
             pub same_screen: bool,
         }
 
@@ -187,7 +187,7 @@ define_key_button_event!(ButtonReleaseEvent, 5);
 
 #[derive(Debug, Clone)]
 pub struct MotionNotifyEvent {
-    pub detail: u8,  // Normal or hint
+    pub detail: u8, // Normal or hint
     pub sequence: u16,
     pub time: Timestamp,
     pub root: Window,
@@ -295,7 +295,7 @@ pub struct ExposeEvent {
     pub y: u16,
     pub width: u16,
     pub height: u16,
-    pub count: u16,  // Number of following expose events
+    pub count: u16, // Number of following expose events
 }
 
 impl ExposeEvent {
@@ -545,7 +545,7 @@ pub struct PropertyNotifyEvent {
     pub window: Window,
     pub atom: Atom,
     pub time: Timestamp,
-    pub state: u8,  // NewValue or Deleted
+    pub state: u8, // NewValue or Deleted
 }
 
 impl PropertyNotifyEvent {
@@ -626,7 +626,7 @@ impl SelectionNotifyEvent {
 #[derive(Debug, Clone)]
 pub struct ClientMessageEvent {
     pub sequence: u16,
-    pub format: u8,  // 8, 16, or 32
+    pub format: u8, // 8, 16, or 32
     pub window: Window,
     pub type_: Atom,
     pub data: ClientMessageData,

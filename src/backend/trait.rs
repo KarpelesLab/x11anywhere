@@ -164,9 +164,7 @@ pub enum BackendEvent {
         y: i16,
     },
     /// Window destroyed by user/WM
-    DestroyNotify {
-        window: BackendWindow,
-    },
+    DestroyNotify { window: BackendWindow },
 }
 
 /// The main backend trait
@@ -199,7 +197,11 @@ pub trait Backend: Send {
     fn unmap_window(&mut self, window: BackendWindow) -> BackendResult<()>;
 
     /// Configure window geometry and stacking
-    fn configure_window(&mut self, window: BackendWindow, config: WindowConfig) -> BackendResult<()>;
+    fn configure_window(
+        &mut self,
+        window: BackendWindow,
+        config: WindowConfig,
+    ) -> BackendResult<()>;
 
     /// Raise window to top
     fn raise_window(&mut self, window: BackendWindow) -> BackendResult<()>;

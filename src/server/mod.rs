@@ -5,8 +5,8 @@
 
 mod client;
 
-use crate::protocol::*;
 use crate::backend::{Backend, BackendWindow};
+use crate::protocol::*;
 use crate::resources::ResourceTracker;
 use crate::security::SecurityPolicy;
 use std::collections::HashMap;
@@ -271,7 +271,11 @@ impl Server {
     }
 
     /// Handle a request from a client with resource tracking and security checks
-    pub fn handle_request(&mut self, client_id: u32, request: &Request) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub fn handle_request(
+        &mut self,
+        client_id: u32,
+        request: &Request,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // Track the request for resource management
         self.resource_tracker.track_request(client_id, request);
 
@@ -289,7 +293,11 @@ impl Server {
     }
 
     /// Check if a request violates the security policy
-    fn check_security_policy(&self, _client_id: u32, _request: &Request) -> Result<(), Box<dyn Error + Send + Sync>> {
+    fn check_security_policy(
+        &self,
+        _client_id: u32,
+        _request: &Request,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         // TODO: Implement security checks when more request types are parsed
         // This will check for:
         // - Screen capture (GetImage) if !allow_screen_capture
@@ -308,27 +316,34 @@ impl Server {
 
         // Check window limit
         if self.security_policy.max_windows_per_client > 0
-            && counts.windows >= self.security_policy.max_windows_per_client {
+            && counts.windows >= self.security_policy.max_windows_per_client
+        {
             return Err(format!(
                 "Client {} exceeded maximum windows limit ({})",
                 client_id, self.security_policy.max_windows_per_client
-            ).into());
+            )
+            .into());
         }
 
         // Check pixmap limit
         if self.security_policy.max_pixmaps_per_client > 0
-            && counts.pixmaps >= self.security_policy.max_pixmaps_per_client {
+            && counts.pixmaps >= self.security_policy.max_pixmaps_per_client
+        {
             return Err(format!(
                 "Client {} exceeded maximum pixmaps limit ({})",
                 client_id, self.security_policy.max_pixmaps_per_client
-            ).into());
+            )
+            .into());
         }
 
         Ok(())
     }
 
     /// Cleanup resources when a client disconnects
-    pub fn handle_client_disconnect(&mut self, client_id: u32) -> Vec<crate::resources::CleanupRequest> {
+    pub fn handle_client_disconnect(
+        &mut self,
+        client_id: u32,
+    ) -> Vec<crate::resources::CleanupRequest> {
         self.unregister_client(client_id)
     }
 }

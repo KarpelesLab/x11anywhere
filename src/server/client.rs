@@ -58,10 +58,12 @@ impl Client {
         let mut written = 0;
         while written < buf.len() {
             match self.connection.write(&buf[written..]) {
-                Ok(0) => return Err(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "failed to write whole buffer",
-                )),
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "failed to write whole buffer",
+                    ))
+                }
                 Ok(n) => written += n,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) => return Err(e),

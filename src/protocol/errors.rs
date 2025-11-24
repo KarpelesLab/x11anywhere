@@ -144,11 +144,23 @@ impl X11Error {
     }
 
     pub fn bad_window(sequence: u16, window: Window, major_opcode: u8) -> Self {
-        X11Error::new(ErrorCode::Window, sequence, window.id().get(), 0, major_opcode)
+        X11Error::new(
+            ErrorCode::Window,
+            sequence,
+            window.id().get(),
+            0,
+            major_opcode,
+        )
     }
 
     pub fn bad_pixmap(sequence: u16, pixmap: Pixmap, major_opcode: u8) -> Self {
-        X11Error::new(ErrorCode::Pixmap, sequence, pixmap.id().get(), 0, major_opcode)
+        X11Error::new(
+            ErrorCode::Pixmap,
+            sequence,
+            pixmap.id().get(),
+            0,
+            major_opcode,
+        )
     }
 
     pub fn bad_atom(sequence: u16, atom: Atom, major_opcode: u8) -> Self {
@@ -156,11 +168,23 @@ impl X11Error {
     }
 
     pub fn bad_drawable(sequence: u16, drawable: Drawable, major_opcode: u8) -> Self {
-        X11Error::new(ErrorCode::Drawable, sequence, drawable.id().get(), 0, major_opcode)
+        X11Error::new(
+            ErrorCode::Drawable,
+            sequence,
+            drawable.id().get(),
+            0,
+            major_opcode,
+        )
     }
 
     pub fn bad_gc(sequence: u16, gc: GContext, major_opcode: u8) -> Self {
-        X11Error::new(ErrorCode::GContext, sequence, gc.id().get(), 0, major_opcode)
+        X11Error::new(
+            ErrorCode::GContext,
+            sequence,
+            gc.id().get(),
+            0,
+            major_opcode,
+        )
     }
 
     pub fn bad_match(sequence: u16, major_opcode: u8) -> Self {
