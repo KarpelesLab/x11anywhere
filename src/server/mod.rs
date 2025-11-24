@@ -3,7 +3,6 @@
 //! This module contains the main server logic, including window management,
 //! resource tracking, event dispatching, and client session management.
 
-
 // Allow dead code for now - skeleton implementation not yet integrated
 #![allow(dead_code)]
 

@@ -3,7 +3,6 @@
 //! This module implements the X11 wire protocol, including types, requests,
 //! replies, events, and errors.
 
-
 // Allow dead code for now - skeleton implementation not yet integrated
 #![allow(dead_code)]
 
