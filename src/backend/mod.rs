@@ -20,8 +20,8 @@ pub mod x11;
 #[cfg(all(feature = "backend-macos", target_os = "macos"))]
 pub mod macos;
 
-// #[cfg(all(feature = "backend-windows", target_os = "windows"))]
-// pub mod windows;
+#[cfg(all(feature = "backend-windows", target_os = "windows"))]
+pub mod windows;
 
 /// Get available backend names (features enabled + platform compatible)
 pub fn available_backends() -> Vec<&'static str> {
