@@ -23,3 +23,6 @@ Thumbs.db
 visual_test_actual.png
 visual_output/
 !visual_test_reference.png
+
+# temp dir for tests/etc
+/tmp/

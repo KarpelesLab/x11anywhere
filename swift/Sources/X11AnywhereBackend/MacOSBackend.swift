@@ -58,62 +58,57 @@ class X11BackingBuffer {
     }
 }
 
-// MARK: - Custom View using layer-hosted view for reliable display
+// MARK: - Custom View that draws buffer content directly
 
 class X11ContentView: NSView {
     var buffer: X11BackingBuffer?
-    private var imageLayer: CALayer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        setupLayer()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        setupLayer()
     }
 
-    private func setupLayer() {
-        // Make this a layer-hosting view
-        wantsLayer = true
-        layerContentsRedrawPolicy = .never
+    // Use flipped coordinates to match X11 (origin at top-left)
+    override var isFlipped: Bool { return true }
 
-        // Create a sublayer for our image content
-        let imgLayer = CALayer()
-        imgLayer.contentsGravity = .resizeAspectFill
-        imgLayer.frame = bounds
-        imgLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        layer?.addSublayer(imgLayer)
-        imageLayer = imgLayer
-
-        NSLog("X11ContentView.setupLayer: created image layer")
-    }
-
-    override func layout() {
-        super.layout()
-        imageLayer?.frame = bounds
-    }
-
-    func updateContents() {
+    override func draw(_ dirtyRect: NSRect) {
         guard let cgImage = buffer?.context?.makeImage() else {
-            NSLog("X11ContentView.updateContents: no CGImage!")
+            NSLog("X11ContentView.draw: no CGImage available")
+            NSColor.white.setFill()
+            dirtyRect.fill()
             return
         }
 
-        NSLog("X11ContentView.updateContents: setting layer contents \(cgImage.width)x\(cgImage.height)")
+        guard let context = NSGraphicsContext.current?.cgContext else {
+            NSLog("X11ContentView.draw: no graphics context!")
+            return
+        }
 
-        // Use CATransaction to ensure immediate update
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        imageLayer?.contents = cgImage
-        CATransaction.commit()
+        NSLog("X11ContentView.draw: drawing \(cgImage.width)x\(cgImage.height) in bounds \(bounds)")
 
-        // Force synchronous display
-        CATransaction.flush()
+        // Since isFlipped=true, view origin is top-left
+        // But CGContext.draw expects bottom-left, so we need to flip
+        context.saveGState()
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height))
+        context.restoreGState()
+    }
 
+    func updateContents() {
+        NSLog("X11ContentView.updateContents: requesting display")
         needsDisplay = true
-        display()
+        // Force immediate display on main thread
+        if Thread.isMainThread {
+            display()
+        } else {
+            DispatchQueue.main.async {
+                self.display()
+            }
+        }
     }
 }
 
@@ -296,23 +291,22 @@ class MacOSBackendImpl {
     }
 
     func releaseWindowContext(id: Int) {
-        // Update the content view with the buffer content
-        DispatchQueue.main.sync {
-            if let contentView = self.windowContentViews[id], let buffer = self.windowBuffers[id] {
+        // Save debug image BEFORE dispatching (this is called from background thread)
+        if let buffer = self.windowBuffers[id], let context = buffer.context, let cgImage = context.makeImage() {
+            let debugPath = "/tmp/x11anywhere_buffer_\(id).png"
+            let url = URL(fileURLWithPath: debugPath)
+            if let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(destination, cgImage, nil)
+                CGImageDestinationFinalize(destination)
+            }
+        }
+
+        // Update the content view asynchronously - don't block the request thread
+        // Use async to avoid deadlock with CFRunLoopRun on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            if let contentView = self.windowContentViews[id] {
                 contentView.updateContents()
-
-                // Save debug image to file so we can verify buffer content
-                if let context = buffer.context, let cgImage = context.makeImage() {
-                    let debugPath = "/tmp/x11anywhere_buffer_\(id).png"
-                    let url = URL(fileURLWithPath: debugPath)
-                    if let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
-                        CGImageDestinationAddImage(destination, cgImage, nil)
-                        CGImageDestinationFinalize(destination)
-                    }
-                }
-
-                // Pump the run loop to ensure display updates are flushed
-                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
             }
         }
     }
