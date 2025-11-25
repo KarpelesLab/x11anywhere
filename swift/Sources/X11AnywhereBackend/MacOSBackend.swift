@@ -149,11 +149,14 @@ class MacOSBackendImpl {
     func mapWindow(id: Int) {
         DispatchQueue.main.sync {
             if let window = self.windows[id] {
+                // Make window appear on all spaces (including full screen apps)
+                window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+                // Use a very high window level to ensure it appears on top
+                window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow)))
+
                 // Activate the app and force window to front
                 NSApplication.shared.activate(ignoringOtherApps: true)
-
-                // Set window level to make sure it appears on top
-                window.level = .floating
 
                 // Show the window
                 window.makeKeyAndOrderFront(nil)
@@ -229,6 +232,9 @@ class MacOSBackendImpl {
                 imageView.image = buffer.makeNSImage()
                 imageView.needsDisplay = true
                 imageView.displayIfNeeded()
+
+                // Pump the run loop to ensure display updates are flushed
+                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
             }
         }
     }
