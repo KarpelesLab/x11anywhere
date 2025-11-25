@@ -376,8 +376,9 @@ fn validate_rectangles(screenshot: &screenshot::Screenshot) -> bool {
         let mut found_count = 0;
 
         // Search for this color in the screenshot
-        // Use wider tolerance (50) to account for Display P3 color space differences
-        let tolerance = 50u8;
+        // Use wide tolerance (70) to account for Display P3 color space differences
+        // macOS Display P3 can shift G channel by up to 64 for saturated sRGB colors
+        let tolerance = 70u8;
 
         for y in 0..screenshot.height {
             for x in 0..screenshot.width {
