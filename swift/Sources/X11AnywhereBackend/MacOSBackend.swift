@@ -575,11 +575,14 @@ public func macos_backend_fill_rectangle(_ handle: BackendHandle, isWindow: Int3
     NSLog("fill_rectangle: isWindow=\(isWindow), drawable=\(drawableId), rect=(\(x),\(y),\(width),\(height)), color=(\(r),\(g),\(b))")
 
     let context: CGContext?
+    let bufferHeight: Int
     if isWindow != 0 {
         context = backend.getWindowContext(id: Int(drawableId))
-        NSLog("fill_rectangle: got window context: \(context != nil)")
+        bufferHeight = backend.windowBuffers[Int(drawableId)]?.height ?? Int(height)
+        NSLog("fill_rectangle: got window context: \(context != nil), bufferHeight: \(bufferHeight)")
     } else {
         context = backend.getPixmapContext(id: Int(drawableId))
+        bufferHeight = backend.pixmapBuffers[Int(drawableId)]?.height ?? Int(height)
     }
 
     guard let ctx = context else {
@@ -587,10 +590,12 @@ public func macos_backend_fill_rectangle(_ handle: BackendHandle, isWindow: Int3
         return BackendResult.error.rawValue
     }
 
-    let rect = CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))
+    // Convert X11 coordinates (origin at top-left) to CGContext (origin at bottom-left)
+    let flippedY = CGFloat(bufferHeight) - CGFloat(y) - CGFloat(height)
+    let rect = CGRect(x: CGFloat(x), y: flippedY, width: CGFloat(width), height: CGFloat(height))
     ctx.setFillColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
     ctx.fill(rect)
-    NSLog("fill_rectangle: filled rect")
+    NSLog("fill_rectangle: filled rect at flipped y=\(flippedY) (original y=\(y))")
 
     if isWindow != 0 {
         backend.releaseWindowContext(id: Int(drawableId))
