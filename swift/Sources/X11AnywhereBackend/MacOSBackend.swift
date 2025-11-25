@@ -62,55 +62,67 @@ class X11BackingBuffer {
 class X11ContentView: NSView {
     var buffer: X11BackingBuffer?
     private var imageLayer: CALayer?
+    private var layerSetupDone = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        setupLayer()
+        wantsLayer = true
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        setupLayer()
+        wantsLayer = true
     }
 
-    private func setupLayer() {
-        // Enable layer backing
-        wantsLayer = true
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil && !layerSetupDone {
+            setupImageLayer()
+        }
+    }
+
+    private func setupImageLayer() {
+        guard let viewLayer = layer else {
+            NSLog("X11ContentView.setupImageLayer: no layer!")
+            return
+        }
 
         // Create a dedicated sublayer for the image content
         let imgLayer = CALayer()
         imgLayer.frame = bounds
-        imgLayer.contentsGravity = .resizeAspectFill
+        imgLayer.contentsGravity = .resize
         imgLayer.backgroundColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
-        layer?.addSublayer(imgLayer)
+        imgLayer.zPosition = 100  // Put it on top
+        viewLayer.addSublayer(imgLayer)
         imageLayer = imgLayer
+        layerSetupDone = true
 
-        NSLog("X11ContentView.setupLayer: created imageLayer, bounds=\(bounds)")
+        NSLog("X11ContentView.setupImageLayer: created imageLayer on viewLayer, bounds=\(bounds), viewLayer=\(viewLayer)")
     }
 
     override func layout() {
         super.layout()
         // Keep the image layer sized to match the view
         imageLayer?.frame = bounds
-        NSLog("X11ContentView.layout: imageLayer frame=\(imageLayer?.frame ?? .zero)")
     }
 
     func updateContents() {
+        // Ensure layer is set up
+        if !layerSetupDone {
+            setupImageLayer()
+        }
+
         guard let cgImage = buffer?.context?.makeImage() else {
             NSLog("X11ContentView.updateContents: no CGImage!")
             return
         }
 
-        NSLog("X11ContentView.updateContents: setting imageLayer.contents to \(cgImage.width)x\(cgImage.height), layer exists: \(imageLayer != nil)")
+        NSLog("X11ContentView.updateContents: setting imageLayer.contents to \(cgImage.width)x\(cgImage.height), imageLayer exists: \(imageLayer != nil)")
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         imageLayer?.contents = cgImage
         CATransaction.commit()
-
-        // Force layer redisplay
-        imageLayer?.setNeedsDisplay()
-        layer?.setNeedsDisplay()
     }
 }
 
