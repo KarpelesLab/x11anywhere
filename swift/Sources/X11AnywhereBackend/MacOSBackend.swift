@@ -61,20 +61,38 @@ class X11BackingBuffer {
 
 class X11ContentView: NSView {
     var buffer: X11BackingBuffer?
+    private var imageLayer: CALayer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        // Use layer-backed rendering for more reliable display
-        wantsLayer = true
-        layer?.contentsGravity = .topLeft
-        layer?.isGeometryFlipped = true  // Flip to match X11 coordinates
+        setupLayer()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        setupLayer()
+    }
+
+    private func setupLayer() {
+        // Enable layer backing
         wantsLayer = true
-        layer?.contentsGravity = .topLeft
-        layer?.isGeometryFlipped = true
+
+        // Create a dedicated sublayer for the image content
+        let imgLayer = CALayer()
+        imgLayer.frame = bounds
+        imgLayer.contentsGravity = .resizeAspectFill
+        imgLayer.backgroundColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+        layer?.addSublayer(imgLayer)
+        imageLayer = imgLayer
+
+        NSLog("X11ContentView.setupLayer: created imageLayer, bounds=\(bounds)")
+    }
+
+    override func layout() {
+        super.layout()
+        // Keep the image layer sized to match the view
+        imageLayer?.frame = bounds
+        NSLog("X11ContentView.layout: imageLayer frame=\(imageLayer?.frame ?? .zero)")
     }
 
     func updateContents() {
@@ -82,8 +100,17 @@ class X11ContentView: NSView {
             NSLog("X11ContentView.updateContents: no CGImage!")
             return
         }
-        NSLog("X11ContentView.updateContents: setting layer.contents to \(cgImage.width)x\(cgImage.height)")
-        layer?.contents = cgImage
+
+        NSLog("X11ContentView.updateContents: setting imageLayer.contents to \(cgImage.width)x\(cgImage.height), layer exists: \(imageLayer != nil)")
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        imageLayer?.contents = cgImage
+        CATransaction.commit()
+
+        // Force layer redisplay
+        imageLayer?.setNeedsDisplay()
+        layer?.setNeedsDisplay()
     }
 }
 
