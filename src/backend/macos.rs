@@ -703,7 +703,11 @@ impl Backend for MacOSBackend {
         unsafe {
             let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
             let (r, g, b) = Self::color_to_rgb(gc.foreground);
-            let line_width = gc.line_width as f32;
+            let line_width = if gc.line_width == 0 {
+                1.0
+            } else {
+                gc.line_width as f32
+            };
 
             for arc in arcs {
                 macos_backend_draw_arc(
