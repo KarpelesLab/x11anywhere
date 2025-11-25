@@ -62,30 +62,28 @@ class X11BackingBuffer {
 class X11ContentView: NSView {
     var buffer: X11BackingBuffer?
 
-    override var isFlipped: Bool { return true }  // Match X11 coordinate system (top-left origin)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // Use layer-backed rendering for more reliable display
+        wantsLayer = true
+        layer?.contentsGravity = .topLeft
+        layer?.isGeometryFlipped = true  // Flip to match X11 coordinates
+    }
 
-    override func draw(_ dirtyRect: NSRect) {
-        NSLog("X11ContentView.draw: dirtyRect=\(dirtyRect), bounds=\(bounds)")
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        layer?.contentsGravity = .topLeft
+        layer?.isGeometryFlipped = true
+    }
 
-        guard let buffer = self.buffer else {
-            NSLog("X11ContentView.draw: no buffer!")
-            NSColor.white.setFill()
-            dirtyRect.fill()
+    func updateContents() {
+        guard let cgImage = buffer?.context?.makeImage() else {
+            NSLog("X11ContentView.updateContents: no CGImage!")
             return
         }
-
-        guard let nsImage = buffer.makeNSImage() else {
-            NSLog("X11ContentView.draw: no NSImage from buffer!")
-            NSColor.white.setFill()
-            dirtyRect.fill()
-            return
-        }
-
-        NSLog("X11ContentView.draw: drawing NSImage \(nsImage.size) into bounds \(bounds)")
-
-        // NSImage.draw() handles coordinate flipping automatically
-        // and respects the view's isFlipped property
-        nsImage.draw(in: bounds)
+        NSLog("X11ContentView.updateContents: setting layer.contents to \(cgImage.width)x\(cgImage.height)")
+        layer?.contents = cgImage
     }
 }
 
@@ -203,7 +201,7 @@ class MacOSBackendImpl {
 
                 // Update the content view with the current buffer content
                 if let contentView = self.windowContentViews[id] {
-                    contentView.needsDisplay = true
+                    contentView.updateContents()
                     NSLog("mapWindow: updated contentView, buffer context: \(contentView.buffer?.context != nil)")
                 }
                 window.display()
@@ -271,8 +269,7 @@ class MacOSBackendImpl {
         // Update the content view with the buffer content
         DispatchQueue.main.sync {
             if let contentView = self.windowContentViews[id], let buffer = self.windowBuffers[id] {
-                contentView.needsDisplay = true
-                contentView.displayIfNeeded()
+                contentView.updateContents()
 
                 // Save debug image to file so we can verify buffer content
                 if let context = buffer.context, let cgImage = context.makeImage() {
@@ -955,9 +952,8 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
 
                 NSLog("flush: window \(id) - cgImage: \(cgImage.width)x\(cgImage.height), contentView frame: \(contentView.frame)")
 
-                // Tell the view to redraw
-                contentView.needsDisplay = true
-                contentView.displayIfNeeded()
+                // Update the layer contents
+                contentView.updateContents()
                 window.display()
 
                 // Debug: save buffer to file
