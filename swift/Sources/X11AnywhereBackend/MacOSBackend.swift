@@ -65,14 +65,17 @@ class X11ContentView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layerContentsRedrawPolicy = .never  // We manage layer contents ourselves
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layerContentsRedrawPolicy = .never
     }
+
+    // Tell AppKit we want to update the layer directly
+    override var wantsUpdateLayer: Bool { return true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -84,18 +87,21 @@ class X11ContentView: NSView {
         }
     }
 
-    func updateContents() {
+    // Called when needsDisplay is true - this is the proper way to set layer contents
+    override func updateLayer() {
         guard let cgImage = buffer?.context?.makeImage() else {
-            NSLog("X11ContentView.updateContents: no CGImage!")
+            NSLog("X11ContentView.updateLayer: no CGImage!")
             return
         }
 
-        NSLog("X11ContentView.updateContents: setting layer.contents to \(cgImage.width)x\(cgImage.height)")
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
+        NSLog("X11ContentView.updateLayer: setting layer.contents to \(cgImage.width)x\(cgImage.height)")
         layer?.contents = cgImage
-        CATransaction.commit()
+    }
+
+    func updateContents() {
+        NSLog("X11ContentView.updateContents: marking needsDisplay")
+        needsDisplay = true
+        displayIfNeeded()
     }
 }
 
