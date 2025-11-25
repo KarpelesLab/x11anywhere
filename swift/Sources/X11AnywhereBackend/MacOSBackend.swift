@@ -578,11 +578,12 @@ public func macos_backend_fill_rectangle(_ handle: BackendHandle, isWindow: Int3
     let bufferHeight: Int
     if isWindow != 0 {
         context = backend.getWindowContext(id: Int(drawableId))
-        bufferHeight = backend.windowBuffers[Int(drawableId)]?.height ?? Int(height)
+        bufferHeight = backend.windowBuffers[Int(drawableId)]?.height ?? 600
         NSLog("fill_rectangle: got window context: \(context != nil), bufferHeight: \(bufferHeight)")
     } else {
         context = backend.getPixmapContext(id: Int(drawableId))
-        bufferHeight = backend.pixmapBuffers[Int(drawableId)]?.height ?? Int(height)
+        // For pixmaps, try to get height from context or use a default
+        bufferHeight = context?.height ?? 600
     }
 
     guard let ctx = context else {
