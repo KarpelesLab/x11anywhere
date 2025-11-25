@@ -1014,9 +1014,6 @@ public func macos_backend_draw_text(_ handle: BackendHandle, isWindow: Int32, dr
     // Save graphics state
     ctx.saveGState()
 
-    // Set text color
-    ctx.setFillColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
-
     // Create attributed string with a fixed-width font
     let font = CTFontCreateWithName("Menlo" as CFString, 12, nil)
     let attributes: [NSAttributedString.Key: Any] = [
@@ -1028,9 +1025,13 @@ public func macos_backend_draw_text(_ handle: BackendHandle, isWindow: Int32, dr
     // Create line from attributed string
     let line = CTLineCreateWithAttributedString(attributedString)
 
-    // X11's y coordinate is the baseline, Core Text also uses baseline
-    // But since we've flipped the context with CTM, we can use the coordinates directly
-    ctx.textPosition = CGPoint(x: CGFloat(x), y: CGFloat(y))
+    // The context has a CTM that flips Y for X11 compatibility.
+    // Core Text draws text with its own coordinate expectations, so we need to
+    // locally flip the text drawing to make it right-side up.
+    // Move to the text position, then flip just around that point
+    ctx.translateBy(x: CGFloat(x), y: CGFloat(y))
+    ctx.scaleBy(x: 1.0, y: -1.0)
+    ctx.textPosition = CGPoint(x: 0, y: 0)
     CTLineDraw(line, ctx)
 
     // Restore graphics state
