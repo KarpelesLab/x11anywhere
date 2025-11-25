@@ -168,6 +168,30 @@ This document tracks the implementation status of X11 protocol features across d
 | DefineCursor | 🟡 | ✅ | ✅ | ⚪ | SetCursor on Windows, NSCursor.set on macOS |
 | CreateGlyphCursor | 🟡 | ✅ | ✅ | ⚪ | Maps X11 cursor font glyphs to system cursors |
 
+### Extensions
+
+| Feature | X11 | Windows | macOS | Wayland | Notes |
+|---------|-----|---------|-------|---------|-------|
+| QueryExtension | ✅ | ✅ | ✅ | ⚪ | Returns extension info from server registry |
+| ListExtensions | ✅ | ✅ | ✅ | ⚪ | Lists all registered extensions |
+
+### X11 Extensions Status
+
+| Extension | Status | Notes |
+|-----------|--------|-------|
+| BIG-REQUESTS | 🟡 Registered | Allows requests > 256KB; registered but not fully implemented |
+| XKEYBOARD (XKB) | 🟡 Registered | Advanced keyboard; registered but not implemented |
+| RENDER | ❌ Not Implemented | Anti-aliased rendering, gradients, alpha blending |
+| XFIXES | ❌ Not Implemented | Cursor visibility, region support |
+| DAMAGE | ❌ Not Implemented | Tracks drawable changes |
+| COMPOSITE | ❌ Not Implemented | Off-screen window rendering |
+| SHAPE | ❌ Not Implemented | Non-rectangular windows |
+| SYNC | ❌ Not Implemented | Synchronization primitives |
+| RANDR | ❌ Not Implemented | Screen configuration |
+| Xinerama | ❌ Not Implemented | Multi-monitor support |
+| GLX | ❌ Not Implemented | OpenGL integration |
+| MIT-SHM | ❌ Not Implemented | Shared memory for images |
+
 ---
 
 ## Platform-Specific Implementation Notes

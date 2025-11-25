@@ -390,4 +390,39 @@ impl ProtocolEncoder {
 
         buffer
     }
+
+    /// Encode ListExtensions reply
+    pub fn encode_list_extensions_reply(
+        &self,
+        sequence: u16,
+        extension_names: &[String],
+    ) -> Vec<u8> {
+        // Build the LISTofSTR data (each is: 1 byte length + string bytes)
+        let mut str_data = Vec::new();
+        for name in extension_names {
+            let name_bytes = name.as_bytes();
+            let len = name_bytes.len().min(255) as u8;
+            str_data.push(len);
+            str_data.extend_from_slice(&name_bytes[..len as usize]);
+        }
+
+        // Pad to 4-byte boundary
+        let padding = (4 - (str_data.len() % 4)) % 4;
+        str_data.extend(vec![0u8; padding]);
+
+        // Reply length in 4-byte units (not including the header 32 bytes)
+        let reply_length = str_data.len() / 4;
+
+        let mut buffer = vec![0u8; 32];
+        buffer[0] = 1; // Reply
+        buffer[1] = extension_names.len() as u8; // number of STRs in data byte
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(reply_length as u32));
+        // bytes 8-31 are unused (24 bytes)
+
+        // Append the string data
+        buffer.extend_from_slice(&str_data);
+
+        buffer
+    }
 }

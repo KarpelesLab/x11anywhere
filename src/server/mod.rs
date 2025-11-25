@@ -471,6 +471,11 @@ impl Server {
         self.extensions.get(name).cloned()
     }
 
+    /// List all registered extensions
+    pub fn list_extensions(&self) -> Vec<String> {
+        self.extensions.keys().cloned().collect()
+    }
+
     /// Register a new client and return its ID
     pub fn register_client(&mut self) -> u32 {
         self.resource_tracker.register_client()

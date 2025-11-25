@@ -98,6 +98,8 @@ fn handle_client(
             55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
             84 => handle_alloc_color(&mut stream, &header, &request_data, &server)?,
             85 => handle_alloc_named_color(&mut stream, &header, &request_data, &server)?,
+            98 => handle_query_extension(&mut stream, &header, &request_data, &server)?,
+            99 => handle_list_extensions(&mut stream, &header, &request_data, &server)?,
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
             64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
             65 => handle_poly_line(&mut stream, &header, &request_data, &server)?,
@@ -1213,6 +1215,88 @@ fn handle_alloc_named_color(
         visual_green,
         visual_blue,
     );
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_query_extension(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse QueryExtension request: name_length(2), pad(2), name(n)
+    if data.len() < 4 {
+        log::warn!("QueryExtension request too short");
+        return Ok(());
+    }
+
+    let name_length = u16::from_le_bytes([data[0], data[1]]) as usize;
+    let name_end = (4 + name_length).min(data.len());
+    let name = String::from_utf8_lossy(&data[4..name_end]).to_string();
+
+    log::debug!("QueryExtension: name={:?}", name);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+
+    // Look up the extension
+    let (present, major_opcode, first_event, first_error) =
+        if let Some(ext_info) = server.query_extension(&name) {
+            (
+                true,
+                ext_info.major_opcode,
+                ext_info.first_event,
+                ext_info.first_error,
+            )
+        } else {
+            log::debug!("QueryExtension: extension '{}' not found", name);
+            (false, 0, 0, 0)
+        };
+
+    // Encode and send reply
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_query_extension_reply(
+        sequence,
+        present,
+        major_opcode,
+        first_event,
+        first_error,
+    );
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_list_extensions(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("ListExtensions");
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+    let extension_names = server.list_extensions();
+
+    log::debug!(
+        "ListExtensions: returning {} extensions",
+        extension_names.len()
+    );
+
+    // Encode and send reply
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_list_extensions_reply(sequence, &extension_names);
 
     stream.write_all(&reply)?;
 
