@@ -65,6 +65,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     draw_text_test(&mut stream, window_id, gc_id, font_id)?;
 
     // Wait for rendering - give extra time for compositor to update
+    // macOS needs more time due to async dispatch to main thread
+    #[cfg(target_os = "macos")]
+    std::thread::sleep(std::time::Duration::from_millis(3000));
+    #[cfg(not(target_os = "macos"))]
     std::thread::sleep(std::time::Duration::from_millis(1000));
 
     // Capture screenshot (full screen since window IDs don't match between client and server)
