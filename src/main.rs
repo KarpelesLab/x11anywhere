@@ -299,18 +299,27 @@ fn main() {
     // Wrap server in Arc<Mutex<>> for thread-safe access
     let server = std::sync::Arc::new(std::sync::Mutex::new(server));
 
-    // Start TCP listener
+    // Start TCP listener in a background thread
     if config.listen_tcp {
         let tcp_server = std::sync::Arc::clone(&server);
-        log::info!("Starting TCP listener on port {}", 6000 + config.display);
+        let display = config.display;
+        log::info!("Starting TCP listener on port {}", 6000 + display);
 
-        if let Err(e) = server::listener::start_tcp_listener(config.display, tcp_server) {
-            eprintln!("Error: Failed to start TCP listener: {}", e);
-            process::exit(1);
-        }
+        std::thread::spawn(move || {
+            if let Err(e) = server::listener::start_tcp_listener(display, tcp_server) {
+                log::error!("TCP listener error: {}", e);
+            }
+        });
     }
 
     if config.listen_unix {
         log::warn!("Unix socket listener not yet implemented");
+    }
+
+    // Keep the main thread alive
+    // On Windows, this allows the TCP listener thread to continue accepting connections
+    // On other platforms, this just prevents the main thread from exiting
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
