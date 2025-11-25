@@ -173,18 +173,27 @@ class MacOSBackendImpl {
     func mapWindow(id: Int) {
         DispatchQueue.main.sync {
             if let window = self.windows[id] {
-                // Activate the app first so windows can be shown
+                // Activate the app and force window to front
                 NSApplication.shared.activate(ignoringOtherApps: true)
-                window.makeKeyAndOrderFront(nil)
-                // Force an initial display
-                if let contentView = window.contentView {
-                    contentView.setNeedsDisplay(contentView.bounds)
-                }
-                window.displayIfNeeded()
 
-                // Pump the run loop briefly to ensure the window actually appears
-                // This is necessary for the window to be visible for drawing operations
-                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+                // Set window level to make sure it appears on top
+                window.level = .floating
+
+                // Show the window
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
+
+                // Force display
+                if let view = self.windowViews[id] {
+                    view.needsDisplay = true
+                    view.display()
+                }
+                window.display()
+
+                // Pump the run loop to process window display
+                for _ in 0..<10 {
+                    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+                }
             }
         }
     }
