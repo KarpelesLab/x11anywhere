@@ -247,6 +247,10 @@ This document tracks the implementation status of X11 protocol features across d
   - Automatic SDK path detection with `xcrun`
   - Runtime library search paths via rpath
   - Proper linkage of Cocoa, Foundation, CoreGraphics, AppKit frameworks
+- **Coordinate System**:
+  - macOS CGContext uses bottom-left origin; X11 uses top-left
+  - ✅ Handled via CTM transform (`translateBy`/`scaleBy`) in X11BackingBuffer context creation
+  - All drawing operations use X11 coordinates directly; transform applied at context level
 - **Known Limitations**:
   - Missing EnterNotify/LeaveNotify events
 - **Next Steps**: Test with real X11 applications
@@ -337,7 +341,7 @@ The visual test (`tests/visual_test.rs`) validates the following operations:
 2. **Coordinate Systems**
    - X11: Origin at top-left, Y increases downward
    - macOS: Origin at bottom-left, Y increases upward
-   - **Impact**: Coordinate translation needed for macOS
+   - **Status**: ✅ Handled via CTM transform in X11BackingBuffer context creation
 
 3. **Event Delivery**
    - X11: Server-side event filtering
