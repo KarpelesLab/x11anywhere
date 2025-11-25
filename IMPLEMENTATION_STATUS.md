@@ -172,15 +172,24 @@ This document tracks the implementation status of X11 protocol features across d
 ## Platform-Specific Implementation Notes
 
 ### X11 Backend (Linux/BSD)
-- **Status**: Basic passthrough working via x11rb
-- **Architecture**: Direct protocol translation
+- **Status**: 🟡 Partial - basic passthrough working via x11rb
+- **Architecture**: Direct protocol translation to underlying X11 server
+- **Working Features**:
+  - ✅ Window management (CreateWindow, MapWindow, etc.)
+  - ✅ PolyFillRectangle - working and validated in visual tests
+  - ✅ GC operations (CreateGC, ChangeGC)
+- **Not Yet Implemented** (return Ok(()) without action):
+  - ❌ PolyPoint, PolyLine, PolySegment, PolyRectangle
+  - ❌ PolyArc, FillPoly, PolyFillArc
+  - ❌ PutImage, GetImage, ImageText
+  - Need to forward these X11 requests to the underlying X server
 - **Limitations**:
   - Some advanced extensions not implemented
   - Limited error handling
-- **Next Steps**: Enhance error handling, add more extensions
+- **Next Steps**: Implement drawing operation passthrough to underlying X server
 
 ### Windows Backend
-- **Status**: ✅ **Fully implemented** (needs testing on Windows)
+- **Status**: ✅ **Fully implemented** (visual tests passing)
 - **Architecture**: X11 protocol → Win32 API translation
 - **Implemented APIs**:
   - Window management: `CreateWindowExW`, `ShowWindow`, `SetWindowPos`, `DestroyWindow`
@@ -197,10 +206,11 @@ This document tracks the implementation status of X11 protocol features across d
   - ✅ Enhanced event handling: KeyPress/Release, ButtonPress/Release, MotionNotify, FocusIn/Out
   - ✅ Event polling and blocking wait
   - ✅ GC state tracking (foreground, background, line width/style)
-- **Known Limitations**:
+- **Known Issues**:
+  - ⚠️ **BGR Color Swap**: Red and Blue channels are swapped in rendered output. The `rgb()` function creates COLORREF correctly but something in the rendering pipeline is swapping R/B.
   - No advanced raster operations (SetROP2)
   - Missing EnterNotify/LeaveNotify events
-- **Next Steps**: Test with real X11 applications
+- **Next Steps**: Fix BGR color swap issue, test with real X11 applications
 
 ### macOS Backend
 - **Status**: ✅ **Fully implemented** with Swift FFI (compiles & passes CI for ARM64 and x86_64)
@@ -242,12 +252,23 @@ This document tracks the implementation status of X11 protocol features across d
 
 ## Testing Status
 
-| Backend | Unit Tests | Integration Tests | Manual Testing | Notes |
-|---------|------------|-------------------|----------------|-------|
-| X11 | 🟡 Basic | 🟡 xcalc works | ✅ | Basic apps work |
-| Windows | ❌ | ❌ | ⏳ Pending | Implementation complete, **compiles & passes CI**, needs Windows runtime testing |
-| macOS | ❌ | ❌ | ⏳ Pending | Implementation complete, **compiles & passes CI for both ARM64 & x86_64**, needs macOS runtime testing |
-| Wayland | ❌ | ❌ | ❌ | Not started |
+| Backend | Unit Tests | Integration Tests | Visual Tests | Manual Testing | Notes |
+|---------|------------|-------------------|--------------|----------------|-------|
+| X11 | 🟡 Basic | 🟡 xcalc works | ✅ Passing | ✅ | Basic apps work; visual tests validate filled rectangles |
+| Windows | ❌ | ❌ | ✅ Passing | ⏳ Pending | All drawing ops visible; **BGR color swap issue** |
+| macOS | ❌ | ❌ | ✅ Passing | ⏳ Pending | All drawing ops working correctly |
+| Wayland | ❌ | ❌ | ❌ | ❌ | Not started |
+
+### Visual Test Coverage
+The visual test (`tests/visual_test.rs`) validates the following operations:
+- ✅ PolyFillRectangle (opcode 70) - 6 colored rectangles
+- ✅ PolyLine (opcode 65) - zigzag pattern
+- ✅ PolyRectangle (opcode 67) - rectangle outlines
+- ✅ PolyArc (opcode 68) - semicircle outline
+- ✅ PolyFillArc (opcode 71) - pie slice
+- ✅ FillPoly (opcode 69) - triangle
+- ✅ PolyPoint (opcode 64) - dot grid
+- ✅ PolySegment (opcode 66) - X shape
 
 ---
 

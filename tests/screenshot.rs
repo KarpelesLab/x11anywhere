@@ -124,6 +124,11 @@ pub fn capture_screen() -> Result<Screenshot, Box<dyn std::error::Error>> {
             return Err("GetDIBits failed".into());
         }
 
+        // GetDIBits returns BGRA format, convert to RGBA
+        for i in (0..buffer_size).step_by(4) {
+            buffer.swap(i, i + 2); // Swap B and R
+        }
+
         Ok(Screenshot {
             width: width as u32,
             height: height as u32,
