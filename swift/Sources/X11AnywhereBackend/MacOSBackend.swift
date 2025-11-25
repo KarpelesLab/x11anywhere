@@ -57,44 +57,35 @@ class X11BackingBuffer {
     }
 }
 
-// MARK: - Custom View for Direct CGImage Drawing
+// MARK: - Custom View using NSImageView for reliable display
 
-class X11ContentView: NSView {
+class X11ContentView: NSImageView {
     var buffer: X11BackingBuffer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        imageScaling = .scaleAxesIndependently
+        imageAlignment = .alignTopLeft
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-    }
-
-    override var isFlipped: Bool { return true }  // Use top-left origin like X11
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard let context = NSGraphicsContext.current?.cgContext,
-              let cgImage = buffer?.context?.makeImage() else {
-            NSLog("X11ContentView.draw: no context or CGImage!")
-            // Fill with white as fallback
-            NSColor.white.setFill()
-            dirtyRect.fill()
-            return
-        }
-
-        NSLog("X11ContentView.draw: drawing \(cgImage.width)x\(cgImage.height) image in bounds \(bounds)")
-
-        // Draw the image - since isFlipped is true, the coordinate system matches X11
-        // But CGContext.draw still draws with origin at bottom-left, so we need to flip
-        context.saveGState()
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height))
-        context.restoreGState()
+        imageScaling = .scaleAxesIndependently
+        imageAlignment = .alignTopLeft
     }
 
     func updateContents() {
-        NSLog("X11ContentView.updateContents: marking needsDisplay")
+        guard let cgImage = buffer?.context?.makeImage() else {
+            NSLog("X11ContentView.updateContents: no CGImage!")
+            return
+        }
+
+        NSLog("X11ContentView.updateContents: setting image \(cgImage.width)x\(cgImage.height)")
+
+        // Create NSImage from CGImage
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        self.image = nsImage
+
         needsDisplay = true
         displayIfNeeded()
     }
