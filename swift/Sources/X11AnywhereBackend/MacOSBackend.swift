@@ -65,44 +65,34 @@ class X11ContentView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        // Enable layer-backed view for better rendering
+        self.wantsLayer = true
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        self.wantsLayer = true
     }
 
     // Use flipped coordinates to match X11 (origin at top-left)
     override var isFlipped: Bool { return true }
 
-    override func draw(_ dirtyRect: NSRect) {
+    // Use wantsUpdateLayer to enable layer-based rendering
+    override var wantsUpdateLayer: Bool { return true }
+
+    override func updateLayer() {
         guard let buffer = self.buffer, let ctx = buffer.context, let cgImage = ctx.makeImage() else {
-            NSLog("X11ContentView.draw: no CGImage available, buffer=\(self.buffer != nil)")
-            NSColor.white.setFill()
-            dirtyRect.fill()
+            NSLog("X11ContentView.updateLayer: no CGImage available, buffer=\(self.buffer != nil)")
+            layer?.backgroundColor = NSColor.white.cgColor
             return
         }
 
-        guard let drawCtx = NSGraphicsContext.current?.cgContext else {
-            NSLog("X11ContentView.draw: no graphics context")
-            return
-        }
+        NSLog("X11ContentView.updateLayer: setting layer contents \(cgImage.width)x\(cgImage.height)")
 
-        NSLog("X11ContentView.draw: drawing \(cgImage.width)x\(cgImage.height) in bounds \(bounds), buffer=\(buffer.width)x\(buffer.height)")
-
-        // The buffer was drawn with Y already flipped for Quartz (bottom-left origin)
-        // Our view has isFlipped=true (top-left origin)
-        // Since CGContext.draw places bottom-left at origin and isFlipped changes origin,
-        // we need to flip the context to draw the image correctly
-        drawCtx.saveGState()
-
-        // Flip the coordinate system to match the buffer's orientation
-        drawCtx.translateBy(x: 0, y: bounds.height)
-        drawCtx.scaleBy(x: 1, y: -1)
-
-        // Draw the image
-        drawCtx.draw(cgImage, in: CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height))
-
-        drawCtx.restoreGState()
+        // Set the image directly on the layer
+        // CALayer's contents interprets CGImage with origin at top-left by default when contentsAreFlipped is true
+        layer?.contentsGravity = .resize
+        layer?.contents = cgImage
     }
 
     func updateContents() {
