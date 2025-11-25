@@ -88,11 +88,14 @@ class X11ContentView: NSView {
             return
         }
 
-        NSLog("X11ContentView.updateLayer: setting layer contents \(cgImage.width)x\(cgImage.height)")
+        NSLog("X11ContentView.updateLayer: setting layer contents \(cgImage.width)x\(cgImage.height), bpc=\(cgImage.bitsPerComponent), bpp=\(cgImage.bitsPerPixel)")
+
+        // Configure the layer for proper display
+        layer?.isOpaque = true
+        layer?.contentsGravity = .resize
+        layer?.contentsScale = 1.0
 
         // Set the image directly on the layer
-        // CALayer's contents interprets CGImage with origin at top-left by default when contentsAreFlipped is true
-        layer?.contentsGravity = .resize
         layer?.contents = cgImage
     }
 
