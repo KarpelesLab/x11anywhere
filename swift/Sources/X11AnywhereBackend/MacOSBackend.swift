@@ -294,7 +294,35 @@ class MacOSBackendImpl {
 
 @_cdecl("macos_backend_create")
 public func macos_backend_create() -> BackendHandle {
+    // Debug: write to a file to confirm this function is called
+    let debugPath = "/tmp/x11anywhere_debug.log"
+    let debugMsg = "macos_backend_create: called at \(Date())\n"
+    if let data = debugMsg.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: debugPath) {
+            if let fileHandle = FileHandle(forWritingAtPath: debugPath) {
+                fileHandle.seekToEndOfFile()
+                fileHandle.write(data)
+                fileHandle.closeFile()
+            }
+        } else {
+            FileManager.default.createFile(atPath: debugPath, contents: data, attributes: nil)
+        }
+    }
+    NSLog("macos_backend_create: called")
+
     let backend = MacOSBackendImpl()
+
+    // Debug: log screen info
+    let msg2 = "macos_backend_create: backend created, screen=\(backend.screenWidth)x\(backend.screenHeight)\n"
+    if let data = msg2.data(using: .utf8) {
+        if let fileHandle = FileHandle(forWritingAtPath: debugPath) {
+            fileHandle.seekToEndOfFile()
+            fileHandle.write(data)
+            fileHandle.closeFile()
+        }
+    }
+    NSLog("macos_backend_create: backend created, screen=\(backend.screenWidth)x\(backend.screenHeight)")
+
     return Unmanaged.passRetained(backend).toOpaque()
 }
 
@@ -321,8 +349,31 @@ public func macos_backend_get_screen_info(_ handle: BackendHandle,
 public func macos_backend_create_window(_ handle: BackendHandle,
                                        x: Int32, y: Int32,
                                        width: Int32, height: Int32) -> Int32 {
+    // Debug logging
+    let debugPath = "/tmp/x11anywhere_debug.log"
+    let msg = "macos_backend_create_window: x=\(x), y=\(y), width=\(width), height=\(height)\n"
+    if let data = msg.data(using: .utf8) {
+        if let fileHandle = FileHandle(forWritingAtPath: debugPath) {
+            fileHandle.seekToEndOfFile()
+            fileHandle.write(data)
+            fileHandle.closeFile()
+        }
+    }
+    NSLog("macos_backend_create_window: x=\(x), y=\(y), width=\(width), height=\(height)")
+
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
-    return Int32(backend.createWindow(x: Int(x), y: Int(y), width: Int(width), height: Int(height)))
+    let windowId = Int32(backend.createWindow(x: Int(x), y: Int(y), width: Int(width), height: Int(height)))
+
+    let msg2 = "macos_backend_create_window: created window id=\(windowId)\n"
+    if let data = msg2.data(using: .utf8) {
+        if let fileHandle = FileHandle(forWritingAtPath: debugPath) {
+            fileHandle.seekToEndOfFile()
+            fileHandle.write(data)
+            fileHandle.closeFile()
+        }
+    }
+
+    return windowId
 }
 
 @_cdecl("macos_backend_destroy_window")
