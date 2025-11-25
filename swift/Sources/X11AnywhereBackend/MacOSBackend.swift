@@ -75,10 +75,15 @@ class X11ContentView: NSView {
     override var isFlipped: Bool { return true }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard let buffer = self.buffer, let context = buffer.context, let cgImage = context.makeImage() else {
+        guard let buffer = self.buffer, let ctx = buffer.context, let cgImage = ctx.makeImage() else {
             NSLog("X11ContentView.draw: no CGImage available, buffer=\(self.buffer != nil)")
             NSColor.white.setFill()
             dirtyRect.fill()
+            return
+        }
+
+        guard let drawCtx = NSGraphicsContext.current?.cgContext else {
+            NSLog("X11ContentView.draw: no graphics context")
             return
         }
 
@@ -86,11 +91,18 @@ class X11ContentView: NSView {
 
         // The buffer was drawn with Y already flipped for Quartz (bottom-left origin)
         // Our view has isFlipped=true (top-left origin)
-        // We need to flip the image back when drawing to get correct positioning
-        //
-        // NSImage with draw() handles coordinate systems properly
-        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: buffer.width, height: buffer.height))
-        nsImage.draw(in: bounds, from: NSRect(origin: .zero, size: nsImage.size), operation: .copy, fraction: 1.0)
+        // Since CGContext.draw places bottom-left at origin and isFlipped changes origin,
+        // we need to flip the context to draw the image correctly
+        drawCtx.saveGState()
+
+        // Flip the coordinate system to match the buffer's orientation
+        drawCtx.translateBy(x: 0, y: bounds.height)
+        drawCtx.scaleBy(x: 1, y: -1)
+
+        // Draw the image
+        drawCtx.draw(cgImage, in: CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height))
+
+        drawCtx.restoreGState()
     }
 
     func updateContents() {
