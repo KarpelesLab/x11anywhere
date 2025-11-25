@@ -4,6 +4,7 @@
 import Cocoa
 import Foundation
 import ImageIO
+import QuartzCore
 
 // MARK: - C API Types
 
@@ -57,21 +58,41 @@ class X11BackingBuffer {
     }
 }
 
-// MARK: - Custom View using NSImageView for reliable display
+// MARK: - Custom View using layer-hosted view for reliable display
 
-class X11ContentView: NSImageView {
+class X11ContentView: NSView {
     var buffer: X11BackingBuffer?
+    private var imageLayer: CALayer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        imageScaling = .scaleAxesIndependently
-        imageAlignment = .alignTopLeft
+        setupLayer()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        imageScaling = .scaleAxesIndependently
-        imageAlignment = .alignTopLeft
+        setupLayer()
+    }
+
+    private func setupLayer() {
+        // Make this a layer-hosting view
+        wantsLayer = true
+        layerContentsRedrawPolicy = .never
+
+        // Create a sublayer for our image content
+        let imgLayer = CALayer()
+        imgLayer.contentsGravity = .resizeAspectFill
+        imgLayer.frame = bounds
+        imgLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        layer?.addSublayer(imgLayer)
+        imageLayer = imgLayer
+
+        NSLog("X11ContentView.setupLayer: created image layer")
+    }
+
+    override func layout() {
+        super.layout()
+        imageLayer?.frame = bounds
     }
 
     func updateContents() {
@@ -80,14 +101,19 @@ class X11ContentView: NSImageView {
             return
         }
 
-        NSLog("X11ContentView.updateContents: setting image \(cgImage.width)x\(cgImage.height)")
+        NSLog("X11ContentView.updateContents: setting layer contents \(cgImage.width)x\(cgImage.height)")
 
-        // Create NSImage from CGImage
-        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        self.image = nsImage
+        // Use CATransaction to ensure immediate update
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        imageLayer?.contents = cgImage
+        CATransaction.commit()
+
+        // Force synchronous display
+        CATransaction.flush()
 
         needsDisplay = true
-        displayIfNeeded()
+        display()
     }
 }
 
