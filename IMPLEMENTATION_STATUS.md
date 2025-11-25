@@ -185,20 +185,20 @@ This document tracks the implementation status of X11 protocol features across d
 
 ### X11 Extensions Status
 
-| Extension | Status | Notes |
-|-----------|--------|-------|
-| BIG-REQUESTS | 🟡 Registered | Allows requests > 256KB; registered but not fully implemented |
-| XKEYBOARD (XKB) | 🟡 Registered | Advanced keyboard; registered but not implemented |
-| RENDER | ❌ Not Implemented | Anti-aliased rendering, gradients, alpha blending |
-| XFIXES | ❌ Not Implemented | Cursor visibility, region support |
-| DAMAGE | ❌ Not Implemented | Tracks drawable changes |
-| COMPOSITE | ❌ Not Implemented | Off-screen window rendering |
-| SHAPE | ❌ Not Implemented | Non-rectangular windows |
-| SYNC | ❌ Not Implemented | Synchronization primitives |
-| RANDR | ❌ Not Implemented | Screen configuration |
-| Xinerama | ❌ Not Implemented | Multi-monitor support |
-| GLX | ❌ Not Implemented | OpenGL integration |
-| MIT-SHM | ❌ Not Implemented | Shared memory for images |
+| Extension | Status | Version | Notes |
+|-----------|--------|---------|-------|
+| BIG-REQUESTS | ✅ Implemented | - | Enable returns max 4MB request size |
+| XKEYBOARD (XKB) | 🟡 Registered | - | Advanced keyboard; registered but requests not handled |
+| RENDER | 🟡 Partial | 0.11 | QueryVersion supported; other requests logged only |
+| XFIXES | 🟡 Partial | 5.0 | QueryVersion supported; other requests logged only |
+| DAMAGE | 🟡 Partial | 1.1 | QueryVersion, Create, Destroy, Subtract supported (no-op) |
+| COMPOSITE | 🟡 Partial | 0.4 | QueryVersion, Redirect/Unredirect, NameWindowPixmap, GetOverlayWindow supported |
+| SHAPE | 🟡 Partial | 1.1 | QueryVersion supported; other requests logged only |
+| SYNC | 🟡 Partial | 3.1 | Initialize supported; other requests logged only |
+| RANDR | 🟡 Partial | 1.5 | QueryVersion supported; other requests logged only |
+| MIT-SHM | 🟡 Partial | 1.2 | QueryVersion supported; actual shared memory not implemented |
+| Xinerama | ❌ Not Implemented | - | Multi-monitor support |
+| GLX | ❌ Not Implemented | - | OpenGL integration |
 
 ---
 

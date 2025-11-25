@@ -118,6 +118,15 @@ fn handle_client(
             75 => handle_poly_text16(&mut stream, &header, &request_data, &server)?,
             76 => handle_image_text8(&mut stream, &header, &request_data, &server)?,
             77 => handle_image_text16(&mut stream, &header, &request_data, &server)?,
+            // Extension opcodes (129+)
+            129..=255 => {
+                super::extensions::handle_extension_request(
+                    &mut stream,
+                    &header,
+                    &request_data,
+                    opcode,
+                )?;
+            }
             _ => {
                 log::debug!("Unhandled opcode: {}", opcode);
             }

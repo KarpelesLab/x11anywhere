@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 mod client;
+pub mod extensions;
 pub mod listener;
 
 use crate::backend::{Backend, BackendGC, BackendWindow};
@@ -435,6 +436,26 @@ impl Server {
 
     /// Initialize common X11 extensions
     fn init_extensions(&mut self) {
+        // SHAPE extension (non-rectangular windows)
+        self.extensions.insert(
+            "SHAPE".to_string(),
+            ExtensionInfo {
+                major_opcode: 129,
+                first_event: 64, // ShapeNotify
+                first_error: 0,
+            },
+        );
+
+        // MIT-SHM extension (shared memory)
+        self.extensions.insert(
+            "MIT-SHM".to_string(),
+            ExtensionInfo {
+                major_opcode: 130,
+                first_event: 65, // ShmCompletion
+                first_error: 128,
+            },
+        );
+
         // BIG-REQUESTS extension (allows requests larger than 256KB)
         self.extensions.insert(
             "BIG-REQUESTS".to_string(),
@@ -445,13 +466,33 @@ impl Server {
             },
         );
 
+        // SYNC extension (synchronization primitives)
+        self.extensions.insert(
+            "SYNC".to_string(),
+            ExtensionInfo {
+                major_opcode: 134,
+                first_event: 83, // CounterNotify, AlarmNotify
+                first_error: 128,
+            },
+        );
+
         // XKEYBOARD extension (advanced keyboard input)
         self.extensions.insert(
             "XKEYBOARD".to_string(),
             ExtensionInfo {
                 major_opcode: 135,
                 first_event: 85,
-                first_error: 0,
+                first_error: 137,
+            },
+        );
+
+        // XFIXES extension (misc fixes and features)
+        self.extensions.insert(
+            "XFIXES".to_string(),
+            ExtensionInfo {
+                major_opcode: 138,
+                first_event: 87, // SelectionNotify, CursorNotify
+                first_error: 140,
             },
         );
 
@@ -459,9 +500,39 @@ impl Server {
         self.extensions.insert(
             "RENDER".to_string(),
             ExtensionInfo {
-                major_opcode: 138,
-                first_event: 140,
-                first_error: 0,
+                major_opcode: 139,
+                first_event: 0, // No events
+                first_error: 142,
+            },
+        );
+
+        // RANDR extension (screen configuration)
+        self.extensions.insert(
+            "RANDR".to_string(),
+            ExtensionInfo {
+                major_opcode: 140,
+                first_event: 89, // RRScreenChangeNotify, etc.
+                first_error: 147,
+            },
+        );
+
+        // COMPOSITE extension (off-screen rendering)
+        self.extensions.insert(
+            "Composite".to_string(),
+            ExtensionInfo {
+                major_opcode: 142,
+                first_event: 0, // No events
+                first_error: 0, // No errors
+            },
+        );
+
+        // DAMAGE extension (damage tracking)
+        self.extensions.insert(
+            "DAMAGE".to_string(),
+            ExtensionInfo {
+                major_opcode: 143,
+                first_event: 91, // DamageNotify
+                first_error: 152,
             },
         );
     }
