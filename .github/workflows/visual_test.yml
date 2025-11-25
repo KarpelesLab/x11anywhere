@@ -51,7 +51,6 @@ jobs:
       - name: Run visual test
         run: |
           DISPLAY=:99 cargo test --test visual_test -- --nocapture
-        continue-on-error: true
         env:
           DISPLAY: :99
           VISUAL_TEST_OUTPUT: ${{ github.workspace }}/visual_output
@@ -106,11 +105,9 @@ jobs:
           RUST_LOG=debug ./target/release/x11anywhere -display 1 -tcp > /tmp/x11anywhere_server.log 2>&1 &
           echo "X11ANYWHERE_PID=$!" >> $GITHUB_ENV
           sleep 2
-        continue-on-error: true
 
       - name: Run visual test
         run: cargo test --test visual_test -- --nocapture
-        continue-on-error: true
         env:
           VISUAL_TEST_OUTPUT: ${{ github.workspace }}/visual_output
           DISPLAY: :1
@@ -206,7 +203,6 @@ jobs:
           Remove-Job -Job $serverJob
 
           exit $testExitCode
-        continue-on-error: true
         env:
           VISUAL_TEST_OUTPUT: ${{ github.workspace }}/visual_output
           DISPLAY: :1
