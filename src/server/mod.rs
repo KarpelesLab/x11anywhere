@@ -182,6 +182,22 @@ impl Server {
         self.root_window
     }
 
+    /// Get screen info from the backend
+    pub fn get_screen_info(&self) -> crate::backend::ScreenInfo {
+        self.backend
+            .get_screen_info()
+            .unwrap_or(crate::backend::ScreenInfo {
+                width: 1920,
+                height: 1080,
+                width_mm: 508,
+                height_mm: 285,
+                root_visual: VisualID::new(0x21),
+                root_depth: 24,
+                white_pixel: 0xffffff,
+                black_pixel: 0x000000,
+            })
+    }
+
     /// Allocate a new resource ID
     pub fn allocate_id(&mut self) -> u32 {
         let id = self.next_resource_id;

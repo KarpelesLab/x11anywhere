@@ -107,6 +107,9 @@ fn handle_client(
 fn create_setup_response(server: &Server) -> SetupResponse {
     use crate::protocol::*;
 
+    // Get screen info from the backend
+    let screen_info = server.get_screen_info();
+
     SetupResponse::Success(SetupSuccess {
         protocol_major_version: 11,
         protocol_minor_version: 0,
@@ -130,23 +133,23 @@ fn create_setup_response(server: &Server) -> SetupResponse {
         roots: vec![Screen {
             root: server.root_window(),
             default_colormap: Colormap::new(0x20),
-            white_pixel: 0xFFFFFF,
-            black_pixel: 0x000000,
+            white_pixel: screen_info.white_pixel,
+            black_pixel: screen_info.black_pixel,
             current_input_masks: 0,
-            width_in_pixels: 1920,
-            height_in_pixels: 1080,
-            width_in_millimeters: 508,
-            height_in_millimeters: 285,
+            width_in_pixels: screen_info.width,
+            height_in_pixels: screen_info.height,
+            width_in_millimeters: screen_info.width_mm,
+            height_in_millimeters: screen_info.height_mm,
             min_installed_maps: 1,
             max_installed_maps: 1,
-            root_visual: VisualID::new(0x21),
+            root_visual: screen_info.root_visual,
             backing_stores: 0,
             save_unders: false,
-            root_depth: 24,
+            root_depth: screen_info.root_depth,
             allowed_depths: vec![Depth {
-                depth: 24,
+                depth: screen_info.root_depth,
                 visuals: vec![VisualType {
-                    visual_id: VisualID::new(0x21),
+                    visual_id: screen_info.root_visual,
                     class: 4, // TrueColor
                     bits_per_rgb_value: 8,
                     colormap_entries: 256,
