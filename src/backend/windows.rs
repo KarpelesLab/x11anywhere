@@ -1091,7 +1091,7 @@ impl Backend for WindowsBackend {
 
     fn flush(&mut self) -> BackendResult<()> {
         unsafe {
-            // Flush GDI queue
+            // Flush GDI queue to ensure all drawing operations are complete
             GdiFlush();
             Ok(())
         }
