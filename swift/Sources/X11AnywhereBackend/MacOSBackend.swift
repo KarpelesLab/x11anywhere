@@ -65,18 +65,27 @@ class X11ContentView: NSView {
     override var isFlipped: Bool { return true }  // Match X11 coordinate system (top-left origin)
 
     override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext,
-              let buffer = self.buffer,
-              let cgImage = buffer.context?.makeImage() else {
-            // Draw white background if no image
+        NSLog("X11ContentView.draw: dirtyRect=\(dirtyRect), bounds=\(bounds)")
+
+        guard let buffer = self.buffer else {
+            NSLog("X11ContentView.draw: no buffer!")
             NSColor.white.setFill()
             dirtyRect.fill()
             return
         }
 
-        // Draw the image
-        let imageRect = CGRect(x: 0, y: 0, width: CGFloat(buffer.width), height: CGFloat(buffer.height))
-        ctx.draw(cgImage, in: imageRect)
+        guard let nsImage = buffer.makeNSImage() else {
+            NSLog("X11ContentView.draw: no NSImage from buffer!")
+            NSColor.white.setFill()
+            dirtyRect.fill()
+            return
+        }
+
+        NSLog("X11ContentView.draw: drawing NSImage \(nsImage.size) into bounds \(bounds)")
+
+        // NSImage.draw() handles coordinate flipping automatically
+        // and respects the view's isFlipped property
+        nsImage.draw(in: bounds)
     }
 }
 
