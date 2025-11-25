@@ -109,6 +109,10 @@ class MacOSBackendImpl {
                     contentView.setNeedsDisplay(contentView.bounds)
                 }
                 window.displayIfNeeded()
+
+                // Pump the run loop briefly to ensure the window actually appears
+                // This is necessary for the window to be visible for drawing operations
+                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
             }
         }
     }
@@ -770,6 +774,9 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
             window.displayIfNeeded()
         }
         NSApplication.shared.updateWindows()
+
+        // Pump the run loop to process display updates
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
     }
     return BackendResult.success.rawValue
 }
