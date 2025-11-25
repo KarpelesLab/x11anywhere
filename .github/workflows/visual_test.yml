@@ -147,38 +147,43 @@ jobs:
       - name: Create test output directory
         run: mkdir visual_output
 
-      - name: Start x11anywhere server
+      - name: Start server and run visual test
         shell: powershell
         run: |
+          # Start server in background job (stays alive within this step)
           $env:RUST_LOG = "debug"
-          Start-Process -FilePath ".\target\release\x11anywhere.exe" -ArgumentList "-display","1","-tcp" -RedirectStandardOutput "server_stdout.log" -RedirectStandardError "server_stderr.log"
-          Start-Sleep -Seconds 3
-          # Verify server is running
-          Get-Process x11anywhere -ErrorAction SilentlyContinue
-          if (Test-Path "server_stderr.log") { Get-Content "server_stderr.log" }
-          # Check if port 6001 is listening
-          netstat -an | Select-String "6001"
+          Write-Host "Starting x11anywhere server..."
+          $serverJob = Start-Job -ScriptBlock {
+            param($workdir)
+            Set-Location $workdir
+            & ".\target\release\x11anywhere.exe" "-display" "1" "-tcp" 2>&1
+          } -ArgumentList (Get-Location)
 
-      - name: Run visual test
-        shell: powershell
-        run: |
-          # Verify server is still running before test
-          Write-Host "Checking if x11anywhere server is still running..."
-          $proc = Get-Process x11anywhere -ErrorAction SilentlyContinue
-          if ($proc) {
-            Write-Host "Server process found: PID=$($proc.Id)"
-          } else {
-            Write-Host "WARNING: Server process not found!"
-            if (Test-Path "server_stderr.log") {
-              Write-Host "Server stderr log:"
-              Get-Content "server_stderr.log"
-            }
-          }
-          # Check port status
+          # Wait for server to start
+          Start-Sleep -Seconds 3
+
+          # Check if server is running
+          Write-Host "Checking server job status..."
+          Receive-Job -Job $serverJob -Keep
+
+          # Check if port is listening
           Write-Host "Checking port 6001..."
           netstat -an | Select-String "6001"
-          # Run the test
+
+          # Run the visual test
+          Write-Host "Running visual test..."
           cargo test --test visual_test -- --nocapture
+          $testExitCode = $LASTEXITCODE
+
+          # Show server output
+          Write-Host "Server output:"
+          Receive-Job -Job $serverJob
+
+          # Clean up
+          Stop-Job -Job $serverJob
+          Remove-Job -Job $serverJob
+
+          exit $testExitCode
         continue-on-error: true
         env:
           VISUAL_TEST_OUTPUT: ${{ github.workspace }}/visual_output
