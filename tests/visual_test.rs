@@ -49,6 +49,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Draw test patterns
     println!("Drawing test patterns...");
     draw_colored_rectangles(&mut stream, window_id, gc_id)?;
+    draw_lines(&mut stream, window_id, gc_id)?;
+    draw_rectangle_outlines(&mut stream, window_id, gc_id)?;
+    draw_arcs(&mut stream, window_id, gc_id)?;
+    draw_filled_arcs(&mut stream, window_id, gc_id)?;
+    draw_polygon(&mut stream, window_id, gc_id)?;
+    draw_points(&mut stream, window_id, gc_id)?;
+    draw_segments(&mut stream, window_id, gc_id)?;
 
     // Wait for rendering - give extra time for compositor to update
     std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -196,10 +203,20 @@ fn read_setup_response(
     stream.read_exact(&mut screen_data)?;
 
     // Parse screen data
-    let root_window = u32::from_le_bytes([screen_data[0], screen_data[1], screen_data[2], screen_data[3]]);
+    let root_window = u32::from_le_bytes([
+        screen_data[0],
+        screen_data[1],
+        screen_data[2],
+        screen_data[3],
+    ]);
     let screen_width = u16::from_le_bytes([screen_data[20], screen_data[21]]);
     let screen_height = u16::from_le_bytes([screen_data[22], screen_data[23]]);
-    let root_visual = u32::from_le_bytes([screen_data[32], screen_data[33], screen_data[34], screen_data[35]]);
+    let root_visual = u32::from_le_bytes([
+        screen_data[32],
+        screen_data[33],
+        screen_data[34],
+        screen_data[35],
+    ]);
 
     // Read remaining depth/visual data (we just need to consume it)
     let num_depths = screen_data[39] as usize;
@@ -337,6 +354,295 @@ fn draw_colored_rectangles(
     Ok(())
 }
 
+/// Draw connected lines (PolyLine - opcode 65)
+fn draw_lines(
+    stream: &mut TcpStream,
+    window: u32,
+    gc: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Change GC foreground to orange
+    let mut req = Vec::new();
+    req.push(56); // ChangeGC opcode
+    req.push(0);
+    req.extend_from_slice(&4u16.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.extend_from_slice(&0x00000004u32.to_le_bytes()); // foreground mask
+    req.extend_from_slice(&0xFF8000u32.to_le_bytes()); // orange
+    stream.write_all(&req)?;
+
+    // Draw a zigzag line (5 points = 4 segments)
+    let points: [(i16, i16); 5] = [
+        (20, 150),
+        (60, 200),
+        (100, 150),
+        (140, 200),
+        (180, 150),
+    ];
+
+    let mut req = Vec::new();
+    req.push(65); // PolyLine opcode
+    req.push(0);  // coordinate mode = Origin
+    let length = 3 + points.len() as u16; // header + drawable + gc + points
+    req.extend_from_slice(&length.to_le_bytes());
+    req.extend_from_slice(&window.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    for (x, y) in points {
+        req.extend_from_slice(&x.to_le_bytes());
+        req.extend_from_slice(&y.to_le_bytes());
+    }
+    stream.write_all(&req)?;
+
+    stream.flush()?;
+    println!("  Drew PolyLine (orange zigzag)");
+    Ok(())
+}
+
+/// Draw rectangle outlines (PolyRectangle - opcode 67)
+fn draw_rectangle_outlines(
+    stream: &mut TcpStream,
+    window: u32,
+    gc: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Change GC foreground to purple
+    let mut req = Vec::new();
+    req.push(56);
+    req.push(0);
+    req.extend_from_slice(&4u16.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.extend_from_slice(&0x00000004u32.to_le_bytes());
+    req.extend_from_slice(&0x8000FFu32.to_le_bytes()); // purple
+    stream.write_all(&req)?;
+
+    // Draw 2 rectangle outlines
+    let rects: [(i16, i16, u16, u16); 2] = [
+        (200, 150, 60, 40),
+        (270, 150, 60, 40),
+    ];
+
+    let mut req = Vec::new();
+    req.push(67); // PolyRectangle opcode
+    req.push(0);
+    let length = 3 + (rects.len() * 2) as u16; // each rect is 8 bytes = 2 units
+    req.extend_from_slice(&length.to_le_bytes());
+    req.extend_from_slice(&window.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    for (x, y, w, h) in rects {
+        req.extend_from_slice(&x.to_le_bytes());
+        req.extend_from_slice(&y.to_le_bytes());
+        req.extend_from_slice(&w.to_le_bytes());
+        req.extend_from_slice(&h.to_le_bytes());
+    }
+    stream.write_all(&req)?;
+
+    stream.flush()?;
+    println!("  Drew PolyRectangle (purple outlines)");
+    Ok(())
+}
+
+/// Draw arc outlines (PolyArc - opcode 68)
+fn draw_arcs(
+    stream: &mut TcpStream,
+    window: u32,
+    gc: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Change GC foreground to dark green
+    let mut req = Vec::new();
+    req.push(56);
+    req.push(0);
+    req.extend_from_slice(&4u16.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.extend_from_slice(&0x00000004u32.to_le_bytes());
+    req.extend_from_slice(&0x008000u32.to_le_bytes()); // dark green
+    stream.write_all(&req)?;
+
+    // Draw an arc (semicircle)
+    // Arc angles are in 1/64 degree units
+    // angle1=0, angle2=180*64=11520 for top half
+    let mut req = Vec::new();
+    req.push(68); // PolyArc opcode
+    req.push(0);
+    req.extend_from_slice(&6u16.to_le_bytes()); // 3 + 1 arc (12 bytes = 3 units)
+    req.extend_from_slice(&window.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    // Arc: x, y, width, height, angle1, angle2
+    req.extend_from_slice(&350i16.to_le_bytes()); // x
+    req.extend_from_slice(&150i16.to_le_bytes()); // y
+    req.extend_from_slice(&60u16.to_le_bytes());  // width
+    req.extend_from_slice(&60u16.to_le_bytes());  // height
+    req.extend_from_slice(&0i16.to_le_bytes());   // angle1 (0 degrees)
+    req.extend_from_slice(&(180 * 64i16).to_le_bytes()); // angle2 (180 degrees)
+    stream.write_all(&req)?;
+
+    stream.flush()?;
+    println!("  Drew PolyArc (dark green semicircle)");
+    Ok(())
+}
+
+/// Draw filled arcs (PolyFillArc - opcode 71)
+fn draw_filled_arcs(
+    stream: &mut TcpStream,
+    window: u32,
+    gc: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Change GC foreground to teal
+    let mut req = Vec::new();
+    req.push(56);
+    req.push(0);
+    req.extend_from_slice(&4u16.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.extend_from_slice(&0x00000004u32.to_le_bytes());
+    req.extend_from_slice(&0x008080u32.to_le_bytes()); // teal
+    stream.write_all(&req)?;
+
+    // Draw a filled pie slice (90 degrees)
+    let mut req = Vec::new();
+    req.push(71); // PolyFillArc opcode
+    req.push(0);
+    req.extend_from_slice(&6u16.to_le_bytes());
+    req.extend_from_slice(&window.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.extend_from_slice(&420i16.to_le_bytes()); // x
+    req.extend_from_slice(&150i16.to_le_bytes()); // y
+    req.extend_from_slice(&60u16.to_le_bytes());  // width
+    req.extend_from_slice(&60u16.to_le_bytes());  // height
+    req.extend_from_slice(&(45 * 64i16).to_le_bytes()); // angle1 (45 degrees)
+    req.extend_from_slice(&(90 * 64i16).to_le_bytes()); // angle2 (90 degrees)
+    stream.write_all(&req)?;
+
+    stream.flush()?;
+    println!("  Drew PolyFillArc (teal pie slice)");
+    Ok(())
+}
+
+/// Draw filled polygon (FillPoly - opcode 69)
+fn draw_polygon(
+    stream: &mut TcpStream,
+    window: u32,
+    gc: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Change GC foreground to brown
+    let mut req = Vec::new();
+    req.push(56);
+    req.push(0);
+    req.extend_from_slice(&4u16.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.extend_from_slice(&0x00000004u32.to_le_bytes());
+    req.extend_from_slice(&0x8B4513u32.to_le_bytes()); // saddle brown
+    stream.write_all(&req)?;
+
+    // Draw a triangle
+    let points: [(i16, i16); 3] = [
+        (520, 200),
+        (550, 150),
+        (580, 200),
+    ];
+
+    let mut req = Vec::new();
+    req.push(69); // FillPoly opcode
+    req.push(0);
+    // Length = 4 (header + drawable + gc + shape/mode) + points
+    let length = 4 + points.len() as u16;
+    req.extend_from_slice(&length.to_le_bytes());
+    req.extend_from_slice(&window.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.push(2); // shape = Convex
+    req.push(0); // coordinate mode = Origin
+    req.extend_from_slice(&[0, 0]); // padding
+    for (x, y) in points {
+        req.extend_from_slice(&x.to_le_bytes());
+        req.extend_from_slice(&y.to_le_bytes());
+    }
+    stream.write_all(&req)?;
+
+    stream.flush()?;
+    println!("  Drew FillPoly (brown triangle)");
+    Ok(())
+}
+
+/// Draw points (PolyPoint - opcode 64)
+fn draw_points(
+    stream: &mut TcpStream,
+    window: u32,
+    gc: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Change GC foreground to black
+    let mut req = Vec::new();
+    req.push(56);
+    req.push(0);
+    req.extend_from_slice(&4u16.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.extend_from_slice(&0x00000004u32.to_le_bytes());
+    req.extend_from_slice(&0x000000u32.to_le_bytes()); // black
+    stream.write_all(&req)?;
+
+    // Draw a grid of points
+    let mut points = Vec::new();
+    for i in 0..10 {
+        for j in 0..5 {
+            points.push((600 + i * 5, 150 + j * 5));
+        }
+    }
+
+    let mut req = Vec::new();
+    req.push(64); // PolyPoint opcode
+    req.push(0);  // coordinate mode = Origin
+    let length = 3 + points.len() as u16;
+    req.extend_from_slice(&length.to_le_bytes());
+    req.extend_from_slice(&window.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    for (x, y) in points {
+        req.extend_from_slice(&(x as i16).to_le_bytes());
+        req.extend_from_slice(&(y as i16).to_le_bytes());
+    }
+    stream.write_all(&req)?;
+
+    stream.flush()?;
+    println!("  Drew PolyPoint (black dot grid)");
+    Ok(())
+}
+
+/// Draw line segments (PolySegment - opcode 66)
+fn draw_segments(
+    stream: &mut TcpStream,
+    window: u32,
+    gc: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Change GC foreground to dark red
+    let mut req = Vec::new();
+    req.push(56);
+    req.push(0);
+    req.extend_from_slice(&4u16.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.extend_from_slice(&0x00000004u32.to_le_bytes());
+    req.extend_from_slice(&0x800000u32.to_le_bytes()); // dark red
+    stream.write_all(&req)?;
+
+    // Draw an X shape using 2 independent segments
+    let segments: [(i16, i16, i16, i16); 2] = [
+        (700, 150, 750, 200), // diagonal 1
+        (700, 200, 750, 150), // diagonal 2
+    ];
+
+    let mut req = Vec::new();
+    req.push(66); // PolySegment opcode
+    req.push(0);
+    let length = 3 + (segments.len() * 2) as u16; // each segment is 8 bytes = 2 units
+    req.extend_from_slice(&length.to_le_bytes());
+    req.extend_from_slice(&window.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    for (x1, y1, x2, y2) in segments {
+        req.extend_from_slice(&x1.to_le_bytes());
+        req.extend_from_slice(&y1.to_le_bytes());
+        req.extend_from_slice(&x2.to_le_bytes());
+        req.extend_from_slice(&y2.to_le_bytes());
+    }
+    stream.write_all(&req)?;
+
+    stream.flush()?;
+    println!("  Drew PolySegment (dark red X)");
+    Ok(())
+}
+
 /// Validate that the colored rectangles are actually visible in the screenshot.
 /// This searches for each expected color somewhere in the image.
 fn validate_rectangles(screenshot: &screenshot::Screenshot) -> bool {
@@ -351,15 +657,26 @@ fn validate_rectangles(screenshot: &screenshot::Screenshot) -> bool {
     ];
 
     // Debug: sample some pixels from the screenshot to see actual color values
-    eprintln!("Debug: Sampling pixels from screenshot {}x{}", screenshot.width, screenshot.height);
-    let sample_points = [(50, 100), (180, 100), (310, 100), (440, 100), (570, 100), (700, 100)];
+    eprintln!(
+        "Debug: Sampling pixels from screenshot {}x{}",
+        screenshot.width, screenshot.height
+    );
+    let sample_points = [
+        (50, 100),
+        (180, 100),
+        (310, 100),
+        (440, 100),
+        (570, 100),
+        (700, 100),
+    ];
     for (x, y) in sample_points {
         if x < screenshot.width && y < screenshot.height {
             let idx = ((y * screenshot.width + x) * 4) as usize;
             if idx + 3 < screenshot.data.len() {
                 eprintln!(
                     "  Pixel ({}, {}): R={} G={} B={} A={}",
-                    x, y,
+                    x,
+                    y,
                     screenshot.data[idx],
                     screenshot.data[idx + 1],
                     screenshot.data[idx + 2],

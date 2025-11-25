@@ -310,6 +310,20 @@ pub trait Backend: Send {
         Ok(())
     }
 
+    /// Draw line segments (each segment is independent: x1, y1, x2, y2)
+    fn draw_segments(
+        &mut self,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        segments: &[(i16, i16, i16, i16)],
+    ) -> BackendResult<()> {
+        // Default implementation: draw each segment
+        for &(x1, y1, x2, y2) in segments {
+            self.draw_line(drawable, gc, x1, y1, x2, y2)?;
+        }
+        Ok(())
+    }
+
     /// Draw points
     fn draw_points(
         &mut self,

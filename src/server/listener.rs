@@ -1,4 +1,4 @@
-///! Server listener and connection handling
+//! Server listener and connection handling
 use std::error::Error;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -76,11 +76,7 @@ fn handle_client(
         let opcode = header[0];
         let length = u16::from_le_bytes([header[2], header[3]]) as usize * 4;
 
-        log::debug!(
-            "Received opcode {} (length {})",
-            opcode,
-            length
-        );
+        log::debug!("Received opcode {} (length {})", opcode, length);
 
         // Read rest of request
         let mut request_data = vec![0u8; length.saturating_sub(4)];
@@ -94,7 +90,19 @@ fn handle_client(
             8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
             55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
+            64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
+            65 => handle_poly_line(&mut stream, &header, &request_data, &server)?,
+            66 => handle_poly_segment(&mut stream, &header, &request_data, &server)?,
+            67 => handle_poly_rectangle(&mut stream, &header, &request_data, &server)?,
+            68 => handle_poly_arc(&mut stream, &header, &request_data, &server)?,
+            69 => handle_fill_poly(&mut stream, &header, &request_data, &server)?,
             70 => handle_poly_fill_rectangle(&mut stream, &header, &request_data, &server)?,
+            71 => handle_poly_fill_arc(&mut stream, &header, &request_data, &server)?,
+            72 => handle_put_image(&mut stream, &header, &request_data, &server)?,
+            74 => handle_poly_text8(&mut stream, &header, &request_data, &server)?,
+            75 => handle_poly_text16(&mut stream, &header, &request_data, &server)?,
+            76 => handle_image_text8(&mut stream, &header, &request_data, &server)?,
+            77 => handle_image_text16(&mut stream, &header, &request_data, &server)?,
             _ => {
                 log::debug!("Unhandled opcode: {}", opcode);
             }
@@ -463,6 +471,653 @@ fn handle_poly_fill_rectangle(
         crate::protocol::GContext::new(gc),
         &rectangles,
     )?;
+
+    Ok(())
+}
+
+fn handle_poly_point(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse PolyPoint request: drawable(4), gc(4), points(...)
+    if data.len() < 8 {
+        log::warn!("PolyPoint request too short");
+        return Ok(());
+    }
+
+    let coordinate_mode = header[1]; // 0=Origin, 1=Previous
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    // Parse points (each is 4 bytes: x, y)
+    let mut points = Vec::new();
+    let mut offset = 8;
+    let mut prev_x = 0i16;
+    let mut prev_y = 0i16;
+    while offset + 4 <= data.len() {
+        let mut x = i16::from_le_bytes([data[offset], data[offset + 1]]);
+        let mut y = i16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+        if coordinate_mode == 1 && !points.is_empty() {
+            x += prev_x;
+            y += prev_y;
+        }
+        points.push(crate::protocol::Point { x, y });
+        prev_x = x;
+        prev_y = y;
+        offset += 4;
+    }
+
+    log::debug!(
+        "PolyPoint: drawable=0x{:x}, gc=0x{:x}, {} points",
+        drawable,
+        gc,
+        points.len()
+    );
+
+    let mut server = server.lock().unwrap();
+    server.draw_points(
+        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        crate::protocol::GContext::new(gc),
+        &points,
+    )?;
+
+    Ok(())
+}
+
+fn handle_poly_line(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse PolyLine request: drawable(4), gc(4), points(...)
+    if data.len() < 8 {
+        log::warn!("PolyLine request too short");
+        return Ok(());
+    }
+
+    let coordinate_mode = header[1]; // 0=Origin, 1=Previous
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    // Parse points (each is 4 bytes: x, y)
+    let mut points = Vec::new();
+    let mut offset = 8;
+    let mut prev_x = 0i16;
+    let mut prev_y = 0i16;
+    while offset + 4 <= data.len() {
+        let mut x = i16::from_le_bytes([data[offset], data[offset + 1]]);
+        let mut y = i16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+        if coordinate_mode == 1 && !points.is_empty() {
+            x += prev_x;
+            y += prev_y;
+        }
+        points.push(crate::protocol::Point { x, y });
+        prev_x = x;
+        prev_y = y;
+        offset += 4;
+    }
+
+    log::debug!(
+        "PolyLine: drawable=0x{:x}, gc=0x{:x}, {} points",
+        drawable,
+        gc,
+        points.len()
+    );
+
+    let mut server = server.lock().unwrap();
+    server.draw_lines(
+        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        crate::protocol::GContext::new(gc),
+        &points,
+    )?;
+
+    Ok(())
+}
+
+fn handle_poly_segment(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse PolySegment request: drawable(4), gc(4), segments(...)
+    if data.len() < 8 {
+        log::warn!("PolySegment request too short");
+        return Ok(());
+    }
+
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    // Parse segments (each is 8 bytes: x1, y1, x2, y2)
+    let mut segments = Vec::new();
+    let mut offset = 8;
+    while offset + 8 <= data.len() {
+        let x1 = i16::from_le_bytes([data[offset], data[offset + 1]]);
+        let y1 = i16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+        let x2 = i16::from_le_bytes([data[offset + 4], data[offset + 5]]);
+        let y2 = i16::from_le_bytes([data[offset + 6], data[offset + 7]]);
+        segments.push((x1, y1, x2, y2));
+        offset += 8;
+    }
+
+    log::debug!(
+        "PolySegment: drawable=0x{:x}, gc=0x{:x}, {} segments",
+        drawable,
+        gc,
+        segments.len()
+    );
+
+    let mut server = server.lock().unwrap();
+    server.draw_segments(
+        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        crate::protocol::GContext::new(gc),
+        &segments,
+    )?;
+
+    Ok(())
+}
+
+fn handle_poly_rectangle(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse PolyRectangle request: drawable(4), gc(4), rectangles(...)
+    if data.len() < 8 {
+        log::warn!("PolyRectangle request too short");
+        return Ok(());
+    }
+
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    // Parse rectangles (each is 8 bytes: x, y, width, height)
+    let mut rectangles = Vec::new();
+    let mut offset = 8;
+    while offset + 8 <= data.len() {
+        let x = i16::from_le_bytes([data[offset], data[offset + 1]]);
+        let y = i16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+        let width = u16::from_le_bytes([data[offset + 4], data[offset + 5]]);
+        let height = u16::from_le_bytes([data[offset + 6], data[offset + 7]]);
+        rectangles.push(crate::protocol::Rectangle {
+            x,
+            y,
+            width,
+            height,
+        });
+        offset += 8;
+    }
+
+    log::debug!(
+        "PolyRectangle: drawable=0x{:x}, gc=0x{:x}, {} rectangles",
+        drawable,
+        gc,
+        rectangles.len()
+    );
+
+    let mut server = server.lock().unwrap();
+    server.draw_rectangles(
+        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        crate::protocol::GContext::new(gc),
+        &rectangles,
+    )?;
+
+    Ok(())
+}
+
+fn handle_poly_arc(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse PolyArc request: drawable(4), gc(4), arcs(...)
+    if data.len() < 8 {
+        log::warn!("PolyArc request too short");
+        return Ok(());
+    }
+
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    // Parse arcs (each is 12 bytes: x, y, width, height, angle1, angle2)
+    let mut arcs = Vec::new();
+    let mut offset = 8;
+    while offset + 12 <= data.len() {
+        let x = i16::from_le_bytes([data[offset], data[offset + 1]]);
+        let y = i16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+        let width = u16::from_le_bytes([data[offset + 4], data[offset + 5]]);
+        let height = u16::from_le_bytes([data[offset + 6], data[offset + 7]]);
+        let angle1 = i16::from_le_bytes([data[offset + 8], data[offset + 9]]);
+        let angle2 = i16::from_le_bytes([data[offset + 10], data[offset + 11]]);
+        arcs.push(crate::protocol::Arc {
+            x,
+            y,
+            width,
+            height,
+            angle1,
+            angle2,
+        });
+        offset += 12;
+    }
+
+    log::debug!(
+        "PolyArc: drawable=0x{:x}, gc=0x{:x}, {} arcs",
+        drawable,
+        gc,
+        arcs.len()
+    );
+
+    let mut server = server.lock().unwrap();
+    server.draw_arcs(
+        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        crate::protocol::GContext::new(gc),
+        &arcs,
+    )?;
+
+    Ok(())
+}
+
+fn handle_fill_poly(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse FillPoly request: drawable(4), gc(4), shape(1), coordinate-mode(1), pad(2), points(...)
+    if data.len() < 12 {
+        log::warn!("FillPoly request too short");
+        return Ok(());
+    }
+
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let _shape = data[8]; // 0=Complex, 1=Nonconvex, 2=Convex
+    let coordinate_mode = data[9]; // 0=Origin, 1=Previous
+
+    // Parse points (each is 4 bytes: x, y)
+    let mut points = Vec::new();
+    let mut offset = 12;
+    let mut prev_x = 0i16;
+    let mut prev_y = 0i16;
+    while offset + 4 <= data.len() {
+        let mut x = i16::from_le_bytes([data[offset], data[offset + 1]]);
+        let mut y = i16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+        if coordinate_mode == 1 && !points.is_empty() {
+            x += prev_x;
+            y += prev_y;
+        }
+        points.push(crate::protocol::Point { x, y });
+        prev_x = x;
+        prev_y = y;
+        offset += 4;
+    }
+
+    log::debug!(
+        "FillPoly: drawable=0x{:x}, gc=0x{:x}, {} points",
+        drawable,
+        gc,
+        points.len()
+    );
+
+    let _ = header; // suppress unused warning
+
+    let mut server = server.lock().unwrap();
+    server.fill_polygon(
+        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        crate::protocol::GContext::new(gc),
+        &points,
+    )?;
+
+    Ok(())
+}
+
+fn handle_poly_fill_arc(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse PolyFillArc request: drawable(4), gc(4), arcs(...)
+    if data.len() < 8 {
+        log::warn!("PolyFillArc request too short");
+        return Ok(());
+    }
+
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    // Parse arcs (each is 12 bytes: x, y, width, height, angle1, angle2)
+    let mut arcs = Vec::new();
+    let mut offset = 8;
+    while offset + 12 <= data.len() {
+        let x = i16::from_le_bytes([data[offset], data[offset + 1]]);
+        let y = i16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+        let width = u16::from_le_bytes([data[offset + 4], data[offset + 5]]);
+        let height = u16::from_le_bytes([data[offset + 6], data[offset + 7]]);
+        let angle1 = i16::from_le_bytes([data[offset + 8], data[offset + 9]]);
+        let angle2 = i16::from_le_bytes([data[offset + 10], data[offset + 11]]);
+        arcs.push(crate::protocol::Arc {
+            x,
+            y,
+            width,
+            height,
+            angle1,
+            angle2,
+        });
+        offset += 12;
+    }
+
+    log::debug!(
+        "PolyFillArc: drawable=0x{:x}, gc=0x{:x}, {} arcs",
+        drawable,
+        gc,
+        arcs.len()
+    );
+
+    let mut server = server.lock().unwrap();
+    server.fill_arcs(
+        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        crate::protocol::GContext::new(gc),
+        &arcs,
+    )?;
+
+    Ok(())
+}
+
+fn handle_put_image(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse PutImage request: drawable(4), gc(4), width(2), height(2), dst-x(2), dst-y(2),
+    //                         left-pad(1), depth(1), pad(2), data(...)
+    if data.len() < 16 {
+        log::warn!("PutImage request too short");
+        return Ok(());
+    }
+
+    let format = header[1]; // 0=Bitmap, 1=XYPixmap, 2=ZPixmap
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let width = u16::from_le_bytes([data[8], data[9]]);
+    let height = u16::from_le_bytes([data[10], data[11]]);
+    let dst_x = i16::from_le_bytes([data[12], data[13]]);
+    let dst_y = i16::from_le_bytes([data[14], data[15]]);
+    let _left_pad = data[16];
+    let depth = data[17];
+    // data[18..20] is padding
+    let image_data = &data[20..];
+
+    log::debug!(
+        "PutImage: drawable=0x{:x}, gc=0x{:x}, {}x{} at ({},{}), format={}, depth={}, {} bytes",
+        drawable,
+        gc,
+        width,
+        height,
+        dst_x,
+        dst_y,
+        format,
+        depth,
+        image_data.len()
+    );
+
+    let mut server = server.lock().unwrap();
+    server.put_image(
+        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        crate::protocol::GContext::new(gc),
+        width,
+        height,
+        dst_x,
+        dst_y,
+        depth,
+        format,
+        image_data,
+    )?;
+
+    Ok(())
+}
+
+fn handle_image_text8(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ImageText8 request: drawable(4), gc(4), x(2), y(2), string(n)
+    if data.len() < 12 {
+        log::warn!("ImageText8 request too short");
+        return Ok(());
+    }
+
+    let string_len = header[1] as usize;
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let x = i16::from_le_bytes([data[8], data[9]]);
+    let y = i16::from_le_bytes([data[10], data[11]]);
+
+    let text_end = (12 + string_len).min(data.len());
+    let text = String::from_utf8_lossy(&data[12..text_end]).to_string();
+
+    log::debug!(
+        "ImageText8: drawable=0x{:x}, gc=0x{:x}, ({},{}), text={:?}",
+        drawable,
+        gc,
+        x,
+        y,
+        text
+    );
+
+    let mut server = server.lock().unwrap();
+    server.draw_text(
+        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        crate::protocol::GContext::new(gc),
+        x,
+        y,
+        &text,
+    )?;
+
+    Ok(())
+}
+
+fn handle_image_text16(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ImageText16 request: drawable(4), gc(4), x(2), y(2), chars(n*2)
+    if data.len() < 12 {
+        log::warn!("ImageText16 request too short");
+        return Ok(());
+    }
+
+    let string_len = header[1] as usize;
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let x = i16::from_le_bytes([data[8], data[9]]);
+    let y = i16::from_le_bytes([data[10], data[11]]);
+
+    // Parse 16-bit characters (CHAR2B format: byte1=high, byte2=low)
+    let char_data = &data[12..];
+    let mut text = String::new();
+    for i in (0..string_len * 2).step_by(2) {
+        if i + 1 < char_data.len() {
+            let high = char_data[i] as u16;
+            let low = char_data[i + 1] as u16;
+            let codepoint = (high << 8) | low;
+            if let Some(ch) = char::from_u32(codepoint as u32) {
+                text.push(ch);
+            }
+        }
+    }
+
+    log::debug!(
+        "ImageText16: drawable=0x{:x}, gc=0x{:x}, ({},{}), text={:?}",
+        drawable,
+        gc,
+        x,
+        y,
+        text
+    );
+
+    let mut server = server.lock().unwrap();
+    server.draw_text(
+        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        crate::protocol::GContext::new(gc),
+        x,
+        y,
+        &text,
+    )?;
+
+    Ok(())
+}
+
+fn handle_poly_text8(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse PolyText8 request: drawable(4), gc(4), x(2), y(2), items(...)
+    if data.len() < 12 {
+        log::warn!("PolyText8 request too short");
+        return Ok(());
+    }
+
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let mut x = i16::from_le_bytes([data[8], data[9]]);
+    let y = i16::from_le_bytes([data[10], data[11]]);
+
+    // Parse text items (each item: len(1), delta(1), string(len))
+    // If len=255, it's a font-shift item (4 bytes total: 255, font(3))
+    let mut offset = 12;
+    let mut server = server.lock().unwrap();
+
+    while offset < data.len() {
+        let len = data[offset] as usize;
+        if len == 0 {
+            break; // End of items
+        }
+        if len == 255 {
+            // Font-shift item - skip for now
+            offset += 4;
+            continue;
+        }
+        if offset + 2 + len > data.len() {
+            break;
+        }
+
+        let delta = data[offset + 1] as i16;
+        x += delta;
+
+        let text = String::from_utf8_lossy(&data[offset + 2..offset + 2 + len]).to_string();
+
+        log::debug!(
+            "PolyText8 item: drawable=0x{:x}, gc=0x{:x}, ({},{}), text={:?}",
+            drawable,
+            gc,
+            x,
+            y,
+            text
+        );
+
+        server.draw_text(
+            crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+            crate::protocol::GContext::new(gc),
+            x,
+            y,
+            &text,
+        )?;
+
+        // Advance x by approximate text width (crude estimate)
+        x += (len * 8) as i16;
+        offset += 2 + len;
+    }
+
+    Ok(())
+}
+
+fn handle_poly_text16(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse PolyText16 request: drawable(4), gc(4), x(2), y(2), items(...)
+    if data.len() < 12 {
+        log::warn!("PolyText16 request too short");
+        return Ok(());
+    }
+
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let mut x = i16::from_le_bytes([data[8], data[9]]);
+    let y = i16::from_le_bytes([data[10], data[11]]);
+
+    // Parse text items (each item: len(1), delta(1), chars(len*2))
+    let mut offset = 12;
+    let mut server = server.lock().unwrap();
+
+    while offset < data.len() {
+        let len = data[offset] as usize;
+        if len == 0 {
+            break; // End of items
+        }
+        if len == 255 {
+            // Font-shift item - skip for now
+            offset += 4;
+            continue;
+        }
+        if offset + 2 + len * 2 > data.len() {
+            break;
+        }
+
+        let delta = data[offset + 1] as i16;
+        x += delta;
+
+        // Parse 16-bit characters
+        let char_data = &data[offset + 2..offset + 2 + len * 2];
+        let mut text = String::new();
+        for i in (0..len * 2).step_by(2) {
+            if i + 1 < char_data.len() {
+                let high = char_data[i] as u16;
+                let low = char_data[i + 1] as u16;
+                let codepoint = (high << 8) | low;
+                if let Some(ch) = char::from_u32(codepoint as u32) {
+                    text.push(ch);
+                }
+            }
+        }
+
+        log::debug!(
+            "PolyText16 item: drawable=0x{:x}, gc=0x{:x}, ({},{}), text={:?}",
+            drawable,
+            gc,
+            x,
+            y,
+            text
+        );
+
+        server.draw_text(
+            crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+            crate::protocol::GContext::new(gc),
+            x,
+            y,
+            &text,
+        )?;
+
+        // Advance x by approximate text width
+        x += (len * 8) as i16;
+        offset += 2 + len * 2;
+    }
 
     Ok(())
 }

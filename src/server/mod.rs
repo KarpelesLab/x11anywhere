@@ -494,22 +494,20 @@ impl Server {
 
         // Get backend drawable
         let backend_drawable = match drawable {
-            Drawable::Window(w) => {
-                match self.windows.get(&w) {
-                    Some(backend_window) => {
-                        log::debug!("fill_rectangles: found backend window {:?}", backend_window);
-                        crate::backend::BackendDrawable::Window(*backend_window)
-                    }
-                    None => {
-                        log::error!(
-                            "fill_rectangles: Invalid window {:?}, known windows: {:?}",
-                            w,
-                            self.windows.keys().collect::<Vec<_>>()
-                        );
-                        return Err("Invalid window".into());
-                    }
+            Drawable::Window(w) => match self.windows.get(&w) {
+                Some(backend_window) => {
+                    log::debug!("fill_rectangles: found backend window {:?}", backend_window);
+                    crate::backend::BackendDrawable::Window(*backend_window)
                 }
-            }
+                None => {
+                    log::error!(
+                        "fill_rectangles: Invalid window {:?}, known windows: {:?}",
+                        w,
+                        self.windows.keys().collect::<Vec<_>>()
+                    );
+                    return Err("Invalid window".into());
+                }
+            },
             Drawable::Pixmap(p) => crate::backend::BackendDrawable::Pixmap(p.id().get() as usize),
         };
 
@@ -522,5 +520,218 @@ impl Server {
 
         log::debug!("fill_rectangles: completed successfully");
         Ok(())
+    }
+
+    /// Draw points
+    pub fn draw_points(
+        &mut self,
+        drawable: Drawable,
+        gc: GContext,
+        points: &[Point],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => return Err("Invalid GC".into()),
+        };
+
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        self.backend
+            .draw_points(backend_drawable, backend_gc, points)?;
+        self.backend.flush()?;
+        Ok(())
+    }
+
+    /// Draw connected lines
+    pub fn draw_lines(
+        &mut self,
+        drawable: Drawable,
+        gc: GContext,
+        points: &[Point],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => return Err("Invalid GC".into()),
+        };
+
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        self.backend
+            .draw_lines(backend_drawable, backend_gc, points)?;
+        self.backend.flush()?;
+        Ok(())
+    }
+
+    /// Draw line segments
+    pub fn draw_segments(
+        &mut self,
+        drawable: Drawable,
+        gc: GContext,
+        segments: &[(i16, i16, i16, i16)],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => return Err("Invalid GC".into()),
+        };
+
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        self.backend
+            .draw_segments(backend_drawable, backend_gc, segments)?;
+        self.backend.flush()?;
+        Ok(())
+    }
+
+    /// Draw rectangles (outlines)
+    pub fn draw_rectangles(
+        &mut self,
+        drawable: Drawable,
+        gc: GContext,
+        rectangles: &[Rectangle],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => return Err("Invalid GC".into()),
+        };
+
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        self.backend
+            .draw_rectangles(backend_drawable, backend_gc, rectangles)?;
+        self.backend.flush()?;
+        Ok(())
+    }
+
+    /// Draw arcs (outlines)
+    pub fn draw_arcs(
+        &mut self,
+        drawable: Drawable,
+        gc: GContext,
+        arcs: &[Arc],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => return Err("Invalid GC".into()),
+        };
+
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        self.backend.draw_arcs(backend_drawable, backend_gc, arcs)?;
+        self.backend.flush()?;
+        Ok(())
+    }
+
+    /// Fill arcs
+    pub fn fill_arcs(
+        &mut self,
+        drawable: Drawable,
+        gc: GContext,
+        arcs: &[Arc],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => return Err("Invalid GC".into()),
+        };
+
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        self.backend.fill_arcs(backend_drawable, backend_gc, arcs)?;
+        self.backend.flush()?;
+        Ok(())
+    }
+
+    /// Fill polygon
+    pub fn fill_polygon(
+        &mut self,
+        drawable: Drawable,
+        gc: GContext,
+        points: &[Point],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => return Err("Invalid GC".into()),
+        };
+
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        self.backend
+            .fill_polygon(backend_drawable, backend_gc, points)?;
+        self.backend.flush()?;
+        Ok(())
+    }
+
+    /// Put image
+    pub fn put_image(
+        &mut self,
+        drawable: Drawable,
+        gc: GContext,
+        width: u16,
+        height: u16,
+        dst_x: i16,
+        dst_y: i16,
+        depth: u8,
+        format: u8,
+        data: &[u8],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => return Err("Invalid GC".into()),
+        };
+
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        self.backend.put_image(
+            backend_drawable,
+            backend_gc,
+            width,
+            height,
+            dst_x,
+            dst_y,
+            depth,
+            format,
+            data,
+        )?;
+        self.backend.flush()?;
+        Ok(())
+    }
+
+    /// Draw text
+    pub fn draw_text(
+        &mut self,
+        drawable: Drawable,
+        gc: GContext,
+        x: i16,
+        y: i16,
+        text: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => return Err("Invalid GC".into()),
+        };
+
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        self.backend
+            .draw_text(backend_drawable, backend_gc, x, y, text)?;
+        self.backend.flush()?;
+        Ok(())
+    }
+
+    /// Helper to get backend drawable from X11 drawable
+    fn get_backend_drawable(
+        &self,
+        drawable: Drawable,
+    ) -> Result<crate::backend::BackendDrawable, Box<dyn Error + Send + Sync>> {
+        match drawable {
+            Drawable::Window(w) => match self.windows.get(&w) {
+                Some(backend_window) => {
+                    Ok(crate::backend::BackendDrawable::Window(*backend_window))
+                }
+                None => Err("Invalid window".into()),
+            },
+            Drawable::Pixmap(p) => Ok(crate::backend::BackendDrawable::Pixmap(
+                p.id().get() as usize
+            )),
+        }
     }
 }
