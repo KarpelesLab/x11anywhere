@@ -46,6 +46,10 @@ class X11BackingBuffer {
                                bytesPerRow: self.width * 4,
                                space: colorSpace,
                                bitmapInfo: bitmapInfo) {
+            // Flip coordinate system to match X11 (origin at top-left, Y increasing downward)
+            ctx.translateBy(x: 0, y: CGFloat(self.height))
+            ctx.scaleBy(x: 1.0, y: -1.0)
+
             // Fill with white background
             ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
             ctx.fill(CGRect(x: 0, y: 0, width: self.width, height: self.height))
@@ -548,15 +552,11 @@ public func macos_backend_fill_rectangle(_ handle: BackendHandle, isWindow: Int3
     NSLog("fill_rectangle: isWindow=\(isWindow), drawable=\(drawableId), rect=(\(x),\(y),\(width),\(height)), color=(\(r),\(g),\(b))")
 
     let context: CGContext?
-    let bufferHeight: Int
     if isWindow != 0 {
         context = backend.getWindowContext(id: Int(drawableId))
-        bufferHeight = backend.windowBuffers[Int(drawableId)]?.height ?? 600
-        NSLog("fill_rectangle: got window context: \(context != nil), bufferHeight: \(bufferHeight)")
+        NSLog("fill_rectangle: got window context: \(context != nil)")
     } else {
         context = backend.getPixmapContext(id: Int(drawableId))
-        // For pixmaps, try to get height from context or use a default
-        bufferHeight = context?.height ?? 600
     }
 
     guard let ctx = context else {
@@ -564,12 +564,11 @@ public func macos_backend_fill_rectangle(_ handle: BackendHandle, isWindow: Int3
         return BackendResult.error.rawValue
     }
 
-    // Convert X11 coordinates (origin at top-left) to CGContext (origin at bottom-left)
-    let flippedY = CGFloat(bufferHeight) - CGFloat(y) - CGFloat(height)
-    let rect = CGRect(x: CGFloat(x), y: flippedY, width: CGFloat(width), height: CGFloat(height))
+    // Use X11 coordinates directly - CTM transform in X11BackingBuffer handles coordinate flipping
+    let rect = CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))
     ctx.setFillColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
     ctx.fill(rect)
-    NSLog("fill_rectangle: filled rect at flipped y=\(flippedY) (original y=\(y))")
+    NSLog("fill_rectangle: filled rect at y=\(y)")
 
     if isWindow != 0 {
         backend.releaseWindowContext(id: Int(drawableId))
