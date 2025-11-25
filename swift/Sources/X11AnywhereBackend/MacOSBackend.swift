@@ -21,10 +21,77 @@ public enum BackendResult: Int32 {
     case error = 1
 }
 
+// MARK: - Custom View with Backing Buffer
+
+class X11BackingView: NSView {
+    var backingImage: NSImage?
+    var backingContext: CGContext?
+    var viewWidth: Int = 100
+    var viewHeight: Int = 100
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupBacking(width: Int(frameRect.width), height: Int(frameRect.height))
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    func setupBacking(width: Int, height: Int) {
+        self.viewWidth = max(width, 1)
+        self.viewHeight = max(height, 1)
+
+        // Create a bitmap context for our backing store
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+
+        if let ctx = CGContext(data: nil,
+                               width: viewWidth,
+                               height: viewHeight,
+                               bitsPerComponent: 8,
+                               bytesPerRow: viewWidth * 4,
+                               space: colorSpace,
+                               bitmapInfo: bitmapInfo) {
+            // Fill with white background
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: viewWidth, height: viewHeight))
+            self.backingContext = ctx
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext,
+              let backingCtx = backingContext,
+              let image = backingCtx.makeImage() else {
+            // Fill with white if no backing
+            NSColor.white.setFill()
+            dirtyRect.fill()
+            return
+        }
+
+        // Draw the backing image to the view
+        // X11 coordinates: origin at top-left, Y increases downward
+        // NSView coordinates: origin at bottom-left, Y increases upward
+        // CGContext backing: origin at bottom-left
+        // We need to flip when drawing from backing to view
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: bounds.height)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(viewWidth), height: CGFloat(viewHeight)))
+        ctx.restoreGState()
+    }
+
+    func getContext() -> CGContext? {
+        return backingContext
+    }
+}
+
 // MARK: - Backend Class
 
 class MacOSBackendImpl {
     var windows: [Int: NSWindow] = [:]
+    var windowViews: [Int: X11BackingView] = [:]
     var contexts: [Int: CGContext] = [:]
     var nextId: Int = 1
     var screenWidth: Int = 1920  // Default fallback
@@ -84,7 +151,12 @@ class MacOSBackendImpl {
             window.title = "X11 Window"
             window.backgroundColor = .white
 
+            // Create our custom backing view
+            let backingView = X11BackingView(frame: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+            window.contentView = backingView
+
             self.windows[id] = window
+            self.windowViews[id] = backingView
             windowId = id
         }
         return windowId
@@ -92,6 +164,7 @@ class MacOSBackendImpl {
 
     func destroyWindow(id: Int) {
         DispatchQueue.main.sync {
+            self.windowViews.removeValue(forKey: id)
             if let window = self.windows.removeValue(forKey: id) {
                 window.close()
             }
@@ -161,26 +234,16 @@ class MacOSBackendImpl {
     }
 
     func getWindowContext(id: Int) -> CGContext? {
-        var context: CGContext? = nil
-        DispatchQueue.main.sync {
-            if let window = self.windows[id],
-               let contentView = window.contentView {
-                // Lock focus to get graphics context
-                contentView.lockFocus()
-                context = NSGraphicsContext.current?.cgContext
-            }
-        }
-        return context
+        // Return the backing context from our custom view
+        return self.windowViews[id]?.getContext()
     }
 
     func releaseWindowContext(id: Int) {
+        // Mark the view as needing display to show the changes
         DispatchQueue.main.sync {
-            if let window = self.windows[id],
-               let contentView = window.contentView {
-                contentView.unlockFocus()
-                // Mark the view as needing display to show the changes
-                contentView.setNeedsDisplay(contentView.bounds)
-                contentView.displayIfNeeded()
+            if let view = self.windowViews[id] {
+                view.setNeedsDisplay(view.bounds)
+                view.displayIfNeeded()
             }
         }
     }
@@ -766,11 +829,11 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
     DispatchQueue.main.sync {
         // Force all windows to display their content
+        for (_, view) in backend.windowViews {
+            view.setNeedsDisplay(view.bounds)
+            view.displayIfNeeded()
+        }
         for (_, window) in backend.windows {
-            if let contentView = window.contentView {
-                contentView.setNeedsDisplay(contentView.bounds)
-                contentView.displayIfNeeded()
-            }
             window.displayIfNeeded()
         }
         NSApplication.shared.updateWindows()
