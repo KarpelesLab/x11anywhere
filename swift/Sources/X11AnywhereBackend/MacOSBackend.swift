@@ -918,10 +918,22 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
 
         // Update all image views with their buffer contents
         for (id, imageView) in backend.windowImageViews {
-            if let buffer = backend.windowBuffers[id] {
-                imageView.image = buffer.makeNSImage()
+            if let buffer = backend.windowBuffers[id], let window = backend.windows[id] {
+                let nsImage = buffer.makeNSImage()
+                NSLog("flush: window \(id) - imageView frame: \(imageView.frame), image size: \(nsImage?.size ?? NSSize.zero)")
+
+                imageView.image = nsImage
                 imageView.needsDisplay = true
+
+                // Force the window content view to match window content size
+                if let contentView = window.contentView {
+                    let contentRect = window.contentRect(forFrameRect: window.frame)
+                    imageView.frame = NSRect(x: 0, y: 0, width: contentRect.width, height: contentRect.height)
+                    NSLog("flush: set imageView frame to \(imageView.frame)")
+                }
+
                 imageView.displayIfNeeded()
+                window.display()
 
                 // Debug: save buffer to file
                 if let context = buffer.context, let cgImage = context.makeImage() {
@@ -936,13 +948,12 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
                 }
             }
         }
-        for (_, window) in backend.windows {
-            window.displayIfNeeded()
-        }
         NSApplication.shared.updateWindows()
 
-        // Pump the run loop to process display updates
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        // Pump the run loop to process display updates more aggressively
+        for _ in 0..<5 {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
     }
     return BackendResult.success.rawValue
 }
