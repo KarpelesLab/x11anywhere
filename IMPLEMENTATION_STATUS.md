@@ -62,7 +62,7 @@ This document tracks the implementation status of X11 protocol features across d
 | PolyArc | ✅ | ✅ | ✅ | ⚪ | Arc/Pie on Windows, CGContext ellipse transforms on macOS |
 | PolyFillArc | ✅ | ✅ | ✅ | ⚪ | Pie on Windows, CGContext arcs on macOS |
 | CopyArea | ✅ | ✅ | ✅ | ⚪ | BitBlt on Windows; CGImage cropping/drawing on macOS |
-| ImageText8 | ✅ | ✅ | ✅ | ⚪ | TextOutW on Windows, NSString on macOS |
+| ImageText8 | ✅ | ✅ | ✅ | ⚪ | TextOutW on Windows, Core Text (CTLineDraw) on macOS |
 | ImageText16 | ✅ | ✅ | ✅ | ⚪ | Unicode text rendering supported |
 | PutImage | ✅ | ✅ | ✅ | ⚪ | SetDIBitsToDevice on Windows, CGImage on macOS |
 | GetImage | ✅ | ✅ | ✅ | ⚪ | GetDIBits on Windows, CGContext.makeImage on macOS |
