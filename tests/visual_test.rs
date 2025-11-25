@@ -152,29 +152,70 @@ fn read_setup_response(
         return Err("Connection setup failed".into());
     }
 
-    // Skip to useful data (simplified parsing)
+    // Read fixed header (39 bytes after status)
+    // Format: unused(1), protocol-major(2), protocol-minor(2), length(2),
+    //         release(4), resource-id-base(4), resource-id-mask(4),
+    //         motion-buffer-size(4), vendor-len(2), max-request-len(2),
+    //         num-screens(1), num-formats(1), image-byte-order(1),
+    //         bitmap-format-bit-order(1), scanline-unit(1), scanline-pad(1),
+    //         min-keycode(1), max-keycode(1), unused(4)
     let mut header = vec![0u8; 39];
     stream.read_exact(&mut header)?;
 
-    let root_window = u32::from_le_bytes([header[16], header[17], header[18], header[19]]);
-    let root_visual = u32::from_le_bytes([header[28], header[29], header[30], header[31]]);
-    let screen_width = u16::from_le_bytes([header[20], header[21]]);
-    let screen_height = u16::from_le_bytes([header[22], header[23]]);
+    // Parse header fields
+    let vendor_len = u16::from_le_bytes([header[23], header[24]]) as usize;
+    let num_screens = header[27] as usize;
+    let num_formats = header[28] as usize;
 
-    // Read rest of setup data
-    let vendor_len = header[8] as usize;
+    // Read vendor string (padded to 4 bytes)
     let vendor_padded = (vendor_len + 3) & !3;
     let mut vendor = vec![0u8; vendor_padded];
     stream.read_exact(&mut vendor)?;
 
-    // Read formats
-    let num_formats = header[7] as usize;
+    // Read pixmap formats (8 bytes each)
     let mut formats = vec![0u8; num_formats * 8];
     stream.read_exact(&mut formats)?;
 
-    // Read screens (we only care about first one)
+    // Read first screen data
+    // Screen format: root(4), default-colormap(4), white-pixel(4), black-pixel(4),
+    //                current-input-masks(4), width-in-pixels(2), height-in-pixels(2),
+    //                width-in-mm(2), height-in-mm(2), min-installed-maps(2),
+    //                max-installed-maps(2), root-visual(4), backing-stores(1),
+    //                save-unders(1), root-depth(1), num-depths(1)
     let mut screen_data = vec![0u8; 40];
     stream.read_exact(&mut screen_data)?;
+
+    // Parse screen data
+    let root_window = u32::from_le_bytes([screen_data[0], screen_data[1], screen_data[2], screen_data[3]]);
+    let screen_width = u16::from_le_bytes([screen_data[20], screen_data[21]]);
+    let screen_height = u16::from_le_bytes([screen_data[22], screen_data[23]]);
+    let root_visual = u32::from_le_bytes([screen_data[32], screen_data[33], screen_data[34], screen_data[35]]);
+
+    // Read remaining depth/visual data (we just need to consume it)
+    let num_depths = screen_data[39] as usize;
+    for _ in 0..num_depths {
+        // Depth header: depth(1), unused(1), num-visuals(2), unused(4)
+        let mut depth_header = vec![0u8; 8];
+        stream.read_exact(&mut depth_header)?;
+        let num_visuals = u16::from_le_bytes([depth_header[2], depth_header[3]]) as usize;
+        // Each visual is 24 bytes
+        let mut visuals = vec![0u8; num_visuals * 24];
+        stream.read_exact(&mut visuals)?;
+    }
+
+    // Skip remaining screens if any
+    for _ in 1..num_screens {
+        let mut extra_screen = vec![0u8; 40];
+        stream.read_exact(&mut extra_screen)?;
+        let extra_depths = extra_screen[39] as usize;
+        for _ in 0..extra_depths {
+            let mut depth_header = vec![0u8; 8];
+            stream.read_exact(&mut depth_header)?;
+            let num_visuals = u16::from_le_bytes([depth_header[2], depth_header[3]]) as usize;
+            let mut visuals = vec![0u8; num_visuals * 24];
+            stream.read_exact(&mut visuals)?;
+        }
+    }
 
     Ok((root_window, root_visual, screen_width, screen_height))
 }
