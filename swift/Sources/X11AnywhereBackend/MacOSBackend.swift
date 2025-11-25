@@ -245,6 +245,16 @@ class MacOSBackendImpl {
                 imageView.needsDisplay = true
                 imageView.displayIfNeeded()
 
+                // Save debug image to file so we can verify buffer content
+                if let context = buffer.context, let cgImage = context.makeImage() {
+                    let debugPath = "/tmp/x11anywhere_buffer_\(id).png"
+                    let url = URL(fileURLWithPath: debugPath)
+                    if let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
+                        CGImageDestinationAddImage(destination, cgImage, nil)
+                        CGImageDestinationFinalize(destination)
+                    }
+                }
+
                 // Pump the run loop to ensure display updates are flushed
                 RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
             }

@@ -119,7 +119,10 @@ jobs:
         if: always()
         run: |
           cp /tmp/x11anywhere_debug_*.png visual_output/ 2>/dev/null || true
+          cp /tmp/x11anywhere_buffer_*.png visual_output/ 2>/dev/null || true
+          echo "=== Contents of visual_output ==="
           ls -la visual_output/ || true
+          echo "=== X11 files in /tmp ==="
           ls -la /tmp/x11anywhere* 2>/dev/null || true
 
       - name: Show server output
