@@ -14,6 +14,7 @@ pub struct Screenshot {
 
 /// Capture a screenshot of a specific window by ID
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 pub fn capture_window(window_id: u32) -> Result<Screenshot, Box<dyn std::error::Error>> {
     use std::env;
     use std::fs;

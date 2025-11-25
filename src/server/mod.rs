@@ -380,6 +380,7 @@ impl Server {
     }
 
     /// Create a window
+    #[allow(clippy::too_many_arguments)]
     pub fn create_window(
         &mut self,
         window: Window,
@@ -714,6 +715,7 @@ impl Server {
     }
 
     /// Put image
+    #[allow(clippy::too_many_arguments)]
     pub fn put_image(
         &mut self,
         drawable: Drawable,

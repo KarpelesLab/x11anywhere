@@ -656,9 +656,7 @@ fn open_font(
     req.extend_from_slice(&(name_len as u16).to_le_bytes());
     req.extend_from_slice(&[0, 0]); // padding
     req.extend_from_slice(name_bytes);
-    for _ in 0..name_pad {
-        req.push(0);
-    }
+    req.extend(std::iter::repeat_n(0u8, name_pad));
 
     stream.write_all(&req)?;
     stream.flush()?;
@@ -699,9 +697,7 @@ fn draw_text_test(
     req.extend_from_slice(&20i16.to_le_bytes()); // x
     req.extend_from_slice(&280i16.to_le_bytes()); // y
     req.extend_from_slice(text);
-    for _ in 0..text_pad {
-        req.push(0);
-    }
+    req.extend(std::iter::repeat_n(0u8, text_pad));
     stream.write_all(&req)?;
 
     stream.flush()?;
@@ -806,10 +802,5 @@ fn validate_rectangles(screenshot: &screenshot::Screenshot) -> bool {
 }
 
 fn color_matches(actual: u8, expected: u8, tolerance: u8) -> bool {
-    let diff = if actual > expected {
-        actual - expected
-    } else {
-        expected - actual
-    };
-    diff <= tolerance
+    actual.abs_diff(expected) <= tolerance
 }

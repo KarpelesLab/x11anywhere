@@ -154,7 +154,7 @@ impl X11Backend {
         req.extend_from_slice(&value_list);
 
         // Update length
-        let len_words = (req.len() + 3) / 4;
+        let len_words = req.len().div_ceil(4);
         req[2..4].copy_from_slice(&(len_words as u16).to_le_bytes());
 
         // Pad to 4-byte boundary
@@ -201,7 +201,7 @@ impl X11Backend {
         req.extend_from_slice(&value_list);
 
         // Update length
-        let len_words = (req.len() + 3) / 4;
+        let len_words = req.len().div_ceil(4);
         req[2..4].copy_from_slice(&(len_words as u16).to_le_bytes());
 
         // Pad to 4-byte boundary
@@ -243,9 +243,7 @@ impl X11Backend {
         req.extend_from_slice(&(name_len as u16).to_le_bytes());
         req.extend_from_slice(&[0, 0]); // padding
         req.extend_from_slice(font_name);
-        for _ in 0..name_pad {
-            req.push(0);
-        }
+        req.extend(std::iter::repeat_n(0u8, name_pad));
 
         self.send_request(&req)?;
         self.default_font_id = Some(font_id);
@@ -295,7 +293,7 @@ impl X11Backend {
         req.extend_from_slice(&value_list);
 
         // Update length
-        let len_words = (req.len() + 3) / 4;
+        let len_words = req.len().div_ceil(4);
         req[2..4].copy_from_slice(&(len_words as u16).to_le_bytes());
 
         // Pad to 4-byte boundary
@@ -892,7 +890,7 @@ impl Backend for X11Backend {
 
         // Update length field
         let total_len = req.len();
-        let len_words = (total_len + 3) / 4;
+        let len_words = total_len.div_ceil(4);
         req[2..4].copy_from_slice(&(len_words as u16).to_le_bytes());
 
         // Pad to 4-byte boundary
@@ -1271,9 +1269,7 @@ impl Backend for X11Backend {
         req.extend_from_slice(&text_bytes);
 
         // Pad to 4-byte boundary
-        for _ in 0..text_pad {
-            req.push(0);
-        }
+        req.extend(std::iter::repeat_n(0u8, text_pad));
 
         self.send_request(&req)?;
 
@@ -1617,9 +1613,7 @@ impl Backend for X11Backend {
         req.extend_from_slice(data);
 
         // Pad to 4-byte boundary
-        for _ in 0..data_pad {
-            req.push(0);
-        }
+        req.extend(std::iter::repeat_n(0u8, data_pad));
 
         self.send_request(&req)?;
 
