@@ -184,6 +184,18 @@ extern "C" {
 
     fn macos_backend_flush(handle: BackendHandle) -> i32;
 
+    fn macos_backend_draw_text(
+        handle: BackendHandle,
+        is_window: i32,
+        drawable_id: i32,
+        x: i32,
+        y: i32,
+        text: *const c_char,
+        r: f32,
+        g: f32,
+        b: f32,
+    ) -> i32;
+
     fn macos_backend_poll_event(
         handle: BackendHandle,
         event_type: *mut i32,
@@ -684,14 +696,31 @@ impl Backend for MacOSBackend {
 
     fn draw_text(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _x: i16,
-        _y: i16,
-        _text: &str,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        x: i16,
+        y: i16,
+        text: &str,
     ) -> BackendResult<()> {
-        // TODO: Implement text drawing
-        Ok(())
+        unsafe {
+            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let (r, g, b) = Self::color_to_rgb(gc.foreground);
+            let text_cstr = CString::new(text).unwrap_or_else(|_| CString::new("").unwrap());
+
+            macos_backend_draw_text(
+                self.handle,
+                is_window,
+                drawable_id,
+                x as i32,
+                y as i32,
+                text_cstr.as_ptr(),
+                r,
+                g,
+                b,
+            );
+
+            Ok(())
+        }
     }
 
     fn draw_arcs(

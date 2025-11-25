@@ -989,6 +989,59 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     return BackendResult.success.rawValue
 }
 
+@_cdecl("macos_backend_draw_text")
+public func macos_backend_draw_text(_ handle: BackendHandle, isWindow: Int32, drawableId: Int32,
+                                    x: Int32, y: Int32,
+                                    text: UnsafePointer<CChar>,
+                                    r: Float, g: Float, b: Float) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+    let textStr = String(cString: text)
+
+    NSLog("draw_text: isWindow=\(isWindow), drawable=\(drawableId), pos=(\(x),\(y)), text='\(textStr)', color=(\(r),\(g),\(b))")
+
+    let context: CGContext?
+    if isWindow != 0 {
+        context = backend.getWindowContext(id: Int(drawableId))
+    } else {
+        context = backend.getPixmapContext(id: Int(drawableId))
+    }
+
+    guard let ctx = context else {
+        NSLog("draw_text: ERROR - no context!")
+        return BackendResult.error.rawValue
+    }
+
+    // Save graphics state
+    ctx.saveGState()
+
+    // Set text color
+    ctx.setFillColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
+
+    // Create attributed string with a fixed-width font
+    let font = CTFontCreateWithName("Menlo" as CFString, 12, nil)
+    let attributes: [NSAttributedString.Key: Any] = [
+        .font: font,
+        .foregroundColor: NSColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1)
+    ]
+    let attributedString = NSAttributedString(string: textStr, attributes: attributes)
+
+    // Create line from attributed string
+    let line = CTLineCreateWithAttributedString(attributedString)
+
+    // X11's y coordinate is the baseline, Core Text also uses baseline
+    // But since we've flipped the context with CTM, we can use the coordinates directly
+    ctx.textPosition = CGPoint(x: CGFloat(x), y: CGFloat(y))
+    CTLineDraw(line, ctx)
+
+    // Restore graphics state
+    ctx.restoreGState()
+
+    if isWindow != 0 {
+        backend.releaseWindowContext(id: Int(drawableId))
+    }
+    return BackendResult.success.rawValue
+}
+
 /// Save a window's backing buffer to a PNG file (for debugging/testing)
 @_cdecl("macos_backend_save_window_to_png")
 public func macos_backend_save_window_to_png(_ handle: BackendHandle, windowId: Int32, path: UnsafePointer<CChar>) -> Int32 {
