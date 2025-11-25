@@ -33,8 +33,19 @@ class MacOSBackendImpl {
     var screenHeightMM: Int = 0
 
     init() {
+        // Helper to run code on main thread without deadlock
+        func runOnMain(_ block: @escaping () -> Void) {
+            if Thread.isMainThread {
+                block()
+            } else {
+                DispatchQueue.main.sync {
+                    block()
+                }
+            }
+        }
+
         // Ensure we're on main thread for Cocoa operations
-        DispatchQueue.main.sync {
+        runOnMain {
             // Initialize NSApplication
             let app = NSApplication.shared
             app.setActivationPolicy(.regular)
