@@ -155,9 +155,9 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| SetSelectionOwner | 🟡 | ❌ | ❌ | ⚪ | OpenClipboard/SetClipboardData on Windows |
-| GetSelectionOwner | 🟡 | ❌ | ❌ | ⚪ | GetClipboardOwner on Windows |
-| ConvertSelection | 🟡 | ❌ | ❌ | ⚪ | GetClipboardData on Windows |
+| SetSelectionOwner | ✅ | ✅ | ✅ | ⚪ | Server-side selection tracking |
+| GetSelectionOwner | ✅ | ✅ | ✅ | ⚪ | Server-side selection tracking |
+| ConvertSelection | 🟡 | 🟡 | 🟡 | ⚪ | Parsed; needs full conversion protocol |
 
 ### Cursors
 
@@ -314,9 +314,9 @@ The visual test (`tests/visual_test.rs`) validates the following operations:
 - [x] **macOS**: Improve copy_area() with proper CGImage implementation ✅ **COMPLETED**
 - [x] **Both**: Cursor support (standard system cursors) ✅ **COMPLETED**
 - [x] **Both**: Window property operations (server-side storage) ✅ **COMPLETED**
+- [x] **Both**: Selection/clipboard support (server-side tracking) ✅ **COMPLETED**
 - [ ] **Both**: Advanced font handling
 - [ ] **Both**: Advanced color management
-- [ ] **Both**: Clipboard/selection integration
 
 ### Phase 4: Optimization & Testing
 - [ ] Performance profiling

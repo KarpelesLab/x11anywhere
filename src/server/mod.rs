@@ -35,6 +35,15 @@ pub struct PropertyValue {
     pub data: Vec<u8>,
 }
 
+/// Selection ownership info
+#[derive(Debug, Clone)]
+pub struct SelectionInfo {
+    /// The window that owns this selection
+    pub owner: Window,
+    /// Timestamp when ownership was acquired
+    pub time: u32,
+}
+
 /// The main X11 server
 pub struct Server {
     /// The display backend
@@ -73,6 +82,9 @@ pub struct Server {
     /// Window properties: Window -> (Property Atom -> PropertyValue)
     properties: HashMap<Window, HashMap<Atom, PropertyValue>>,
 
+    /// Selection ownership: Selection Atom -> SelectionInfo
+    selections: HashMap<Atom, SelectionInfo>,
+
     /// Resource tracker for all clients
     resource_tracker: ResourceTracker,
 
@@ -102,6 +114,7 @@ impl Server {
             extensions: HashMap::new(),
             fonts: HashMap::new(),
             properties: HashMap::new(),
+            selections: HashMap::new(),
             resource_tracker: ResourceTracker::new(),
             security_policy: SecurityPolicy::default(),
         };
@@ -344,6 +357,47 @@ impl Server {
             .get(&window)
             .map(|props| props.keys().copied().collect())
             .unwrap_or_default()
+    }
+
+    /// Set the owner of a selection
+    ///
+    /// If owner is Window(0), the selection owner is cleared.
+    /// Returns the previous owner (if any) for sending SelectionClear events.
+    pub fn set_selection_owner(
+        &mut self,
+        selection: Atom,
+        owner: Window,
+        time: u32,
+    ) -> Option<Window> {
+        // Check time - if time is older than current ownership, ignore
+        if let Some(current) = self.selections.get(&selection) {
+            if time != 0 && current.time != 0 && time < current.time {
+                return None;
+            }
+        }
+
+        let previous_owner = self.selections.get(&selection).map(|s| s.owner);
+
+        if owner == Window::NONE {
+            // Clear selection
+            self.selections.remove(&selection);
+        } else {
+            // Set new owner
+            self.selections
+                .insert(selection, SelectionInfo { owner, time });
+        }
+
+        previous_owner
+    }
+
+    /// Get the current owner of a selection
+    ///
+    /// Returns Window(0) if no owner is set.
+    pub fn get_selection_owner(&self, selection: Atom) -> Window {
+        self.selections
+            .get(&selection)
+            .map(|s| s.owner)
+            .unwrap_or(Window::new(0))
     }
 
     /// Initialize common X11 extensions

@@ -39,6 +39,9 @@ pub enum Request {
     AllocNamedColor(AllocNamedColorRequest),
     QueryFont(QueryFontRequest),
     QueryExtension(QueryExtensionRequest),
+    SetSelectionOwner(SetSelectionOwnerRequest),
+    GetSelectionOwner(GetSelectionOwnerRequest),
+    ConvertSelection(ConvertSelectionRequest),
     GetInputFocus,
     ExtensionRequest { opcode: u8, data: Vec<u8> },
     NoOperation,
@@ -141,6 +144,27 @@ pub struct GetPropertyRequest {
     pub type_: Atom,
     pub long_offset: u32,
     pub long_length: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SetSelectionOwnerRequest {
+    pub owner: Window,
+    pub selection: Atom,
+    pub time: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct GetSelectionOwnerRequest {
+    pub selection: Atom,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConvertSelectionRequest {
+    pub requestor: Window,
+    pub selection: Atom,
+    pub target: Atom,
+    pub property: Atom,
+    pub time: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -353,6 +377,13 @@ impl ProtocolParser {
             Some(RequestOpcode::AllocNamedColor) => self.parse_alloc_named_color(request_data)?,
             Some(RequestOpcode::QueryFont) => self.parse_query_font(request_data)?,
             Some(RequestOpcode::QueryExtension) => self.parse_query_extension(request_data)?,
+            Some(RequestOpcode::SetSelectionOwner) => {
+                self.parse_set_selection_owner(request_data)?
+            }
+            Some(RequestOpcode::GetSelectionOwner) => {
+                self.parse_get_selection_owner(request_data)?
+            }
+            Some(RequestOpcode::ConvertSelection) => self.parse_convert_selection(request_data)?,
             Some(RequestOpcode::GetInputFocus) => Request::GetInputFocus,
             Some(RequestOpcode::NoOperation) => Request::NoOperation,
             _ => {
@@ -870,5 +901,38 @@ impl ProtocolParser {
         let name_len = self.read_u16(&data[0..2]) as usize;
         let name = String::from_utf8_lossy(&data[4..4 + name_len]).to_string();
         Ok(Request::QueryExtension(QueryExtensionRequest { name }))
+    }
+
+    fn parse_set_selection_owner(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let owner = Window::new(self.read_u32(&data[0..4]));
+        let selection = Atom::new(self.read_u32(&data[4..8]));
+        let time = self.read_u32(&data[8..12]);
+        Ok(Request::SetSelectionOwner(SetSelectionOwnerRequest {
+            owner,
+            selection,
+            time,
+        }))
+    }
+
+    fn parse_get_selection_owner(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let selection = Atom::new(self.read_u32(&data[0..4]));
+        Ok(Request::GetSelectionOwner(GetSelectionOwnerRequest {
+            selection,
+        }))
+    }
+
+    fn parse_convert_selection(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let requestor = Window::new(self.read_u32(&data[0..4]));
+        let selection = Atom::new(self.read_u32(&data[4..8]));
+        let target = Atom::new(self.read_u32(&data[8..12]));
+        let property = Atom::new(self.read_u32(&data[12..16]));
+        let time = self.read_u32(&data[16..20]);
+        Ok(Request::ConvertSelection(ConvertSelectionRequest {
+            requestor,
+            selection,
+            target,
+            property,
+            time,
+        }))
     }
 }
