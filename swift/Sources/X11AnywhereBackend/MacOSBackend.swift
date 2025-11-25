@@ -57,11 +57,34 @@ class X11BackingBuffer {
     }
 }
 
+// MARK: - Custom View for Direct CGImage Drawing
+
+class X11ContentView: NSView {
+    var buffer: X11BackingBuffer?
+
+    override var isFlipped: Bool { return true }  // Match X11 coordinate system (top-left origin)
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext,
+              let buffer = self.buffer,
+              let cgImage = buffer.context?.makeImage() else {
+            // Draw white background if no image
+            NSColor.white.setFill()
+            dirtyRect.fill()
+            return
+        }
+
+        // Draw the image
+        let imageRect = CGRect(x: 0, y: 0, width: CGFloat(buffer.width), height: CGFloat(buffer.height))
+        ctx.draw(cgImage, in: imageRect)
+    }
+}
+
 // MARK: - Backend Class
 
 class MacOSBackendImpl {
     var windows: [Int: NSWindow] = [:]
-    var windowImageViews: [Int: NSImageView] = [:]
+    var windowContentViews: [Int: X11ContentView] = [:]
     var windowBuffers: [Int: X11BackingBuffer] = [:]
     var contexts: [Int: CGContext] = [:]
     var nextId: Int = 1
@@ -123,16 +146,15 @@ class MacOSBackendImpl {
             window.title = "X11 Window"
             window.backgroundColor = .white
 
-            // Create backing buffer and image view
+            // Create backing buffer and content view
             let buffer = X11BackingBuffer(width: width, height: height)
-            let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
-            imageView.imageScaling = .scaleNone
-            imageView.image = buffer.makeNSImage()
+            let contentView = X11ContentView(frame: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+            contentView.buffer = buffer
 
-            window.contentView = imageView
+            window.contentView = contentView
 
             self.windows[id] = window
-            self.windowImageViews[id] = imageView
+            self.windowContentViews[id] = contentView
             self.windowBuffers[id] = buffer
             windowId = id
 
@@ -143,7 +165,7 @@ class MacOSBackendImpl {
 
     func destroyWindow(id: Int) {
         DispatchQueue.main.sync {
-            self.windowImageViews.removeValue(forKey: id)
+            self.windowContentViews.removeValue(forKey: id)
             self.windowBuffers.removeValue(forKey: id)
             if let window = self.windows.removeValue(forKey: id) {
                 window.close()
@@ -170,11 +192,10 @@ class MacOSBackendImpl {
 
                 NSLog("mapWindow: window frame=\(window.frame), isVisible=\(window.isVisible)")
 
-                // Update the image view with the current buffer content
-                if let imageView = self.windowImageViews[id], let buffer = self.windowBuffers[id] {
-                    imageView.image = buffer.makeNSImage()
-                    imageView.needsDisplay = true
-                    NSLog("mapWindow: updated imageView, buffer context: \(buffer.context != nil)")
+                // Update the content view with the current buffer content
+                if let contentView = self.windowContentViews[id] {
+                    contentView.needsDisplay = true
+                    NSLog("mapWindow: updated contentView, buffer context: \(contentView.buffer?.context != nil)")
                 }
                 window.display()
 
@@ -238,12 +259,11 @@ class MacOSBackendImpl {
     }
 
     func releaseWindowContext(id: Int) {
-        // Update the image view with the buffer content
+        // Update the content view with the buffer content
         DispatchQueue.main.sync {
-            if let imageView = self.windowImageViews[id], let buffer = self.windowBuffers[id] {
-                imageView.image = buffer.makeNSImage()
-                imageView.needsDisplay = true
-                imageView.displayIfNeeded()
+            if let contentView = self.windowContentViews[id], let buffer = self.windowBuffers[id] {
+                contentView.needsDisplay = true
+                contentView.displayIfNeeded()
 
                 // Save debug image to file so we can verify buffer content
                 if let context = buffer.context, let cgImage = context.makeImage() {
@@ -914,37 +934,21 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
 public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
     DispatchQueue.main.sync {
-        NSLog("flush: updating \(backend.windowImageViews.count) windows")
+        NSLog("flush: updating \(backend.windowContentViews.count) windows")
 
-        // Update all image views with their buffer contents
-        for (id, imageView) in backend.windowImageViews {
+        // Update all content views
+        for (id, contentView) in backend.windowContentViews {
             if let buffer = backend.windowBuffers[id], let window = backend.windows[id] {
                 guard let cgImage = buffer.context?.makeImage() else {
                     NSLog("flush: window \(id) - no CGImage available!")
                     continue
                 }
 
-                NSLog("flush: window \(id) - cgImage: \(cgImage.width)x\(cgImage.height), imageView frame: \(imageView.frame)")
+                NSLog("flush: window \(id) - cgImage: \(cgImage.width)x\(cgImage.height), contentView frame: \(contentView.frame)")
 
-                // Use layer-backed view and set CGImage directly on layer
-                imageView.wantsLayer = true
-                if let layer = imageView.layer {
-                    layer.contents = cgImage
-                    layer.contentsGravity = .topLeft
-                    NSLog("flush: set layer.contents directly")
-                }
-
-                // Also set the NSImage for compatibility
-                let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: buffer.width, height: buffer.height))
-                imageView.image = nsImage
-                imageView.needsDisplay = true
-
-                // Force the window content view to match window content size
-                let contentRect = window.contentRect(forFrameRect: window.frame)
-                imageView.frame = NSRect(x: 0, y: 0, width: contentRect.width, height: contentRect.height)
-                NSLog("flush: set imageView frame to \(imageView.frame)")
-
-                imageView.displayIfNeeded()
+                // Tell the view to redraw
+                contentView.needsDisplay = true
+                contentView.displayIfNeeded()
                 window.display()
 
                 // Debug: save buffer to file
@@ -960,7 +964,7 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
         }
         NSApplication.shared.updateWindows()
 
-        // Pump the run loop to process display updates more aggressively
+        // Pump the run loop to process display updates
         for _ in 0..<5 {
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
         }
