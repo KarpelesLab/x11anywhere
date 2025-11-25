@@ -630,7 +630,6 @@ public func macos_backend_draw_arc(_ handle: BackendHandle, isWindow: Int32, dra
     let radiusY = CGFloat(height) / 2.0
 
     ctx.setStrokeColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
-    ctx.setLineWidth(CGFloat(lineWidth))
 
     // Save context state
     ctx.saveGState()
@@ -638,6 +637,15 @@ public func macos_backend_draw_arc(_ handle: BackendHandle, isWindow: Int32, dra
     // Transform to draw ellipse as circle, then scale
     ctx.translateBy(x: centerX, y: centerY)
     ctx.scaleBy(x: radiusX, y: radiusY)
+
+    // Set line width compensated for the scale transformation
+    // Use the smaller radius to ensure consistent stroke width
+    let scaleFactor = min(radiusX, radiusY)
+    if scaleFactor > 0 {
+        ctx.setLineWidth(CGFloat(lineWidth) / scaleFactor)
+    } else {
+        ctx.setLineWidth(CGFloat(lineWidth))
+    }
 
     // Draw arc (Core Graphics uses clockwise from 3 o'clock, opposite of X11)
     ctx.addArc(center: CGPoint.zero, radius: 1.0, startAngle: -startAngle, endAngle: -endAngle, clockwise: true)
