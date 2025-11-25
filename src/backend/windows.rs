@@ -15,6 +15,8 @@ use std::ptr;
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::Controls::WM_MOUSELEAVE;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TRACKMOUSEEVENT, TME_LEAVE};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 const WINDOW_CLASS_NAME: &str = "X11AnywhereWindow";
