@@ -50,8 +50,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Drawing test patterns...");
     draw_colored_rectangles(&mut stream, window_id, gc_id)?;
 
-    // Wait for rendering
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // Wait for rendering - give extra time for compositor to update
+    std::thread::sleep(std::time::Duration::from_millis(1000));
 
     // Capture screenshot (full screen since window IDs don't match between client and server)
     println!("Capturing screenshot...");

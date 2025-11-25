@@ -995,7 +995,7 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     }
 
     // Wait with a timeout to avoid deadlock if main thread is blocked
-    _ = semaphore.wait(timeout: .now() + 0.1)
+    _ = semaphore.wait(timeout: .now() + 0.5)
 
     return BackendResult.success.rawValue
 }
