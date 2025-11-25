@@ -474,23 +474,53 @@ impl Server {
         gc: GContext,
         rectangles: &[Rectangle],
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        log::debug!(
+            "fill_rectangles: drawable={:?}, gc={:?}, {} rectangles, windows={}, gcs={}",
+            drawable,
+            gc,
+            rectangles.len(),
+            self.windows.len(),
+            self.gcs.len()
+        );
+
         // Get backend GC
-        let backend_gc = self.gcs.get(&gc).ok_or("Invalid GC")?;
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => {
+                log::error!("fill_rectangles: Invalid GC {:?}", gc);
+                return Err("Invalid GC".into());
+            }
+        };
 
         // Get backend drawable
         let backend_drawable = match drawable {
             Drawable::Window(w) => {
-                let backend_window = self.windows.get(&w).ok_or("Invalid window")?;
-                crate::backend::BackendDrawable::Window(*backend_window)
+                match self.windows.get(&w) {
+                    Some(backend_window) => {
+                        log::debug!("fill_rectangles: found backend window {:?}", backend_window);
+                        crate::backend::BackendDrawable::Window(*backend_window)
+                    }
+                    None => {
+                        log::error!(
+                            "fill_rectangles: Invalid window {:?}, known windows: {:?}",
+                            w,
+                            self.windows.keys().collect::<Vec<_>>()
+                        );
+                        return Err("Invalid window".into());
+                    }
+                }
             }
             Drawable::Pixmap(p) => crate::backend::BackendDrawable::Pixmap(p.id().get() as usize),
         };
+
+        log::debug!("fill_rectangles: calling backend.fill_rectangles");
 
         // Draw all rectangles
         self.backend
             .fill_rectangles(backend_drawable, backend_gc, rectangles)?;
         self.backend.flush()?;
 
+        log::debug!("fill_rectangles: completed successfully");
         Ok(())
     }
 }

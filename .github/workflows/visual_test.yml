@@ -103,7 +103,7 @@ jobs:
 
       - name: Start x11anywhere server
         run: |
-          ./target/release/x11anywhere -display 1 -tcp &
+          RUST_LOG=debug ./target/release/x11anywhere -display 1 -tcp > /tmp/x11anywhere_server.log 2>&1 &
           echo "X11ANYWHERE_PID=$!" >> $GITHUB_ENV
           sleep 2
         continue-on-error: true
@@ -121,12 +121,15 @@ jobs:
           cp /tmp/x11anywhere_debug_*.png visual_output/ 2>/dev/null || true
           cp /tmp/x11anywhere_buffer_*.png visual_output/ 2>/dev/null || true
           cp /tmp/x11anywhere_debug.log visual_output/ 2>/dev/null || true
+          cp /tmp/x11anywhere_server.log visual_output/ 2>/dev/null || true
           echo "=== Contents of visual_output ==="
           ls -la visual_output/ || true
           echo "=== X11 files in /tmp ==="
           ls -la /tmp/x11anywhere* 2>/dev/null || true
           echo "=== Debug log content ==="
           cat /tmp/x11anywhere_debug.log 2>/dev/null || echo "No debug log found"
+          echo "=== Server log content ==="
+          cat /tmp/x11anywhere_server.log 2>/dev/null || echo "No server log found"
 
       - name: Show server output
         if: always()
