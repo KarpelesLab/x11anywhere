@@ -577,7 +577,10 @@ pub trait Backend: Send {
     ///
     /// Returns a backend cursor handle that can be used with set_window_cursor.
     /// The glyph index corresponds to the X11 cursor font character.
-    fn create_standard_cursor(&mut self, cursor_shape: StandardCursor) -> BackendResult<BackendCursor> {
+    fn create_standard_cursor(
+        &mut self,
+        cursor_shape: StandardCursor,
+    ) -> BackendResult<BackendCursor> {
         // Default implementation: return NONE (no cursor change)
         let _ = cursor_shape;
         Ok(BackendCursor::NONE)
@@ -592,7 +595,11 @@ pub trait Backend: Send {
     /// Set the cursor for a window
     ///
     /// If cursor is BackendCursor::NONE, the window uses its parent's cursor.
-    fn set_window_cursor(&mut self, window: BackendWindow, cursor: BackendCursor) -> BackendResult<()> {
+    fn set_window_cursor(
+        &mut self,
+        window: BackendWindow,
+        cursor: BackendCursor,
+    ) -> BackendResult<()> {
         // Default implementation: no-op
         let _ = (window, cursor);
         Ok(())

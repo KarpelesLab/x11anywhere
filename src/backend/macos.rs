@@ -300,15 +300,15 @@ impl MacOSBackend {
     fn standard_cursor_to_macos_type(cursor: StandardCursor) -> i32 {
         match cursor {
             StandardCursor::LeftPtr | StandardCursor::Arrow | StandardCursor::TopLeftArrow => 0, // arrow
-            StandardCursor::Xterm => 1,                                                           // IBeam
-            StandardCursor::Crosshair | StandardCursor::Cross | StandardCursor::Tcross => 2,     // crosshair
-            StandardCursor::Hand1 | StandardCursor::Hand2 => 3,                                   // pointingHand
-            StandardCursor::Fleur => 4,                                                           // closedHand (move)
-            StandardCursor::SbHDoubleArrow | StandardCursor::DoubleArrow => 5,                   // resizeLeftRight
-            StandardCursor::SbVDoubleArrow => 6,                                                  // resizeUpDown
-            StandardCursor::Watch | StandardCursor::Clock => 7,                                   // operationNotAllowed (closest to busy)
-            StandardCursor::XCursor | StandardCursor::Pirate => 8,                               // operationNotAllowed
-            _ => 0,                                                                               // Default to arrow
+            StandardCursor::Xterm => 1, // IBeam
+            StandardCursor::Crosshair | StandardCursor::Cross | StandardCursor::Tcross => 2, // crosshair
+            StandardCursor::Hand1 | StandardCursor::Hand2 => 3, // pointingHand
+            StandardCursor::Fleur => 4,                         // closedHand (move)
+            StandardCursor::SbHDoubleArrow | StandardCursor::DoubleArrow => 5, // resizeLeftRight
+            StandardCursor::SbVDoubleArrow => 6,                // resizeUpDown
+            StandardCursor::Watch | StandardCursor::Clock => 7, // operationNotAllowed (closest to busy)
+            StandardCursor::XCursor | StandardCursor::Pirate => 8, // operationNotAllowed
+            _ => 0,                                             // Default to arrow
         }
     }
 
@@ -1033,7 +1033,10 @@ impl Backend for MacOSBackend {
         }
     }
 
-    fn create_standard_cursor(&mut self, cursor_shape: StandardCursor) -> BackendResult<BackendCursor> {
+    fn create_standard_cursor(
+        &mut self,
+        cursor_shape: StandardCursor,
+    ) -> BackendResult<BackendCursor> {
         unsafe {
             let cursor_type = Self::standard_cursor_to_macos_type(cursor_shape);
             let swift_cursor_id = macos_backend_create_cursor(self.handle, cursor_type);
@@ -1057,7 +1060,11 @@ impl Backend for MacOSBackend {
         Ok(())
     }
 
-    fn set_window_cursor(&mut self, window: BackendWindow, cursor: BackendCursor) -> BackendResult<()> {
+    fn set_window_cursor(
+        &mut self,
+        window: BackendWindow,
+        cursor: BackendCursor,
+    ) -> BackendResult<()> {
         unsafe {
             let swift_cursor_id = if cursor == BackendCursor::NONE {
                 0 // Default cursor

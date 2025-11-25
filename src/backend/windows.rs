@@ -16,7 +16,9 @@ use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::WM_MOUSELEAVE;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TRACKMOUSEEVENT, TME_LEAVE};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 const WINDOW_CLASS_NAME: &str = "X11AnywhereWindow";
@@ -107,7 +109,9 @@ impl WindowsBackend {
     /// Map StandardCursor to Windows system cursor ID
     fn standard_cursor_to_idc(cursor: StandardCursor) -> *const u16 {
         match cursor {
-            StandardCursor::LeftPtr | StandardCursor::Arrow | StandardCursor::TopLeftArrow => IDC_ARROW,
+            StandardCursor::LeftPtr | StandardCursor::Arrow | StandardCursor::TopLeftArrow => {
+                IDC_ARROW
+            }
             StandardCursor::Xterm => IDC_IBEAM,
             StandardCursor::Watch | StandardCursor::Clock => IDC_WAIT,
             StandardCursor::Crosshair | StandardCursor::Cross | StandardCursor::Tcross => IDC_CROSS,
@@ -1072,8 +1076,10 @@ impl Backend for WindowsBackend {
                         }
                     }
                     WM_MOUSEMOVE => {
-                        if let Some((id, data)) =
-                            self.windows.iter_mut().find(|(_, data)| data.hwnd == msg.hwnd)
+                        if let Some((id, data)) = self
+                            .windows
+                            .iter_mut()
+                            .find(|(_, data)| data.hwnd == msg.hwnd)
                         {
                             let x = (msg.lParam & 0xffff) as i16;
                             let y = ((msg.lParam >> 16) & 0xffff) as i16;
@@ -1108,8 +1114,10 @@ impl Backend for WindowsBackend {
                         }
                     }
                     WM_MOUSELEAVE => {
-                        if let Some((id, data)) =
-                            self.windows.iter_mut().find(|(_, data)| data.hwnd == msg.hwnd)
+                        if let Some((id, data)) = self
+                            .windows
+                            .iter_mut()
+                            .find(|(_, data)| data.hwnd == msg.hwnd)
                         {
                             if data.mouse_inside {
                                 data.mouse_inside = false;
@@ -1187,7 +1195,10 @@ impl Backend for WindowsBackend {
         }
     }
 
-    fn create_standard_cursor(&mut self, cursor_shape: StandardCursor) -> BackendResult<BackendCursor> {
+    fn create_standard_cursor(
+        &mut self,
+        cursor_shape: StandardCursor,
+    ) -> BackendResult<BackendCursor> {
         unsafe {
             let idc = Self::standard_cursor_to_idc(cursor_shape);
             let hcursor = LoadCursorW(0, idc);
@@ -1208,7 +1219,11 @@ impl Backend for WindowsBackend {
         Ok(())
     }
 
-    fn set_window_cursor(&mut self, window: BackendWindow, cursor: BackendCursor) -> BackendResult<()> {
+    fn set_window_cursor(
+        &mut self,
+        window: BackendWindow,
+        cursor: BackendCursor,
+    ) -> BackendResult<()> {
         unsafe {
             let hcursor = if cursor == BackendCursor::NONE {
                 // Use default arrow cursor
