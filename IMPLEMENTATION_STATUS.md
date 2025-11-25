@@ -52,7 +52,7 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| ClearArea | ✅ | ✅ | ✅ | ⚪ | FillRect on Windows, fillRect on macOS |
+| ClearArea | ✅ | ✅ | ✅ | ⚪ | Opcode 60 handler; FillRect on Windows, fillRect on macOS |
 | PolyPoint | ✅ | ✅ | ✅ | ⚪ | SetPixel on Windows, 1x1 rects on macOS |
 | PolyLine | ✅ | ✅ | ✅ | ⚪ | LineTo on Windows, CGContext paths on macOS |
 | PolySegment | ✅ | ✅ | ✅ | ⚪ | Multiple LineTo calls |
@@ -71,9 +71,9 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| CreateGC | ✅ | 🟡 | 🟡 | ⚪ | GC tracked in BackendGC struct; pen/brush created per draw |
-| ChangeGC | 🟡 | 🟡 | 🟡 | ⚪ | GC state tracked; applied during drawing operations |
-| FreeGC | ✅ | ✅ | ✅ | ⚪ | GC cleanup handled per operation |
+| CreateGC | ✅ | ✅ | ✅ | ⚪ | Opcode 55 handler; GC tracked in BackendGC struct |
+| ChangeGC | ✅ | ✅ | ✅ | ⚪ | Opcode 56 handler; GC state tracked; applied during drawing |
+| FreeGC | ✅ | ✅ | ✅ | ⚪ | Opcode 57 handler; GC cleanup |
 | SetForeground | 🟡 | ✅ | ✅ | ⚪ | Applied via create_pen/create_brush; CGColor on macOS |
 | SetBackground | 🟡 | ✅ | ✅ | ⚪ | Applied during drawing operations |
 | SetLineWidth | 🟡 | ✅ | ✅ | ⚪ | CreatePen with width on Windows; line_width on macOS |
@@ -84,8 +84,8 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| CreatePixmap | 🟡 | ✅ | ✅ | ⚪ | CreateCompatibleDC/Bitmap on Windows, CGContext on macOS |
-| FreePixmap | 🟡 | ✅ | ✅ | ⚪ | DeleteDC/DeleteObject on Windows; CGContext release on macOS |
+| CreatePixmap | ✅ | ✅ | ✅ | ⚪ | Opcode 53 handler; CreateCompatibleDC/Bitmap on Windows, CGContext on macOS |
+| FreePixmap | ✅ | ✅ | ✅ | ⚪ | Opcode 54 handler; DeleteDC/DeleteObject on Windows; CGContext release on macOS |
 | Draw to pixmap | 🟡 | ✅ | ✅ | ⚪ | All drawing operations work on pixmaps |
 | Copy pixmap to window | 🟡 | ✅ | 🟡 | ⚪ | BitBlt on Windows; macOS needs improvement |
 
@@ -135,8 +135,8 @@ This document tracks the implementation status of X11 protocol features across d
 | UngrabKeyboard | 🟡 | ❌ | ❌ | ⚪ | ReleaseCapture on Windows |
 | GrabPointer | 🟡 | ❌ | ❌ | ⚪ | SetCapture on Windows |
 | UngrabPointer | 🟡 | ❌ | ❌ | ⚪ | ReleaseCapture on Windows |
-| SetInputFocus | 🟡 | ❌ | ❌ | ⚪ | SetFocus on Windows, makeKeyWindow on macOS |
-| GetInputFocus | 🟡 | ❌ | ❌ | ⚪ | GetFocus on Windows |
+| SetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 42 handler; backend focus TBD |
+| GetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 43 handler; returns root window |
 | QueryPointer | 🟡 | ❌ | ❌ | ⚪ | GetCursorPos on Windows |
 | WarpPointer | 🟡 | ❌ | ❌ | ⚪ | SetCursorPos on Windows |
 
@@ -144,19 +144,19 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| InternAtom | ✅ | ✅ | ✅ | ⚪ | String-to-ID mapping (server-side) |
-| GetAtomName | ✅ | ✅ | ✅ | ⚪ | ID-to-string lookup (server-side) |
-| ChangeProperty | ✅ | ✅ | ✅ | ⚪ | Window properties storage (server-side) |
-| DeleteProperty | ✅ | ✅ | ✅ | ⚪ | Server-side property storage |
-| GetProperty | ✅ | ✅ | ✅ | ⚪ | Server-side property storage |
-| ListProperties | ✅ | ✅ | ✅ | ⚪ | Server-side property storage |
+| InternAtom | ✅ | ✅ | ✅ | ⚪ | String-to-ID mapping (server-side); opcode 16 handler |
+| GetAtomName | ✅ | ✅ | ✅ | ⚪ | ID-to-string lookup (server-side); opcode 17 handler |
+| ChangeProperty | ✅ | ✅ | ✅ | ⚪ | Window properties storage (server-side); opcode 18 handler |
+| DeleteProperty | ✅ | ✅ | ✅ | ⚪ | Server-side property storage; opcode 19 handler |
+| GetProperty | ✅ | ✅ | ✅ | ⚪ | Server-side property storage; opcode 20 handler |
+| ListProperties | ✅ | ✅ | ✅ | ⚪ | Server-side property storage; opcode 21 handler |
 
 ### Selections (Clipboard)
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| SetSelectionOwner | ✅ | ✅ | ✅ | ⚪ | Server-side selection tracking |
-| GetSelectionOwner | ✅ | ✅ | ✅ | ⚪ | Server-side selection tracking |
+| SetSelectionOwner | ✅ | ✅ | ✅ | ⚪ | Server-side selection tracking; opcode 22 handler |
+| GetSelectionOwner | ✅ | ✅ | ✅ | ⚪ | Server-side selection tracking; opcode 23 handler |
 | ConvertSelection | 🟡 | 🟡 | 🟡 | ⚪ | Parsed; needs full conversion protocol |
 
 ### Cursors

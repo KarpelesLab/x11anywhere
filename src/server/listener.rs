@@ -84,7 +84,7 @@ fn handle_client(
             stream.read_exact(&mut request_data)?;
         }
 
-        // Handle basic opcodes needed for visual test
+        // Handle X11 protocol requests
         match opcode {
             1 => handle_create_window(&mut stream, &header, &request_data, &server)?,
             3 => handle_get_window_attributes(&mut stream, &header, &request_data, &server)?,
@@ -94,17 +94,31 @@ fn handle_client(
             12 => handle_configure_window(&mut stream, &header, &request_data, &server)?,
             14 => handle_get_geometry(&mut stream, &header, &request_data, &server)?,
             15 => handle_query_tree(&mut stream, &header, &request_data, &server)?,
+            16 => handle_intern_atom(&mut stream, &header, &request_data, &server)?,
+            17 => handle_get_atom_name(&mut stream, &header, &request_data, &server)?,
+            18 => handle_change_property(&mut stream, &header, &request_data, &server)?,
+            19 => handle_delete_property(&mut stream, &header, &request_data, &server)?,
+            20 => handle_get_property(&mut stream, &header, &request_data, &server)?,
+            21 => handle_list_properties(&mut stream, &header, &request_data, &server)?,
+            22 => handle_set_selection_owner(&mut stream, &header, &request_data, &server)?,
+            23 => handle_get_selection_owner(&mut stream, &header, &request_data, &server)?,
+            42 => handle_set_input_focus(&mut stream, &header, &request_data, &server)?,
+            43 => handle_get_input_focus(&mut stream, &header, &request_data, &server)?,
             45 => handle_open_font(&mut stream, &header, &request_data, &server)?,
             46 => handle_close_font(&mut stream, &header, &request_data, &server)?,
             47 => handle_query_font(&mut stream, &header, &request_data, &server)?,
             49 => handle_list_fonts(&mut stream, &header, &request_data, &server)?,
+            53 => handle_create_pixmap(&mut stream, &header, &request_data, &server)?,
+            54 => handle_free_pixmap(&mut stream, &header, &request_data, &server)?,
             55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
+            56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
+            57 => handle_free_gc(&mut stream, &header, &request_data, &server)?,
+            60 => handle_clear_area(&mut stream, &header, &request_data, &server)?,
             84 => handle_alloc_color(&mut stream, &header, &request_data, &server)?,
             85 => handle_alloc_named_color(&mut stream, &header, &request_data, &server)?,
             98 => handle_query_extension(&mut stream, &header, &request_data, &server)?,
             99 => handle_list_extensions(&mut stream, &header, &request_data, &server)?,
             104 => handle_bell(&mut stream, &header, &request_data, &server)?,
-            56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
             64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
             65 => handle_poly_line(&mut stream, &header, &request_data, &server)?,
             66 => handle_poly_segment(&mut stream, &header, &request_data, &server)?,
@@ -1713,5 +1727,492 @@ fn handle_poly_text16(
         offset += 2 + len * 2;
     }
 
+    Ok(())
+}
+
+fn handle_intern_atom(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse InternAtom request: only_if_exists(1 in header), name_length(2), pad(2), name(n)
+    if data.len() < 4 {
+        log::warn!("InternAtom request too short");
+        return Ok(());
+    }
+
+    let only_if_exists = header[1] != 0;
+    let name_length = u16::from_le_bytes([data[0], data[1]]) as usize;
+    let name_end = (4 + name_length).min(data.len());
+    let name = String::from_utf8_lossy(&data[4..name_end]).to_string();
+
+    log::debug!(
+        "InternAtom: name={:?}, only_if_exists={}",
+        name,
+        only_if_exists
+    );
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let mut server = server.lock().unwrap();
+    let atom = server.intern_atom(&name, only_if_exists);
+
+    // Encode and send reply
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply =
+        encoder.encode_intern_atom_reply(sequence, atom.unwrap_or(crate::protocol::Atom::new(0)));
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_get_atom_name(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GetAtomName request: atom(4)
+    if data.len() < 4 {
+        log::warn!("GetAtomName request too short");
+        return Ok(());
+    }
+
+    let atom_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("GetAtomName: atom=0x{:x}", atom_id);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+    let name = server
+        .get_atom_name(crate::protocol::Atom::new(atom_id))
+        .unwrap_or("");
+
+    // Encode and send reply
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_get_atom_name_reply(sequence, name);
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_change_property(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ChangeProperty request: mode(1 in header), window(4), property(4), type(4), format(1), pad(3), data_length(4), data(n)
+    if data.len() < 20 {
+        log::warn!("ChangeProperty request too short");
+        return Ok(());
+    }
+
+    let mode = header[1];
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let property = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let type_ = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+    let format = data[12];
+    let data_length = u32::from_le_bytes([data[16], data[17], data[18], data[19]]) as usize;
+
+    // Calculate actual byte length based on format
+    let byte_length = match format {
+        8 => data_length,
+        16 => data_length * 2,
+        32 => data_length * 4,
+        _ => data_length,
+    };
+
+    let prop_data_end = (20 + byte_length).min(data.len());
+    let prop_data = data[20..prop_data_end].to_vec();
+
+    log::debug!(
+        "ChangeProperty: window=0x{:x}, property=0x{:x}, type=0x{:x}, format={}, mode={}, {} bytes",
+        window,
+        property,
+        type_,
+        format,
+        mode,
+        prop_data.len()
+    );
+
+    let mut server = server.lock().unwrap();
+    server.change_property(
+        crate::protocol::Window::new(window),
+        crate::protocol::Atom::new(property),
+        crate::protocol::Atom::new(type_),
+        format,
+        mode,
+        prop_data,
+    );
+
+    // No reply for ChangeProperty
+    Ok(())
+}
+
+fn handle_delete_property(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse DeleteProperty request: window(4), property(4)
+    if data.len() < 8 {
+        log::warn!("DeleteProperty request too short");
+        return Ok(());
+    }
+
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let property = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    log::debug!(
+        "DeleteProperty: window=0x{:x}, property=0x{:x}",
+        window,
+        property
+    );
+
+    let mut server = server.lock().unwrap();
+    server.delete_property(
+        crate::protocol::Window::new(window),
+        crate::protocol::Atom::new(property),
+    );
+
+    // No reply for DeleteProperty
+    Ok(())
+}
+
+fn handle_get_property(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GetProperty request: delete(1 in header), window(4), property(4), type(4), long_offset(4), long_length(4)
+    if data.len() < 20 {
+        log::warn!("GetProperty request too short");
+        return Ok(());
+    }
+
+    let delete = header[1] != 0;
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let property = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let type_ = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+    let long_offset = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+    let long_length = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+
+    log::debug!(
+        "GetProperty: window=0x{:x}, property=0x{:x}, type=0x{:x}, delete={}",
+        window,
+        property,
+        type_,
+        delete
+    );
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+
+    // Get property value
+    let (format, prop_type, value) = if let Some(prop) = server.get_property(
+        crate::protocol::Window::new(window),
+        crate::protocol::Atom::new(property),
+        if type_ == 0 {
+            None
+        } else {
+            Some(crate::protocol::Atom::new(type_))
+        },
+        long_offset,
+        long_length,
+        delete,
+    ) {
+        (prop.format, prop.type_, prop.data.clone())
+    } else {
+        (0, crate::protocol::Atom::new(0), Vec::new())
+    };
+
+    // Encode and send reply
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_get_property_reply(sequence, format, prop_type, 0, &value);
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_list_properties(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ListProperties request: window(4)
+    if data.len() < 4 {
+        log::warn!("ListProperties request too short");
+        return Ok(());
+    }
+
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("ListProperties: window=0x{:x}", window);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+    let properties = server.list_properties(crate::protocol::Window::new(window));
+
+    // Encode reply: reply(1), pad(1), sequence(2), length(4), num_atoms(2), pad(22), atoms(n*4)
+    let num_atoms = properties.len() as u16;
+    let reply_length = (num_atoms as u32 + 5) / 2; // 4-byte units after header
+    let mut reply = vec![0u8; 32 + properties.len() * 4];
+
+    reply[0] = 1; // Reply
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&reply_length.to_le_bytes());
+    reply[8..10].copy_from_slice(&num_atoms.to_le_bytes());
+
+    for (i, atom) in properties.iter().enumerate() {
+        let offset = 32 + i * 4;
+        reply[offset..offset + 4].copy_from_slice(&atom.0.to_le_bytes());
+    }
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_set_selection_owner(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse SetSelectionOwner request: owner(4), selection(4), time(4)
+    if data.len() < 12 {
+        log::warn!("SetSelectionOwner request too short");
+        return Ok(());
+    }
+
+    let owner = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let selection = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let time = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+
+    log::debug!(
+        "SetSelectionOwner: owner=0x{:x}, selection=0x{:x}, time={}",
+        owner,
+        selection,
+        time
+    );
+
+    let mut server = server.lock().unwrap();
+    server.set_selection_owner(
+        crate::protocol::Atom::new(selection),
+        crate::protocol::Window::new(owner),
+        time,
+    );
+
+    // No reply for SetSelectionOwner
+    Ok(())
+}
+
+fn handle_get_selection_owner(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GetSelectionOwner request: selection(4)
+    if data.len() < 4 {
+        log::warn!("GetSelectionOwner request too short");
+        return Ok(());
+    }
+
+    let selection = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("GetSelectionOwner: selection=0x{:x}", selection);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+    let owner = server.get_selection_owner(crate::protocol::Atom::new(selection));
+
+    // Encode reply: reply(1), pad(1), sequence(2), length(4), owner(4), pad(20)
+    let mut reply = vec![0u8; 32];
+    reply[0] = 1; // Reply
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&0u32.to_le_bytes()); // length = 0
+    reply[8..12].copy_from_slice(&owner.id().get().to_le_bytes());
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_set_input_focus(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse SetInputFocus request: revert_to(1 in header), focus(4), time(4)
+    if data.len() < 8 {
+        log::warn!("SetInputFocus request too short");
+        return Ok(());
+    }
+
+    let revert_to = header[1];
+    let focus = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let time = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    log::debug!(
+        "SetInputFocus: focus=0x{:x}, revert_to={}, time={}",
+        focus,
+        revert_to,
+        time
+    );
+
+    // No reply for SetInputFocus
+    // TODO: Actually set focus on backend
+    Ok(())
+}
+
+fn handle_get_input_focus(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("GetInputFocus");
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+
+    // Return root window as focus for now
+    let focus = server.root_window();
+    let revert_to = 1u8; // RevertToPointerRoot
+
+    // Encode and send reply
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_get_input_focus_reply(sequence, focus, revert_to);
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_create_pixmap(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse CreatePixmap request: depth(1 in header), pixmap(4), drawable(4), width(2), height(2)
+    if data.len() < 12 {
+        log::warn!("CreatePixmap request too short");
+        return Ok(());
+    }
+
+    let depth = header[1];
+    let pixmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let drawable = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let width = u16::from_le_bytes([data[8], data[9]]);
+    let height = u16::from_le_bytes([data[10], data[11]]);
+
+    log::debug!(
+        "CreatePixmap: pixmap=0x{:x}, drawable=0x{:x}, {}x{}, depth={}",
+        pixmap,
+        drawable,
+        width,
+        height,
+        depth
+    );
+
+    // TODO: Actually create pixmap in backend
+    // No reply for CreatePixmap
+    Ok(())
+}
+
+fn handle_free_pixmap(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse FreePixmap request: pixmap(4)
+    if data.len() < 4 {
+        log::warn!("FreePixmap request too short");
+        return Ok(());
+    }
+
+    let pixmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("FreePixmap: pixmap=0x{:x}", pixmap);
+
+    // TODO: Actually free pixmap in backend
+    // No reply for FreePixmap
+    Ok(())
+}
+
+fn handle_free_gc(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse FreeGC request: gc(4)
+    if data.len() < 4 {
+        log::warn!("FreeGC request too short");
+        return Ok(());
+    }
+
+    let gc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("FreeGC: gc=0x{:x}", gc);
+
+    // TODO: Actually free GC
+    // No reply for FreeGC
+    Ok(())
+}
+
+fn handle_clear_area(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ClearArea request: exposures(1 in header), window(4), x(2), y(2), width(2), height(2)
+    if data.len() < 12 {
+        log::warn!("ClearArea request too short");
+        return Ok(());
+    }
+
+    let exposures = header[1] != 0;
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let x = i16::from_le_bytes([data[4], data[5]]);
+    let y = i16::from_le_bytes([data[6], data[7]]);
+    let width = u16::from_le_bytes([data[8], data[9]]);
+    let height = u16::from_le_bytes([data[10], data[11]]);
+
+    log::debug!(
+        "ClearArea: window=0x{:x}, ({},{}) {}x{}, exposures={}",
+        window,
+        x,
+        y,
+        width,
+        height,
+        exposures
+    );
+
+    // TODO: Actually clear area using backend
+    // No reply for ClearArea
     Ok(())
 }
