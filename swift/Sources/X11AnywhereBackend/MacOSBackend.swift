@@ -965,8 +965,10 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
 public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
 
-    // Use async to avoid blocking the request handling thread
-    // The actual display update will happen on the main thread via CFRunLoopRun
+    // Use a semaphore to wait for the async work to complete
+    // This ensures display updates happen before returning, without deadlocking
+    let semaphore = DispatchSemaphore(value: 0)
+
     DispatchQueue.main.async {
         NSLog("flush: updating \(backend.windowContentViews.count) windows")
 
@@ -980,12 +982,19 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
 
                 NSLog("flush: window \(id) - cgImage: \(cgImage.width)x\(cgImage.height), contentView frame: \(contentView.frame)")
 
-                // Request display update
+                // Force immediate display
                 contentView.needsDisplay = true
-                window.displayIfNeeded()
+                contentView.display()
+                window.display()
             }
         }
+
+        semaphore.signal()
     }
+
+    // Wait with a timeout to avoid deadlock if main thread is blocked
+    _ = semaphore.wait(timeout: .now() + 0.1)
+
     return BackendResult.success.rawValue
 }
 
