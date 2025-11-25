@@ -169,6 +169,24 @@ pub enum BackendEvent {
     FocusOut { window: BackendWindow },
     /// Window destroyed by user/WM
     DestroyNotify { window: BackendWindow },
+    /// Window was mapped (shown)
+    MapNotify { window: BackendWindow },
+    /// Window was unmapped (hidden)
+    UnmapNotify { window: BackendWindow },
+    /// Pointer entered window
+    EnterNotify {
+        window: BackendWindow,
+        x: i16,
+        y: i16,
+        time: u32,
+    },
+    /// Pointer left window
+    LeaveNotify {
+        window: BackendWindow,
+        x: i16,
+        y: i16,
+        time: u32,
+    },
 }
 
 /// The main backend trait

@@ -43,6 +43,8 @@ struct WindowData {
     hdc: HDC,
     width: u16,
     height: u16,
+    /// Whether the mouse is currently inside this window
+    mouse_inside: bool,
 }
 
 pub struct WindowsBackend {
@@ -312,6 +314,7 @@ impl Backend for WindowsBackend {
                     hdc,
                     width: params.width,
                     height: params.height,
+                    mouse_inside: false,
                 },
             );
 
@@ -334,6 +337,8 @@ impl Backend for WindowsBackend {
             let hwnd = self.get_hwnd(window)?;
             ShowWindow(hwnd, SW_SHOW);
             UpdateWindow(hwnd);
+            // Generate MapNotify event
+            self.event_queue.push(BackendEvent::MapNotify { window });
             Ok(())
         }
     }
@@ -342,6 +347,8 @@ impl Backend for WindowsBackend {
         unsafe {
             let hwnd = self.get_hwnd(window)?;
             ShowWindow(hwnd, SW_HIDE);
+            // Generate UnmapNotify event
+            self.event_queue.push(BackendEvent::UnmapNotify { window });
             Ok(())
         }
     }
@@ -1032,19 +1039,54 @@ impl Backend for WindowsBackend {
                         }
                     }
                     WM_MOUSEMOVE => {
-                        if let Some((id, _)) =
-                            self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                        if let Some((id, data)) =
+                            self.windows.iter_mut().find(|(_, data)| data.hwnd == msg.hwnd)
                         {
                             let x = (msg.lParam & 0xffff) as i16;
                             let y = ((msg.lParam >> 16) & 0xffff) as i16;
+                            let window = BackendWindow(*id);
+
+                            // Check if mouse just entered
+                            if !data.mouse_inside {
+                                data.mouse_inside = true;
+
+                                // Track mouse leave events
+                                let mut tme: TRACKMOUSEEVENT = mem::zeroed();
+                                tme.cbSize = mem::size_of::<TRACKMOUSEEVENT>() as u32;
+                                tme.dwFlags = TME_LEAVE;
+                                tme.hwndTrack = msg.hwnd;
+                                TrackMouseEvent(&mut tme);
+
+                                self.event_queue.push(BackendEvent::EnterNotify {
+                                    window,
+                                    x,
+                                    y,
+                                    time: msg.time,
+                                });
+                            }
 
                             self.event_queue.push(BackendEvent::MotionNotify {
-                                window: BackendWindow(*id),
+                                window,
                                 state: 0,
                                 time: msg.time,
                                 x,
                                 y,
                             });
+                        }
+                    }
+                    WM_MOUSELEAVE => {
+                        if let Some((id, data)) =
+                            self.windows.iter_mut().find(|(_, data)| data.hwnd == msg.hwnd)
+                        {
+                            if data.mouse_inside {
+                                data.mouse_inside = false;
+                                self.event_queue.push(BackendEvent::LeaveNotify {
+                                    window: BackendWindow(*id),
+                                    x: 0,
+                                    y: 0,
+                                    time: msg.time,
+                                });
+                            }
                         }
                     }
                     WM_KEYDOWN => {

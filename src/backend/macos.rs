@@ -436,6 +436,8 @@ impl Backend for MacOSBackend {
         unsafe {
             if let Some(data) = self.windows.get(&window.0) {
                 macos_backend_map_window(self.handle, data.swift_id);
+                // Generate MapNotify event
+                self.event_queue.push(BackendEvent::MapNotify { window });
             }
             Ok(())
         }
@@ -445,6 +447,8 @@ impl Backend for MacOSBackend {
         unsafe {
             if let Some(data) = self.windows.get(&window.0) {
                 macos_backend_unmap_window(self.handle, data.swift_id);
+                // Generate UnmapNotify event
+                self.event_queue.push(BackendEvent::UnmapNotify { window });
             }
             Ok(())
         }
