@@ -63,53 +63,40 @@ class X11BackingBuffer {
 
 class X11ContentView: NSView {
     var buffer: X11BackingBuffer?
+    private var imageView: NSImageView?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        // Enable layer-backed view for better rendering
-        self.wantsLayer = true
+        setupImageView()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        self.wantsLayer = true
+        setupImageView()
+    }
+
+    private func setupImageView() {
+        let iv = NSImageView(frame: bounds)
+        iv.imageScaling = .scaleAxesIndependently
+        iv.autoresizingMask = [.width, .height]
+        addSubview(iv)
+        self.imageView = iv
     }
 
     // Use flipped coordinates to match X11 (origin at top-left)
     override var isFlipped: Bool { return true }
 
-    // Use wantsUpdateLayer to enable layer-based rendering
-    override var wantsUpdateLayer: Bool { return true }
-
-    override func updateLayer() {
+    func updateContents() {
         guard let buffer = self.buffer, let ctx = buffer.context, let cgImage = ctx.makeImage() else {
-            NSLog("X11ContentView.updateLayer: no CGImage available, buffer=\(self.buffer != nil)")
-            layer?.backgroundColor = NSColor.white.cgColor
+            NSLog("X11ContentView.updateContents: no CGImage available, buffer=\(self.buffer != nil)")
             return
         }
 
-        NSLog("X11ContentView.updateLayer: setting layer contents \(cgImage.width)x\(cgImage.height), bpc=\(cgImage.bitsPerComponent), bpp=\(cgImage.bitsPerPixel)")
+        NSLog("X11ContentView.updateContents: setting image \(cgImage.width)x\(cgImage.height), bpc=\(cgImage.bitsPerComponent), bpp=\(cgImage.bitsPerPixel)")
 
-        // Configure the layer for proper display
-        layer?.isOpaque = true
-        layer?.contentsGravity = .resize
-        layer?.contentsScale = 1.0
-
-        // Set the image directly on the layer
-        layer?.contents = cgImage
-    }
-
-    func updateContents() {
-        NSLog("X11ContentView.updateContents: requesting display")
-        needsDisplay = true
-        // Force immediate display on main thread
-        if Thread.isMainThread {
-            display()
-        } else {
-            DispatchQueue.main.async {
-                self.display()
-            }
-        }
+        // Create NSImage and set on image view
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: buffer.width, height: buffer.height))
+        imageView?.image = nsImage
     }
 }
 
@@ -981,16 +968,15 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
         // Update all content views
         for (id, contentView) in backend.windowContentViews {
             if let buffer = backend.windowBuffers[id], let window = backend.windows[id] {
-                guard let cgImage = buffer.context?.makeImage() else {
+                guard buffer.context?.makeImage() != nil else {
                     NSLog("flush: window \(id) - no CGImage available!")
                     continue
                 }
 
-                NSLog("flush: window \(id) - cgImage: \(cgImage.width)x\(cgImage.height), contentView frame: \(contentView.frame)")
+                NSLog("flush: window \(id) - contentView frame: \(contentView.frame)")
 
-                // Force immediate display
-                contentView.needsDisplay = true
-                contentView.display()
+                // Update the image view content
+                contentView.updateContents()
                 window.display()
             }
         }
