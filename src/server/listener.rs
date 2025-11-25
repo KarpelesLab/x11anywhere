@@ -102,8 +102,13 @@ fn handle_client(
             21 => handle_list_properties(&mut stream, &header, &request_data, &server)?,
             22 => handle_set_selection_owner(&mut stream, &header, &request_data, &server)?,
             23 => handle_get_selection_owner(&mut stream, &header, &request_data, &server)?,
+            28 => handle_grab_server(&mut stream, &header, &request_data, &server)?,
+            29 => handle_ungrab_server(&mut stream, &header, &request_data, &server)?,
+            38 => handle_query_pointer(&mut stream, &header, &request_data, &server)?,
+            40 => handle_translate_coordinates(&mut stream, &header, &request_data, &server)?,
             42 => handle_set_input_focus(&mut stream, &header, &request_data, &server)?,
             43 => handle_get_input_focus(&mut stream, &header, &request_data, &server)?,
+            44 => handle_query_keymap(&mut stream, &header, &request_data, &server)?,
             45 => handle_open_font(&mut stream, &header, &request_data, &server)?,
             46 => handle_close_font(&mut stream, &header, &request_data, &server)?,
             47 => handle_query_font(&mut stream, &header, &request_data, &server)?,
@@ -2214,5 +2219,141 @@ fn handle_clear_area(
 
     // TODO: Actually clear area using backend
     // No reply for ClearArea
+    Ok(())
+}
+
+fn handle_grab_server(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("GrabServer (no-op)");
+    // No reply for GrabServer
+    // In a real X server this would prevent other clients from accessing the server
+    // We just ignore it for now
+    Ok(())
+}
+
+fn handle_ungrab_server(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("UngrabServer (no-op)");
+    // No reply for UngrabServer
+    Ok(())
+}
+
+fn handle_query_pointer(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse QueryPointer request: window(4)
+    if data.len() < 4 {
+        log::warn!("QueryPointer request too short");
+        return Ok(());
+    }
+
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("QueryPointer: window=0x{:x}", window);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+    let root = server.root_window();
+
+    // Return the root window and (0,0) coordinates for now
+    // TODO: Get actual pointer position from backend
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_query_pointer_reply(
+        sequence,
+        true,                            // same_screen
+        root,                            // root
+        crate::protocol::Window::new(0), // child (None)
+        0,                               // root_x
+        0,                               // root_y
+        0,                               // win_x
+        0,                               // win_y
+        0,                               // mask (no buttons pressed)
+    );
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_translate_coordinates(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse TranslateCoordinates request: src_window(4), dst_window(4), src_x(2), src_y(2)
+    if data.len() < 12 {
+        log::warn!("TranslateCoordinates request too short");
+        return Ok(());
+    }
+
+    let src_window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let dst_window = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let src_x = i16::from_le_bytes([data[8], data[9]]);
+    let src_y = i16::from_le_bytes([data[10], data[11]]);
+
+    log::debug!(
+        "TranslateCoordinates: src=0x{:x}, dst=0x{:x}, ({},{})",
+        src_window,
+        dst_window,
+        src_x,
+        src_y
+    );
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let _server = server.lock().unwrap();
+
+    // For now, just return the same coordinates (assume same coordinate space)
+    // TODO: Actually translate coordinates based on window positions
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_translate_coordinates_reply(
+        sequence,
+        true,                            // same_screen
+        crate::protocol::Window::new(0), // child (None)
+        src_x,                           // dst_x (same as src for now)
+        src_y,                           // dst_y (same as src for now)
+    );
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_query_keymap(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("QueryKeymap");
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    // Return empty keymap (no keys pressed)
+    let keys = [0u8; 32];
+
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_query_keymap_reply(sequence, &keys);
+
+    stream.write_all(&reply)?;
+
     Ok(())
 }

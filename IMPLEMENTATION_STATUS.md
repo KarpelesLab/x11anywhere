@@ -131,13 +131,17 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
+| GrabServer | ✅ | ✅ | ✅ | ⚪ | Opcode 28 handler; no-op (single client focus) |
+| UngrabServer | ✅ | ✅ | ✅ | ⚪ | Opcode 29 handler; no-op |
 | GrabKeyboard | 🟡 | ❌ | ❌ | ⚪ | SetCapture on Windows (limited) |
 | UngrabKeyboard | 🟡 | ❌ | ❌ | ⚪ | ReleaseCapture on Windows |
 | GrabPointer | 🟡 | ❌ | ❌ | ⚪ | SetCapture on Windows |
 | UngrabPointer | 🟡 | ❌ | ❌ | ⚪ | ReleaseCapture on Windows |
+| QueryPointer | ✅ | ✅ | ✅ | ⚪ | Opcode 38 handler; returns (0,0) for now |
+| TranslateCoords | ✅ | ✅ | ✅ | ⚪ | Opcode 40 handler; returns input coords |
 | SetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 42 handler; backend focus TBD |
 | GetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 43 handler; returns root window |
-| QueryPointer | 🟡 | ❌ | ❌ | ⚪ | GetCursorPos on Windows |
+| QueryKeymap | ✅ | ✅ | ✅ | ⚪ | Opcode 44 handler; returns empty keymap |
 | WarpPointer | 🟡 | ❌ | ❌ | ⚪ | SetCursorPos on Windows |
 
 ### Properties & Atoms

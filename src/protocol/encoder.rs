@@ -425,4 +425,69 @@ impl ProtocolEncoder {
 
         buffer
     }
+
+    /// Encode QueryPointer reply
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_query_pointer_reply(
+        &self,
+        sequence: u16,
+        same_screen: bool,
+        root: Window,
+        child: Window,
+        root_x: i16,
+        root_y: i16,
+        win_x: i16,
+        win_y: i16,
+        mask: u16,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 1; // Reply
+        buffer[1] = if same_screen { 1 } else { 0 };
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(0)); // No additional data
+        buffer[8..12].copy_from_slice(&self.write_u32(root.id().0));
+        buffer[12..16].copy_from_slice(&self.write_u32(child.id().0));
+        buffer[16..18].copy_from_slice(&self.write_i16(root_x));
+        buffer[18..20].copy_from_slice(&self.write_i16(root_y));
+        buffer[20..22].copy_from_slice(&self.write_i16(win_x));
+        buffer[22..24].copy_from_slice(&self.write_i16(win_y));
+        buffer[24..26].copy_from_slice(&self.write_u16(mask));
+
+        buffer
+    }
+
+    /// Encode TranslateCoordinates reply
+    pub fn encode_translate_coordinates_reply(
+        &self,
+        sequence: u16,
+        same_screen: bool,
+        child: Window,
+        dst_x: i16,
+        dst_y: i16,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 1; // Reply
+        buffer[1] = if same_screen { 1 } else { 0 };
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(0)); // No additional data
+        buffer[8..12].copy_from_slice(&self.write_u32(child.id().0));
+        buffer[12..14].copy_from_slice(&self.write_i16(dst_x));
+        buffer[14..16].copy_from_slice(&self.write_i16(dst_y));
+
+        buffer
+    }
+
+    /// Encode QueryKeymap reply
+    pub fn encode_query_keymap_reply(&self, sequence: u16, keys: &[u8; 32]) -> Vec<u8> {
+        let mut buffer = vec![0u8; 40]; // 32 header + 8 more for total 40 bytes (reply length = 2)
+
+        buffer[0] = 1; // Reply
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(2)); // Length in 4-byte units (8 bytes / 4)
+        buffer[8..40].copy_from_slice(keys);
+
+        buffer
+    }
 }
