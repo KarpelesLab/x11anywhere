@@ -35,8 +35,9 @@ class X11BackingBuffer {
         self.height = max(height, 1)
 
         // Create a bitmap context for our backing store
+        // Use premultipliedLast (RGBA) for better compatibility with CALayer display
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
 
         if let ctx = CGContext(data: nil,
                                width: self.width,
