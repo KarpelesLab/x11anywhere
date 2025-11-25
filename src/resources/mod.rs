@@ -353,6 +353,7 @@ mod tests {
             background_pixel: None,
             border_pixel: None,
             event_mask: None,
+            cursor: None,
         });
 
         tracker.track_request(client_id, &req);
@@ -383,6 +384,7 @@ mod tests {
                 background_pixel: None,
                 border_pixel: None,
                 event_mask: None,
+                cursor: None,
             }),
         );
 
