@@ -264,6 +264,12 @@ jobs:
         run: |
           echo "=== Downloaded screenshots ==="
           find docs/screenshots -type f -name "*.png" | head -20
+          echo ""
+          echo "=== Git status before add ==="
+          git status
+          echo ""
+          echo "=== Current commit ==="
+          git log -1 --oneline
 
       - name: Commit and push screenshots
         uses: EndBug/add-and-commit@v9
