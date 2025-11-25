@@ -93,6 +93,8 @@ fn handle_client(
             12 => handle_configure_window(&mut stream, &header, &request_data, &server)?,
             45 => handle_open_font(&mut stream, &header, &request_data, &server)?,
             46 => handle_close_font(&mut stream, &header, &request_data, &server)?,
+            47 => handle_query_font(&mut stream, &header, &request_data, &server)?,
+            49 => handle_list_fonts(&mut stream, &header, &request_data, &server)?,
             55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
             64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
@@ -1046,6 +1048,83 @@ fn handle_close_font(
 
     let mut server = server.lock().unwrap();
     server.close_font(font_id);
+
+    Ok(())
+}
+
+fn handle_query_font(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse QueryFont request: font(4)
+    if data.len() < 4 {
+        log::warn!("QueryFont request too short");
+        return Ok(());
+    }
+
+    let font_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("QueryFont: font=0x{:x}", font_id);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+
+    // Get font info
+    let (ascent, descent, char_width) = if let Some(font_info) = server.query_font(font_id) {
+        (font_info.ascent, font_info.descent, font_info.char_width)
+    } else {
+        // Return default values if font not found
+        log::warn!("QueryFont: font 0x{:x} not found, using defaults", font_id);
+        (12, 4, 8)
+    };
+
+    // Encode and send reply
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply =
+        encoder.encode_query_font_reply(sequence, ascent, descent, char_width, ascent + descent);
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_list_fonts(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ListFonts request: max_names(2), pattern_length(2), pattern(n)
+    if data.len() < 4 {
+        log::warn!("ListFonts request too short");
+        return Ok(());
+    }
+
+    let max_names = u16::from_le_bytes([data[0], data[1]]);
+    let pattern_length = u16::from_le_bytes([data[2], data[3]]) as usize;
+    let pattern_end = (4 + pattern_length).min(data.len());
+    let pattern = String::from_utf8_lossy(&data[4..pattern_end]).to_string();
+
+    log::debug!("ListFonts: max_names={}, pattern={:?}", max_names, pattern);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+    let font_names = server.list_fonts(&pattern, max_names);
+
+    log::debug!("ListFonts: returning {} fonts", font_names.len());
+
+    // Encode and send reply
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_list_fonts_reply(sequence, &font_names);
+
+    stream.write_all(&reply)?;
 
     Ok(())
 }

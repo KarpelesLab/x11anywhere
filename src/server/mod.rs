@@ -44,6 +44,39 @@ pub struct SelectionInfo {
     pub time: u32,
 }
 
+/// Font information for QueryFont replies
+#[derive(Debug, Clone)]
+pub struct FontInfo {
+    /// Font name as opened
+    pub name: String,
+    /// Font ascent (pixels above baseline)
+    pub ascent: i16,
+    /// Font descent (pixels below baseline)
+    pub descent: i16,
+    /// Average character width
+    pub char_width: i16,
+    /// Minimum character code
+    pub min_char: u16,
+    /// Maximum character code
+    pub max_char: u16,
+}
+
+impl FontInfo {
+    /// Create FontInfo with default metrics for a given font name
+    pub fn new(name: &str) -> Self {
+        // Default metrics for a typical fixed-width font
+        // These are reasonable defaults for most text rendering
+        FontInfo {
+            name: name.to_string(),
+            ascent: 12,
+            descent: 4,
+            char_width: 8,
+            min_char: 0,
+            max_char: 255,
+        }
+    }
+}
+
 /// The main X11 server
 pub struct Server {
     /// The display backend
@@ -76,8 +109,8 @@ pub struct Server {
     /// Extension name -> info mapping
     extensions: HashMap<String, ExtensionInfo>,
 
-    /// Font ID -> name mapping
-    fonts: HashMap<u32, String>,
+    /// Font ID -> font info mapping
+    fonts: HashMap<u32, FontInfo>,
 
     /// Window properties: Window -> (Property Atom -> PropertyValue)
     properties: HashMap<Window, HashMap<Atom, PropertyValue>>,
@@ -936,13 +969,85 @@ impl Server {
     /// Open a font
     pub fn open_font(&mut self, font_id: u32, font_name: &str) {
         log::debug!("Opening font: id=0x{:x}, name={}", font_id, font_name);
-        self.fonts.insert(font_id, font_name.to_string());
+        self.fonts.insert(font_id, FontInfo::new(font_name));
     }
 
     /// Close a font
     pub fn close_font(&mut self, font_id: u32) {
         log::debug!("Closing font: id=0x{:x}", font_id);
         self.fonts.remove(&font_id);
+    }
+
+    /// Query font information
+    pub fn query_font(&self, font_id: u32) -> Option<&FontInfo> {
+        self.fonts.get(&font_id)
+    }
+
+    /// List fonts matching a pattern
+    /// Pattern uses X11 font pattern syntax: * matches any sequence, ? matches any char
+    pub fn list_fonts(&self, pattern: &str, max_names: u16) -> Vec<String> {
+        // Built-in fonts that we can report
+        let available_fonts = vec![
+            "fixed",
+            "6x10",
+            "6x12",
+            "6x13",
+            "7x13",
+            "7x14",
+            "8x13",
+            "8x16",
+            "9x15",
+            "9x18",
+            "10x20",
+            "cursor",
+            "-misc-fixed-medium-r-normal--13-120-75-75-c-80-iso8859-1",
+            "-misc-fixed-medium-r-normal--15-140-75-75-c-90-iso8859-1",
+            "-misc-fixed-bold-r-normal--13-120-75-75-c-80-iso8859-1",
+            "-misc-fixed-bold-r-normal--15-140-75-75-c-90-iso8859-1",
+        ];
+
+        // Convert X11 glob pattern to simple matching
+        let pattern_lower = pattern.to_lowercase();
+        let is_wildcard_all = pattern == "*";
+
+        let mut result: Vec<String> = available_fonts
+            .into_iter()
+            .filter(|font| {
+                if is_wildcard_all {
+                    true
+                } else {
+                    // Simple pattern matching: convert * to any sequence
+                    let font_lower = font.to_lowercase();
+                    if pattern_lower.contains('*') {
+                        // Split pattern by * and check each part
+                        let parts: Vec<&str> = pattern_lower.split('*').collect();
+                        let mut pos = 0;
+                        for (i, part) in parts.iter().enumerate() {
+                            if part.is_empty() {
+                                continue;
+                            }
+                            if let Some(found_pos) = font_lower[pos..].find(part) {
+                                // First part must match at start
+                                if i == 0 && found_pos != 0 {
+                                    return false;
+                                }
+                                pos += found_pos + part.len();
+                            } else {
+                                return false;
+                            }
+                        }
+                        true
+                    } else {
+                        font_lower.contains(&pattern_lower)
+                    }
+                }
+            })
+            .map(|s| s.to_string())
+            .collect();
+
+        // Limit to max_names
+        result.truncate(max_names as usize);
+        result
     }
 
     /// Helper to get backend drawable from X11 drawable

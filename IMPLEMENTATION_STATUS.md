@@ -103,10 +103,10 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| OpenFont | ✅ | ❌ | ❌ | ⚪ | Tracked in server; CreateFont on Windows, NSFont on macOS |
-| CloseFont | ✅ | ❌ | ❌ | ⚪ | DeleteObject on Windows |
-| QueryFont | 🟡 | ❌ | ❌ | ⚪ | GetTextMetrics on Windows |
-| ListFonts | 🟡 | ❌ | ❌ | ⚪ | EnumFontFamilies on Windows |
+| OpenFont | ✅ | ✅ | ✅ | ⚪ | Server-side font tracking with FontInfo struct |
+| CloseFont | ✅ | ✅ | ✅ | ⚪ | Server-side font tracking |
+| QueryFont | ✅ | ✅ | ✅ | ⚪ | Server-side; returns font metrics (ascent, descent, char width) |
+| ListFonts | ✅ | ✅ | ✅ | ⚪ | Server-side; returns built-in font names matching pattern |
 
 ### Events
 
@@ -315,7 +315,7 @@ The visual test (`tests/visual_test.rs`) validates the following operations:
 - [x] **Both**: Cursor support (standard system cursors) ✅ **COMPLETED**
 - [x] **Both**: Window property operations (server-side storage) ✅ **COMPLETED**
 - [x] **Both**: Selection/clipboard support (server-side tracking) ✅ **COMPLETED**
-- [ ] **Both**: Advanced font handling
+- [x] **Both**: Advanced font handling (QueryFont, ListFonts) ✅ **COMPLETED**
 - [ ] **Both**: Advanced color management
 
 ### Phase 4: Optimization & Testing
