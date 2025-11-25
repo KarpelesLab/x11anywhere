@@ -27,26 +27,14 @@ class MacOSBackendImpl {
     var windows: [Int: NSWindow] = [:]
     var contexts: [Int: CGContext] = [:]
     var nextId: Int = 1
-    var screenWidth: Int = 0
-    var screenHeight: Int = 0
-    var screenWidthMM: Int = 0
-    var screenHeightMM: Int = 0
+    var screenWidth: Int = 1920  // Default fallback
+    var screenHeight: Int = 1080 // Default fallback
+    var screenWidthMM: Int = 508
+    var screenHeightMM: Int = 285
 
     init() {
-        // Helper to run code on main thread without deadlock
-        func runOnMain(_ block: @escaping () -> Void) {
-            if Thread.isMainThread {
-                block()
-            } else {
-                DispatchQueue.main.sync {
-                    block()
-                }
-            }
-        }
-
-        // Ensure we're on main thread for Cocoa operations
-        runOnMain {
-            // Initialize NSApplication
+        // Initialize NSApplication first (required for Cocoa operations)
+        let initBlock = { [self] in
             let app = NSApplication.shared
             app.setActivationPolicy(.regular)
 
@@ -61,12 +49,16 @@ class MacOSBackendImpl {
                 let dpi = 72.0 * backingScale
                 self.screenWidthMM = Int(Double(self.screenWidth) * 25.4 / dpi)
                 self.screenHeightMM = Int(Double(self.screenHeight) * 25.4 / dpi)
-            } else {
-                // Fallback dimensions if no screen available
-                self.screenWidth = 1920
-                self.screenHeight = 1080
-                self.screenWidthMM = 508
-                self.screenHeightMM = 285
+            }
+            // If NSScreen.main is nil, we keep the default values
+        }
+
+        // Run on main thread without deadlock
+        if Thread.isMainThread {
+            initBlock()
+        } else {
+            DispatchQueue.main.sync {
+                initBlock()
             }
         }
     }
