@@ -182,6 +182,7 @@ impl RequestOpcode {
             73 => Some(RequestOpcode::GetImage),
             74 => Some(RequestOpcode::PolyText8),
             76 => Some(RequestOpcode::ImageText8),
+            84 => Some(RequestOpcode::AllocColor),
             85 => Some(RequestOpcode::AllocNamedColor),
             94 => Some(RequestOpcode::CreateGlyphCursor),
             98 => Some(RequestOpcode::QueryExtension),

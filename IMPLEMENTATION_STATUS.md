@@ -93,11 +93,11 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| AllocColor | 🟡 | ❌ | ❌ | ⚪ | RGB macro on Windows (TrueColor assumed) |
-| AllocNamedColor | 🟡 | ❌ | ❌ | ⚪ | Named color lookup + RGB on Windows |
-| FreeColors | 🟡 | ❌ | ❌ | ⚪ | N/A for TrueColor |
-| CreateColormap | 🟡 | ❌ | ❌ | ⚪ | Limited support (TrueColor only) |
-| FreeColormap | 🟡 | ❌ | ❌ | ⚪ | |
+| AllocColor | ✅ | ✅ | ✅ | ⚪ | Server-side RGB to pixel conversion (TrueColor) |
+| AllocNamedColor | ✅ | ✅ | ✅ | ⚪ | Server-side named color lookup (70+ colors) |
+| FreeColors | 🟡 | ✅ | ✅ | ⚪ | N/A for TrueColor (no-op) |
+| CreateColormap | 🟡 | ✅ | ✅ | ⚪ | Limited support (TrueColor only) |
+| FreeColormap | 🟡 | ✅ | ✅ | ⚪ | N/A for TrueColor (no-op) |
 
 ### Fonts
 
@@ -316,7 +316,7 @@ The visual test (`tests/visual_test.rs`) validates the following operations:
 - [x] **Both**: Window property operations (server-side storage) ✅ **COMPLETED**
 - [x] **Both**: Selection/clipboard support (server-side tracking) ✅ **COMPLETED**
 - [x] **Both**: Advanced font handling (QueryFont, ListFonts) ✅ **COMPLETED**
-- [ ] **Both**: Advanced color management
+- [x] **Both**: Advanced color management (AllocColor, AllocNamedColor) ✅ **COMPLETED**
 
 ### Phase 4: Optimization & Testing
 - [ ] Performance profiling

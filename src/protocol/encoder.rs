@@ -255,6 +255,29 @@ impl ProtocolEncoder {
         buffer
     }
 
+    /// Encode AllocColor reply
+    pub fn encode_alloc_color_reply(
+        &self,
+        sequence: u16,
+        pixel: u32,
+        red: u16,
+        green: u16,
+        blue: u16,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 1; // Reply
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(0)); // No additional data
+        buffer[8..10].copy_from_slice(&self.write_u16(red));
+        buffer[10..12].copy_from_slice(&self.write_u16(green));
+        buffer[12..14].copy_from_slice(&self.write_u16(blue));
+        // bytes 14-15 unused
+        buffer[16..20].copy_from_slice(&self.write_u32(pixel));
+
+        buffer
+    }
+
     /// Encode AllocNamedColor reply
     #[allow(clippy::too_many_arguments)]
     pub fn encode_alloc_named_color_reply(

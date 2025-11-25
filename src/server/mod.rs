@@ -1050,6 +1050,112 @@ impl Server {
         result
     }
 
+    /// Convert RGB values (0-65535 range) to a pixel value
+    /// For TrueColor, this packs the RGB into 0xRRGGBB format
+    pub fn alloc_color(&self, red: u16, green: u16, blue: u16) -> u32 {
+        // Convert from 16-bit to 8-bit per component
+        let r = (red >> 8) as u32;
+        let g = (green >> 8) as u32;
+        let b = (blue >> 8) as u32;
+        (r << 16) | (g << 8) | b
+    }
+
+    /// Look up a named color and return (pixel, exact_r, exact_g, exact_b, visual_r, visual_g, visual_b)
+    /// Returns None if the color name is not found
+    pub fn lookup_named_color(&self, name: &str) -> Option<(u32, u16, u16, u16, u16, u16, u16)> {
+        // Standard X11 color names (subset of rgb.txt)
+        let color_map: &[(&str, (u8, u8, u8))] = &[
+            ("black", (0, 0, 0)),
+            ("white", (255, 255, 255)),
+            ("red", (255, 0, 0)),
+            ("green", (0, 255, 0)),
+            ("blue", (0, 0, 255)),
+            ("yellow", (255, 255, 0)),
+            ("cyan", (0, 255, 255)),
+            ("magenta", (255, 0, 255)),
+            ("gray", (128, 128, 128)),
+            ("grey", (128, 128, 128)),
+            ("darkgray", (64, 64, 64)),
+            ("darkgrey", (64, 64, 64)),
+            ("lightgray", (192, 192, 192)),
+            ("lightgrey", (192, 192, 192)),
+            ("orange", (255, 165, 0)),
+            ("pink", (255, 192, 203)),
+            ("brown", (165, 42, 42)),
+            ("purple", (128, 0, 128)),
+            ("navy", (0, 0, 128)),
+            ("maroon", (128, 0, 0)),
+            ("olive", (128, 128, 0)),
+            ("teal", (0, 128, 128)),
+            ("silver", (192, 192, 192)),
+            ("gold", (255, 215, 0)),
+            ("coral", (255, 127, 80)),
+            ("salmon", (250, 128, 114)),
+            ("tomato", (255, 99, 71)),
+            ("firebrick", (178, 34, 34)),
+            ("darkred", (139, 0, 0)),
+            ("darkgreen", (0, 100, 0)),
+            ("darkblue", (0, 0, 139)),
+            ("lightblue", (173, 216, 230)),
+            ("lightgreen", (144, 238, 144)),
+            ("violet", (238, 130, 238)),
+            ("indigo", (75, 0, 130)),
+            ("wheat", (245, 222, 179)),
+            ("tan", (210, 180, 140)),
+            ("khaki", (240, 230, 140)),
+            ("aqua", (0, 255, 255)),
+            ("lime", (0, 255, 0)),
+            ("ivory", (255, 255, 240)),
+            ("snow", (255, 250, 250)),
+            ("steelblue", (70, 130, 180)),
+            ("royalblue", (65, 105, 225)),
+            ("skyblue", (135, 206, 235)),
+            ("turquoise", (64, 224, 208)),
+            ("chartreuse", (127, 255, 0)),
+            ("lawngreen", (124, 252, 0)),
+            ("forestgreen", (34, 139, 34)),
+            ("seagreen", (46, 139, 87)),
+            ("springgreen", (0, 255, 127)),
+            ("mintcream", (245, 255, 250)),
+            ("honeydew", (240, 255, 240)),
+            ("lavender", (230, 230, 250)),
+            ("plum", (221, 160, 221)),
+            ("orchid", (218, 112, 214)),
+            ("hotpink", (255, 105, 180)),
+            ("deeppink", (255, 20, 147)),
+            ("mistyrose", (255, 228, 225)),
+            ("peachpuff", (255, 218, 185)),
+            ("papayawhip", (255, 239, 213)),
+            ("lemonchiffon", (255, 250, 205)),
+            ("beige", (245, 245, 220)),
+            ("linen", (250, 240, 230)),
+            ("oldlace", (253, 245, 230)),
+            ("antiquewhite", (250, 235, 215)),
+            ("bisque", (255, 228, 196)),
+            ("blanchedalmond", (255, 235, 205)),
+            ("moccasin", (255, 228, 181)),
+            ("navajowhite", (255, 222, 173)),
+        ];
+
+        let name_lower = name.to_lowercase().replace(" ", "");
+
+        for (color_name, (r, g, b)) in color_map {
+            if *color_name == name_lower {
+                // Convert 8-bit to 16-bit values
+                let r16 = (*r as u16) << 8 | (*r as u16);
+                let g16 = (*g as u16) << 8 | (*g as u16);
+                let b16 = (*b as u16) << 8 | (*b as u16);
+
+                // Pixel value for TrueColor
+                let pixel = ((*r as u32) << 16) | ((*g as u32) << 8) | (*b as u32);
+
+                return Some((pixel, r16, g16, b16, r16, g16, b16));
+            }
+        }
+
+        None
+    }
+
     /// Helper to get backend drawable from X11 drawable
     fn get_backend_drawable(
         &self,

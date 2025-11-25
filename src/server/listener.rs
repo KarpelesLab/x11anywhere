@@ -96,6 +96,8 @@ fn handle_client(
             47 => handle_query_font(&mut stream, &header, &request_data, &server)?,
             49 => handle_list_fonts(&mut stream, &header, &request_data, &server)?,
             55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
+            84 => handle_alloc_color(&mut stream, &header, &request_data, &server)?,
+            85 => handle_alloc_named_color(&mut stream, &header, &request_data, &server)?,
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
             64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
             65 => handle_poly_line(&mut stream, &header, &request_data, &server)?,
@@ -1123,6 +1125,94 @@ fn handle_list_fonts(
     let encoder =
         crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
     let reply = encoder.encode_list_fonts_reply(sequence, &font_names);
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_alloc_color(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse AllocColor request: colormap(4), red(2), green(2), blue(2), pad(2)
+    if data.len() < 10 {
+        log::warn!("AllocColor request too short");
+        return Ok(());
+    }
+
+    let _colormap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let red = u16::from_le_bytes([data[4], data[5]]);
+    let green = u16::from_le_bytes([data[6], data[7]]);
+    let blue = u16::from_le_bytes([data[8], data[9]]);
+
+    log::debug!("AllocColor: red={}, green={}, blue={}", red, green, blue);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+    let pixel = server.alloc_color(red, green, blue);
+
+    // Encode and send reply
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_alloc_color_reply(sequence, pixel, red, green, blue);
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_alloc_named_color(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse AllocNamedColor request: colormap(4), name_length(2), pad(2), name(n)
+    if data.len() < 4 {
+        log::warn!("AllocNamedColor request too short");
+        return Ok(());
+    }
+
+    let _colormap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let name_length = u16::from_le_bytes([data[4], data[5]]) as usize;
+    let name_end = (8 + name_length).min(data.len());
+    let name = String::from_utf8_lossy(&data[8..name_end]).to_string();
+
+    log::debug!("AllocNamedColor: name={:?}", name);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+
+    // Look up the named color
+    let (pixel, exact_red, exact_green, exact_blue, visual_red, visual_green, visual_blue) =
+        if let Some(color_info) = server.lookup_named_color(&name) {
+            color_info
+        } else {
+            // Return black for unknown color names
+            log::warn!("AllocNamedColor: unknown color '{}'", name);
+            (0, 0, 0, 0, 0, 0, 0)
+        };
+
+    // Encode and send reply
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_alloc_named_color_reply(
+        sequence,
+        pixel,
+        exact_red,
+        exact_green,
+        exact_blue,
+        visual_red,
+        visual_green,
+        visual_blue,
+    );
 
     stream.write_all(&reply)?;
 

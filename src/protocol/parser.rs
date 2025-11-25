@@ -37,6 +37,7 @@ pub enum Request {
     CloseFont(CloseFontRequest),
     CreateGlyphCursor(CreateGlyphCursorRequest),
     AllocNamedColor(AllocNamedColorRequest),
+    AllocColor(AllocColorRequest),
     QueryFont(QueryFontRequest),
     QueryExtension(QueryExtensionRequest),
     SetSelectionOwner(SetSelectionOwnerRequest),
@@ -291,6 +292,14 @@ pub struct AllocNamedColorRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct AllocColorRequest {
+    pub colormap: u32,
+    pub red: u16,
+    pub green: u16,
+    pub blue: u16,
+}
+
+#[derive(Debug, Clone)]
 pub struct QueryFontRequest {
     pub font: u32,
 }
@@ -375,6 +384,7 @@ impl ProtocolParser {
                 self.parse_create_glyph_cursor(request_data)?
             }
             Some(RequestOpcode::AllocNamedColor) => self.parse_alloc_named_color(request_data)?,
+            Some(RequestOpcode::AllocColor) => self.parse_alloc_color(request_data)?,
             Some(RequestOpcode::QueryFont) => self.parse_query_font(request_data)?,
             Some(RequestOpcode::QueryExtension) => self.parse_query_extension(request_data)?,
             Some(RequestOpcode::SetSelectionOwner) => {
@@ -889,6 +899,19 @@ impl ProtocolParser {
         Ok(Request::AllocNamedColor(AllocNamedColorRequest {
             colormap,
             name,
+        }))
+    }
+
+    fn parse_alloc_color(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let colormap = self.read_u32(&data[0..4]);
+        let red = self.read_u16(&data[4..6]);
+        let green = self.read_u16(&data[6..8]);
+        let blue = self.read_u16(&data[8..10]);
+        Ok(Request::AllocColor(AllocColorRequest {
+            colormap,
+            red,
+            green,
+            blue,
         }))
     }
 
