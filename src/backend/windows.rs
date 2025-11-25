@@ -477,6 +477,16 @@ impl Backend for WindowsBackend {
         unsafe {
             let hdc = self.get_dc(drawable)?;
 
+            let (r, g, b) = color_to_rgb(gc.foreground);
+            log::debug!(
+                "Windows fill_rectangle: foreground=0x{:08x}, RGB=({},{},{}), COLORREF=0x{:08x}",
+                gc.foreground,
+                r,
+                g,
+                b,
+                rgb(r, g, b)
+            );
+
             let brush = self.create_brush(gc);
             let rect = RECT {
                 left: x as i32,

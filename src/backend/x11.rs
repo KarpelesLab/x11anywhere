@@ -82,6 +82,52 @@ impl X11Backend {
         }
     }
 
+    /// Send a request and read the reply from the X server
+    fn send_request_with_reply(&mut self, data: &[u8]) -> BackendResult<Vec<u8>> {
+        // Send the request
+        self.send_request(data)?;
+        self.flush()?;
+
+        // Read the reply header (32 bytes)
+        let conn = self
+            .connection
+            .as_mut()
+            .ok_or("Not connected to X server")?;
+        let mut header = [0u8; 32];
+        conn.read_exact(&mut header)
+            .map_err(|e| format!("Failed to read reply header: {}", e))?;
+
+        let reply_type = header[0];
+        if reply_type == 0 {
+            // Error response
+            let error_code = header[1];
+            return Err(format!("X11 error: code={}", error_code).into());
+        }
+        if reply_type != 1 {
+            return Err(format!("Unexpected reply type: {}", reply_type).into());
+        }
+
+        // Get the additional data length (in 4-byte units)
+        let additional_length =
+            u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
+        let additional_bytes = additional_length * 4;
+
+        // Read additional data if any
+        let mut reply_data = header.to_vec();
+        if additional_bytes > 0 {
+            let mut additional = vec![0u8; additional_bytes];
+            conn.read_exact(&mut additional)
+                .map_err(|e| format!("Failed to read reply data: {}", e))?;
+            reply_data.extend_from_slice(&additional);
+        }
+
+        if self.debug {
+            log::debug!("Received {} byte reply from X server", reply_data.len());
+        }
+
+        Ok(reply_data)
+    }
+
     /// Create a GC on the server
     fn create_server_gc(&mut self, drawable: u32, gc_id: u32, gc: &BackendGC) -> BackendResult<()> {
         // Build CreateGC request (opcode 55)
@@ -983,7 +1029,11 @@ impl Backend for X11Backend {
         if self.debug {
             log::debug!(
                 "Drew rectangle outline: drawable=0x{:x}, x={}, y={}, {}x{}",
-                server_drawable, x, y, width, height
+                server_drawable,
+                x,
+                y,
+                width,
+                height
             );
         }
 
@@ -1097,7 +1147,11 @@ impl Backend for X11Backend {
         if self.debug {
             log::debug!(
                 "Drew line: drawable=0x{:x}, ({},{}) to ({},{})",
-                server_drawable, x1, y1, x2, y2
+                server_drawable,
+                x1,
+                y1,
+                x2,
+                y2
             );
         }
 
@@ -1152,7 +1206,8 @@ impl Backend for X11Backend {
         if self.debug {
             log::debug!(
                 "Drew {} points: drawable=0x{:x}",
-                points.len(), server_drawable
+                points.len(),
+                server_drawable
             );
         }
 
@@ -1225,7 +1280,10 @@ impl Backend for X11Backend {
         if self.debug {
             log::debug!(
                 "Drew text: drawable=0x{:x}, ({},{}) \"{}\"",
-                server_drawable, x, y, text
+                server_drawable,
+                x,
+                y,
+                text
             );
         }
 
@@ -1283,10 +1341,7 @@ impl Backend for X11Backend {
         self.send_request(&req)?;
 
         if self.debug {
-            log::debug!(
-                "Drew {} arcs: drawable=0x{:x}",
-                arcs.len(), server_drawable
-            );
+            log::debug!("Drew {} arcs: drawable=0x{:x}", arcs.len(), server_drawable);
         }
 
         Ok(())
@@ -1344,7 +1399,8 @@ impl Backend for X11Backend {
         if self.debug {
             log::debug!(
                 "Filled {} arcs: drawable=0x{:x}",
-                arcs.len(), server_drawable
+                arcs.len(),
+                server_drawable
             );
         }
 
@@ -1402,7 +1458,8 @@ impl Backend for X11Backend {
         if self.debug {
             log::debug!(
                 "Filled polygon with {} points: drawable=0x{:x}",
-                points.len(), server_drawable
+                points.len(),
+                server_drawable
             );
         }
 
@@ -1478,7 +1535,14 @@ impl Backend for X11Backend {
         if self.debug {
             log::debug!(
                 "CopyArea: src=0x{:x} ({},{}) -> dst=0x{:x} ({},{}), {}x{}",
-                server_src, src_x, src_y, server_dst, dst_x, dst_y, width, height
+                server_src,
+                src_x,
+                src_y,
+                server_dst,
+                dst_x,
+                dst_y,
+                width,
+                height
             );
         }
 
@@ -1562,7 +1626,14 @@ impl Backend for X11Backend {
         if self.debug {
             log::debug!(
                 "PutImage: drawable=0x{:x}, {}x{} at ({},{}), depth={}, format={}, {} bytes",
-                server_drawable, width, height, dst_x, dst_y, depth, format, data.len()
+                server_drawable,
+                width,
+                height,
+                dst_x,
+                dst_y,
+                depth,
+                format,
+                data.len()
             );
         }
 
@@ -1571,16 +1642,75 @@ impl Backend for X11Backend {
 
     fn get_image(
         &mut self,
-        _drawable: BackendDrawable,
-        _x: i16,
-        _y: i16,
-        _width: u16,
-        _height: u16,
-        _plane_mask: u32,
-        _format: u8,
+        drawable: BackendDrawable,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        plane_mask: u32,
+        format: u8,
     ) -> BackendResult<Vec<u8>> {
-        // TODO: Implement GetImage request to X11 server
-        Ok(Vec::new())
+        // Get server drawable ID
+        let server_drawable = match drawable {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Pixmap not found")?,
+        };
+
+        // Build GetImage request (opcode 73)
+        // Format: opcode(1), format(1), length(2), drawable(4), x(2), y(2), width(2), height(2), plane_mask(4)
+        let mut req = Vec::new();
+        req.push(73); // Opcode: GetImage
+        req.push(format); // format: 1=XYPixmap, 2=ZPixmap
+        req.extend_from_slice(&5u16.to_le_bytes()); // Length: 5 words = 20 bytes
+        req.extend_from_slice(&server_drawable.to_le_bytes());
+        req.extend_from_slice(&x.to_le_bytes());
+        req.extend_from_slice(&y.to_le_bytes());
+        req.extend_from_slice(&width.to_le_bytes());
+        req.extend_from_slice(&height.to_le_bytes());
+        req.extend_from_slice(&plane_mask.to_le_bytes());
+
+        // Send request and get reply
+        let reply = self.send_request_with_reply(&req)?;
+
+        // GetImage reply format:
+        // header[0] = 1 (reply type)
+        // header[1] = depth
+        // header[2..4] = sequence
+        // header[4..8] = length (additional data in 4-byte units)
+        // header[8..12] = visual
+        // header[12..32] = padding
+        // data follows header
+
+        if reply.len() < 32 {
+            return Err("GetImage reply too short".into());
+        }
+
+        // Extract image data (skip 32-byte header)
+        let image_data = reply[32..].to_vec();
+
+        if self.debug {
+            log::debug!(
+                "GetImage: drawable=0x{:x}, ({},{}) {}x{}, {} bytes",
+                server_drawable,
+                x,
+                y,
+                width,
+                height,
+                image_data.len()
+            );
+        }
+
+        Ok(image_data)
     }
 
     fn poll_events(&mut self) -> BackendResult<Vec<BackendEvent>> {

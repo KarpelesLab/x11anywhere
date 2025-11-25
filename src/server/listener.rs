@@ -87,7 +87,10 @@ fn handle_client(
         // Handle basic opcodes needed for visual test
         match opcode {
             1 => handle_create_window(&mut stream, &header, &request_data, &server)?,
+            4 => handle_destroy_window(&mut stream, &header, &request_data, &server)?,
             8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
+            10 => handle_unmap_window(&mut stream, &header, &request_data, &server)?,
+            12 => handle_configure_window(&mut stream, &header, &request_data, &server)?,
             45 => handle_open_font(&mut stream, &header, &request_data, &server)?,
             46 => handle_close_font(&mut stream, &header, &request_data, &server)?,
             55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
@@ -299,6 +302,110 @@ fn handle_map_window(
     Ok(())
 }
 
+fn handle_unmap_window(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse UnmapWindow request: window(4)
+    if data.len() < 4 {
+        log::warn!("UnmapWindow request too short");
+        return Ok(());
+    }
+
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("UnmapWindow: window=0x{:x}", window);
+
+    let mut server = server.lock().unwrap();
+    server.unmap_window(crate::protocol::Window::new(window))?;
+
+    Ok(())
+}
+
+fn handle_destroy_window(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse DestroyWindow request: window(4)
+    if data.len() < 4 {
+        log::warn!("DestroyWindow request too short");
+        return Ok(());
+    }
+
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("DestroyWindow: window=0x{:x}", window);
+
+    let mut server = server.lock().unwrap();
+    server.destroy_window(crate::protocol::Window::new(window))?;
+
+    Ok(())
+}
+
+fn handle_configure_window(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ConfigureWindow request: window(4), value-mask(2), pad(2), values(...)
+    if data.len() < 4 {
+        log::warn!("ConfigureWindow request too short");
+        return Ok(());
+    }
+
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let _unused = header[1]; // mask is sometimes in header but we use data
+
+    // ConfigureWindow has mask in data
+    let value_mask = if data.len() >= 6 {
+        u16::from_le_bytes([data[4], data[5]])
+    } else {
+        0
+    };
+
+    log::debug!(
+        "ConfigureWindow: window=0x{:x}, mask=0x{:x}",
+        window,
+        value_mask
+    );
+
+    // Parse values based on mask
+    let mut offset = 8; // Skip window(4), mask(2), pad(2)
+    let mut x: Option<i16> = None;
+    let mut y: Option<i16> = None;
+    let mut width: Option<u16> = None;
+    let mut height: Option<u16> = None;
+
+    // Bit 0: x
+    if value_mask & 0x0001 != 0 && offset + 4 <= data.len() {
+        x = Some(i16::from_le_bytes([data[offset], data[offset + 1]]));
+        offset += 4; // Values are padded to 4 bytes
+    }
+    // Bit 1: y
+    if value_mask & 0x0002 != 0 && offset + 4 <= data.len() {
+        y = Some(i16::from_le_bytes([data[offset], data[offset + 1]]));
+        offset += 4;
+    }
+    // Bit 2: width
+    if value_mask & 0x0004 != 0 && offset + 4 <= data.len() {
+        width = Some(u16::from_le_bytes([data[offset], data[offset + 1]]));
+        offset += 4;
+    }
+    // Bit 3: height
+    if value_mask & 0x0008 != 0 && offset + 4 <= data.len() {
+        height = Some(u16::from_le_bytes([data[offset], data[offset + 1]]));
+        // offset += 4;
+    }
+
+    let mut server = server.lock().unwrap();
+    server.configure_window(crate::protocol::Window::new(window), x, y, width, height)?;
+
+    Ok(())
+}
+
 fn handle_create_gc(
     _stream: &mut TcpStream,
     _header: &[u8],
@@ -420,6 +527,16 @@ fn handle_change_gc(
             data[offset + 2],
             data[offset + 3],
         ]));
+    }
+
+    if let Some(fg) = foreground {
+        log::debug!(
+            "ChangeGC: setting foreground=0x{:08x} (R={}, G={}, B={})",
+            fg,
+            (fg >> 16) & 0xff,
+            (fg >> 8) & 0xff,
+            fg & 0xff
+        );
     }
 
     let mut server = server.lock().unwrap();

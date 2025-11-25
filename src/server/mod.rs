@@ -432,6 +432,46 @@ impl Server {
         Ok(())
     }
 
+    /// Unmap a window (hide it)
+    pub fn unmap_window(&mut self, window: Window) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(&backend_window) = self.windows.get(&window) {
+            self.backend.unmap_window(backend_window)?;
+        }
+        Ok(())
+    }
+
+    /// Destroy a window
+    pub fn destroy_window(&mut self, window: Window) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(&backend_window) = self.windows.get(&window) {
+            self.backend.destroy_window(backend_window)?;
+            self.windows.remove(&window);
+        }
+        Ok(())
+    }
+
+    /// Configure a window (resize/move)
+    pub fn configure_window(
+        &mut self,
+        window: Window,
+        x: Option<i16>,
+        y: Option<i16>,
+        width: Option<u16>,
+        height: Option<u16>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(&backend_window) = self.windows.get(&window) {
+            let config = crate::backend::WindowConfig {
+                x,
+                y,
+                width,
+                height,
+                border_width: None,
+                stack_mode: None,
+            };
+            self.backend.configure_window(backend_window, config)?;
+        }
+        Ok(())
+    }
+
     /// Create a graphics context
     pub fn create_gc(
         &mut self,
@@ -489,7 +529,16 @@ impl Server {
 
         // Get backend GC
         let backend_gc = match self.gcs.get(&gc) {
-            Some(gc) => gc,
+            Some(gc) => {
+                log::debug!(
+                    "fill_rectangles: using foreground=0x{:08x} (R={}, G={}, B={})",
+                    gc.foreground,
+                    (gc.foreground >> 16) & 0xff,
+                    (gc.foreground >> 8) & 0xff,
+                    gc.foreground & 0xff
+                );
+                gc
+            }
             None => {
                 log::error!("fill_rectangles: Invalid GC {:?}", gc);
                 return Err("Invalid GC".into());

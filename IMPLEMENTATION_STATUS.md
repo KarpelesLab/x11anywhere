@@ -65,7 +65,7 @@ This document tracks the implementation status of X11 protocol features across d
 | ImageText8 | ✅ | ✅ | ✅ | ⚪ | TextOutW on Windows, NSString on macOS |
 | ImageText16 | ✅ | ✅ | ✅ | ⚪ | Unicode text rendering supported |
 | PutImage | ✅ | ✅ | ✅ | ⚪ | SetDIBitsToDevice on Windows, CGImage on macOS |
-| GetImage | 🟡 | ✅ | ✅ | ⚪ | GetDIBits on Windows, CGContext.makeImage on macOS |
+| GetImage | ✅ | ✅ | ✅ | ⚪ | GetDIBits on Windows, CGContext.makeImage on macOS |
 
 ### Graphics Context (GC)
 
@@ -176,7 +176,7 @@ This document tracks the implementation status of X11 protocol features across d
 - **Status**: ✅ **Fully implemented** - basic passthrough working via direct X11 protocol
 - **Architecture**: Direct protocol translation to underlying X11 server
 - **Working Features**:
-  - ✅ Window management (CreateWindow, MapWindow, etc.)
+  - ✅ Window management (CreateWindow, MapWindow, UnmapWindow, DestroyWindow, ConfigureWindow)
   - ✅ GC operations (CreateGC, ChangeGC)
   - ✅ PolyFillRectangle (opcode 70)
   - ✅ PolyRectangle (opcode 67)
@@ -186,18 +186,20 @@ This document tracks the implementation status of X11 protocol features across d
   - ✅ PolyFillArc (opcode 71)
   - ✅ FillPoly (opcode 69)
   - ✅ PutImage (opcode 72)
+  - ✅ GetImage (opcode 73)
   - ✅ CopyArea (opcode 62)
   - ✅ ImageText8 (opcode 76)
   - ✅ OpenFont (opcode 45)
   - ✅ CloseFont (opcode 46)
 - **Not Yet Implemented**:
-  - ❌ GetImage (opcode 73)
   - ❌ QueryFont
   - ❌ ListFonts
+  - ❌ Event delivery (MapNotify, UnmapNotify, etc.)
 - **Limitations**:
   - Some advanced extensions not implemented
   - Limited error handling
-- **Next Steps**: Implement remaining query operations
+  - Event delivery to clients not yet implemented
+- **Next Steps**: Implement event delivery infrastructure
 
 ### Windows Backend
 - **Status**: ✅ **Fully implemented** (visual tests passing)

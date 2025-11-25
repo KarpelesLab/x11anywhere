@@ -378,17 +378,11 @@ fn draw_lines(
     stream.write_all(&req)?;
 
     // Draw a zigzag line (5 points = 4 segments)
-    let points: [(i16, i16); 5] = [
-        (20, 150),
-        (60, 200),
-        (100, 150),
-        (140, 200),
-        (180, 150),
-    ];
+    let points: [(i16, i16); 5] = [(20, 150), (60, 200), (100, 150), (140, 200), (180, 150)];
 
     let mut req = Vec::new();
     req.push(65); // PolyLine opcode
-    req.push(0);  // coordinate mode = Origin
+    req.push(0); // coordinate mode = Origin
     let length = 3 + points.len() as u16; // header + drawable + gc + points
     req.extend_from_slice(&length.to_le_bytes());
     req.extend_from_slice(&window.to_le_bytes());
@@ -421,10 +415,7 @@ fn draw_rectangle_outlines(
     stream.write_all(&req)?;
 
     // Draw 2 rectangle outlines
-    let rects: [(i16, i16, u16, u16); 2] = [
-        (200, 150, 60, 40),
-        (270, 150, 60, 40),
-    ];
+    let rects: [(i16, i16, u16, u16); 2] = [(200, 150, 60, 40), (270, 150, 60, 40)];
 
     let mut req = Vec::new();
     req.push(67); // PolyRectangle opcode
@@ -474,9 +465,9 @@ fn draw_arcs(
     // Arc: x, y, width, height, angle1, angle2
     req.extend_from_slice(&350i16.to_le_bytes()); // x
     req.extend_from_slice(&150i16.to_le_bytes()); // y
-    req.extend_from_slice(&60u16.to_le_bytes());  // width
-    req.extend_from_slice(&60u16.to_le_bytes());  // height
-    req.extend_from_slice(&0i16.to_le_bytes());   // angle1 (0 degrees)
+    req.extend_from_slice(&60u16.to_le_bytes()); // width
+    req.extend_from_slice(&60u16.to_le_bytes()); // height
+    req.extend_from_slice(&0i16.to_le_bytes()); // angle1 (0 degrees)
     req.extend_from_slice(&(180 * 64i16).to_le_bytes()); // angle2 (180 degrees)
     stream.write_all(&req)?;
 
@@ -510,8 +501,8 @@ fn draw_filled_arcs(
     req.extend_from_slice(&gc.to_le_bytes());
     req.extend_from_slice(&420i16.to_le_bytes()); // x
     req.extend_from_slice(&150i16.to_le_bytes()); // y
-    req.extend_from_slice(&60u16.to_le_bytes());  // width
-    req.extend_from_slice(&60u16.to_le_bytes());  // height
+    req.extend_from_slice(&60u16.to_le_bytes()); // width
+    req.extend_from_slice(&60u16.to_le_bytes()); // height
     req.extend_from_slice(&(45 * 64i16).to_le_bytes()); // angle1 (45 degrees)
     req.extend_from_slice(&(90 * 64i16).to_le_bytes()); // angle2 (90 degrees)
     stream.write_all(&req)?;
@@ -538,11 +529,7 @@ fn draw_polygon(
     stream.write_all(&req)?;
 
     // Draw a triangle
-    let points: [(i16, i16); 3] = [
-        (520, 200),
-        (550, 150),
-        (580, 200),
-    ];
+    let points: [(i16, i16); 3] = [(520, 200), (550, 150), (580, 200)];
 
     let mut req = Vec::new();
     req.push(69); // FillPoly opcode
@@ -592,7 +579,7 @@ fn draw_points(
 
     let mut req = Vec::new();
     req.push(64); // PolyPoint opcode
-    req.push(0);  // coordinate mode = Origin
+    req.push(0); // coordinate mode = Origin
     let length = 3 + points.len() as u16;
     req.extend_from_slice(&length.to_le_bytes());
     req.extend_from_slice(&window.to_le_bytes());
@@ -662,7 +649,7 @@ fn open_font(
 
     let mut req = Vec::new();
     req.push(45); // OpenFont opcode
-    req.push(0);  // Padding
+    req.push(0); // Padding
     let length = 3 + (name_len + name_pad) / 4;
     req.extend_from_slice(&(length as u16).to_le_bytes());
     req.extend_from_slice(&font_id.to_le_bytes());
