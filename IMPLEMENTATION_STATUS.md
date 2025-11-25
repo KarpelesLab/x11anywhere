@@ -206,11 +206,10 @@ This document tracks the implementation status of X11 protocol features across d
   - ✅ Enhanced event handling: KeyPress/Release, ButtonPress/Release, MotionNotify, FocusIn/Out
   - ✅ Event polling and blocking wait
   - ✅ GC state tracking (foreground, background, line width/style)
-- **Known Issues**:
-  - ⚠️ **BGR Color Swap**: Red and Blue channels are swapped in rendered output. The `rgb()` function creates COLORREF correctly but something in the rendering pipeline is swapping R/B.
+- **Known Limitations**:
   - No advanced raster operations (SetROP2)
   - Missing EnterNotify/LeaveNotify events
-- **Next Steps**: Fix BGR color swap issue, test with real X11 applications
+- **Next Steps**: Test with real X11 applications
 
 ### macOS Backend
 - **Status**: ✅ **Fully implemented** with Swift FFI (compiles & passes CI for ARM64 and x86_64)
@@ -255,7 +254,7 @@ This document tracks the implementation status of X11 protocol features across d
 | Backend | Unit Tests | Integration Tests | Visual Tests | Manual Testing | Notes |
 |---------|------------|-------------------|--------------|----------------|-------|
 | X11 | 🟡 Basic | 🟡 xcalc works | ✅ Passing | ✅ | Basic apps work; visual tests validate filled rectangles |
-| Windows | ❌ | ❌ | ✅ Passing | ⏳ Pending | All drawing ops visible; **BGR color swap issue** |
+| Windows | ❌ | ❌ | ✅ Passing | ⏳ Pending | All drawing ops working correctly |
 | macOS | ❌ | ❌ | ✅ Passing | ⏳ Pending | All drawing ops working correctly |
 | Wayland | ❌ | ❌ | ❌ | ❌ | Not started |
 

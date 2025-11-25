@@ -835,13 +835,53 @@ impl Backend for X11Backend {
 
     fn draw_rectangle(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _x: i16,
-        _y: i16,
-        _width: u16,
-        _height: u16,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
     ) -> BackendResult<()> {
+        // Get server drawable ID
+        let server_drawable = match drawable {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Pixmap not found")?,
+        };
+
+        let gc_id = self.allocate_server_resource_id();
+        self.create_server_gc(server_drawable, gc_id, gc)?;
+
+        // Build PolyRectangle request (opcode 67)
+        let mut req = Vec::new();
+        req.push(67); // Opcode: PolyRectangle
+        req.push(0); // Padding
+        req.extend_from_slice(&5u16.to_le_bytes()); // Length: 5 words
+        req.extend_from_slice(&server_drawable.to_le_bytes());
+        req.extend_from_slice(&gc_id.to_le_bytes());
+        req.extend_from_slice(&x.to_le_bytes());
+        req.extend_from_slice(&y.to_le_bytes());
+        req.extend_from_slice(&width.to_le_bytes());
+        req.extend_from_slice(&height.to_le_bytes());
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "Drew rectangle outline: drawable=0x{:x}, x={}, y={}, {}x{}",
+                server_drawable, x, y, width, height
+            );
+        }
+
         Ok(())
     }
 
@@ -909,22 +949,108 @@ impl Backend for X11Backend {
 
     fn draw_line(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _x1: i16,
-        _y1: i16,
-        _x2: i16,
-        _y2: i16,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        x1: i16,
+        y1: i16,
+        x2: i16,
+        y2: i16,
     ) -> BackendResult<()> {
+        // Get server drawable ID
+        let server_drawable = match drawable {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Pixmap not found")?,
+        };
+
+        let gc_id = self.allocate_server_resource_id();
+        self.create_server_gc(server_drawable, gc_id, gc)?;
+
+        // Build PolySegment request (opcode 66) for a single line segment
+        let mut req = Vec::new();
+        req.push(66); // Opcode: PolySegment
+        req.push(0); // Padding
+        req.extend_from_slice(&5u16.to_le_bytes()); // Length: 5 words (header + 1 segment)
+        req.extend_from_slice(&server_drawable.to_le_bytes());
+        req.extend_from_slice(&gc_id.to_le_bytes());
+        req.extend_from_slice(&x1.to_le_bytes());
+        req.extend_from_slice(&y1.to_le_bytes());
+        req.extend_from_slice(&x2.to_le_bytes());
+        req.extend_from_slice(&y2.to_le_bytes());
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "Drew line: drawable=0x{:x}, ({},{}) to ({},{})",
+                server_drawable, x1, y1, x2, y2
+            );
+        }
+
         Ok(())
     }
 
     fn draw_points(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _points: &[Point],
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        points: &[Point],
     ) -> BackendResult<()> {
+        if points.is_empty() {
+            return Ok(());
+        }
+
+        // Get server drawable ID
+        let server_drawable = match drawable {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Pixmap not found")?,
+        };
+
+        let gc_id = self.allocate_server_resource_id();
+        self.create_server_gc(server_drawable, gc_id, gc)?;
+
+        // Build PolyPoint request (opcode 64)
+        let mut req = Vec::new();
+        req.push(64); // Opcode: PolyPoint
+        req.push(0); // Coordinate mode: Origin
+        let length = 3 + points.len() as u16; // header + points
+        req.extend_from_slice(&length.to_le_bytes());
+        req.extend_from_slice(&server_drawable.to_le_bytes());
+        req.extend_from_slice(&gc_id.to_le_bytes());
+
+        for point in points {
+            req.extend_from_slice(&point.x.to_le_bytes());
+            req.extend_from_slice(&point.y.to_le_bytes());
+        }
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "Drew {} points: drawable=0x{:x}",
+                points.len(), server_drawable
+            );
+        }
+
         Ok(())
     }
 
@@ -941,31 +1067,178 @@ impl Backend for X11Backend {
 
     fn draw_arcs(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _arcs: &[crate::protocol::Arc],
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        arcs: &[crate::protocol::Arc],
     ) -> BackendResult<()> {
-        // TODO: Implement X11 arc drawing via PolyArc request
+        if arcs.is_empty() {
+            return Ok(());
+        }
+
+        // Get server drawable ID
+        let server_drawable = match drawable {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Pixmap not found")?,
+        };
+
+        let gc_id = self.allocate_server_resource_id();
+        self.create_server_gc(server_drawable, gc_id, gc)?;
+
+        // Build PolyArc request (opcode 68)
+        // Each arc is 12 bytes (x, y, width, height, angle1, angle2)
+        let mut req = Vec::new();
+        req.push(68); // Opcode: PolyArc
+        req.push(0); // Padding
+        let length = 3 + (arcs.len() * 3) as u16; // header + arcs (each arc is 3 words = 12 bytes)
+        req.extend_from_slice(&length.to_le_bytes());
+        req.extend_from_slice(&server_drawable.to_le_bytes());
+        req.extend_from_slice(&gc_id.to_le_bytes());
+
+        for arc in arcs {
+            req.extend_from_slice(&arc.x.to_le_bytes());
+            req.extend_from_slice(&arc.y.to_le_bytes());
+            req.extend_from_slice(&arc.width.to_le_bytes());
+            req.extend_from_slice(&arc.height.to_le_bytes());
+            req.extend_from_slice(&arc.angle1.to_le_bytes());
+            req.extend_from_slice(&arc.angle2.to_le_bytes());
+        }
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "Drew {} arcs: drawable=0x{:x}",
+                arcs.len(), server_drawable
+            );
+        }
+
         Ok(())
     }
 
     fn fill_arcs(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _arcs: &[crate::protocol::Arc],
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        arcs: &[crate::protocol::Arc],
     ) -> BackendResult<()> {
-        // TODO: Implement X11 filled arc drawing via FillPoly request
+        if arcs.is_empty() {
+            return Ok(());
+        }
+
+        // Get server drawable ID
+        let server_drawable = match drawable {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Pixmap not found")?,
+        };
+
+        let gc_id = self.allocate_server_resource_id();
+        self.create_server_gc(server_drawable, gc_id, gc)?;
+
+        // Build PolyFillArc request (opcode 71)
+        let mut req = Vec::new();
+        req.push(71); // Opcode: PolyFillArc
+        req.push(0); // Padding
+        let length = 3 + (arcs.len() * 3) as u16;
+        req.extend_from_slice(&length.to_le_bytes());
+        req.extend_from_slice(&server_drawable.to_le_bytes());
+        req.extend_from_slice(&gc_id.to_le_bytes());
+
+        for arc in arcs {
+            req.extend_from_slice(&arc.x.to_le_bytes());
+            req.extend_from_slice(&arc.y.to_le_bytes());
+            req.extend_from_slice(&arc.width.to_le_bytes());
+            req.extend_from_slice(&arc.height.to_le_bytes());
+            req.extend_from_slice(&arc.angle1.to_le_bytes());
+            req.extend_from_slice(&arc.angle2.to_le_bytes());
+        }
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "Filled {} arcs: drawable=0x{:x}",
+                arcs.len(), server_drawable
+            );
+        }
+
         Ok(())
     }
 
     fn fill_polygon(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _points: &[crate::protocol::Point],
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        points: &[crate::protocol::Point],
     ) -> BackendResult<()> {
-        // TODO: Implement X11 polygon filling via FillPoly request
+        if points.is_empty() {
+            return Ok(());
+        }
+
+        // Get server drawable ID
+        let server_drawable = match drawable {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Pixmap not found")?,
+        };
+
+        let gc_id = self.allocate_server_resource_id();
+        self.create_server_gc(server_drawable, gc_id, gc)?;
+
+        // Build FillPoly request (opcode 69)
+        let mut req = Vec::new();
+        req.push(69); // Opcode: FillPoly
+        req.push(0); // Padding
+        let length = 4 + points.len() as u16; // header (4 words) + points
+        req.extend_from_slice(&length.to_le_bytes());
+        req.extend_from_slice(&server_drawable.to_le_bytes());
+        req.extend_from_slice(&gc_id.to_le_bytes());
+        req.push(2); // shape = Convex
+        req.push(0); // coordinate mode = Origin
+        req.extend_from_slice(&[0, 0]); // padding
+
+        for point in points {
+            req.extend_from_slice(&point.x.to_le_bytes());
+            req.extend_from_slice(&point.y.to_le_bytes());
+        }
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "Filled polygon with {} points: drawable=0x{:x}",
+                points.len(), server_drawable
+            );
+        }
+
         Ok(())
     }
 
