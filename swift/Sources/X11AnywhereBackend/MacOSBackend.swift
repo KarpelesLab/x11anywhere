@@ -969,7 +969,10 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
 @_cdecl("macos_backend_flush")
 public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
-    DispatchQueue.main.sync {
+
+    // Use async to avoid blocking the request handling thread
+    // The actual display update will happen on the main thread via CFRunLoopRun
+    DispatchQueue.main.async {
         NSLog("flush: updating \(backend.windowContentViews.count) windows")
 
         // Update all content views
@@ -982,26 +985,10 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
 
                 NSLog("flush: window \(id) - cgImage: \(cgImage.width)x\(cgImage.height), contentView frame: \(contentView.frame)")
 
-                // Update the layer contents
-                contentView.updateContents()
-                window.display()
-
-                // Debug: save buffer to file
-                let debugPath = "/tmp/x11anywhere_debug_window_\(id).png"
-                let url = URL(fileURLWithPath: debugPath)
-                if let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
-                    CGImageDestinationAddImage(destination, cgImage, nil)
-                    if CGImageDestinationFinalize(destination) {
-                        NSLog("flush: saved debug image to \(debugPath)")
-                    }
-                }
+                // Request display update
+                contentView.needsDisplay = true
+                window.displayIfNeeded()
             }
-        }
-        NSApplication.shared.updateWindows()
-
-        // Pump the run loop to process display updates
-        for _ in 0..<5 {
-            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
         }
     }
     return BackendResult.success.rawValue
