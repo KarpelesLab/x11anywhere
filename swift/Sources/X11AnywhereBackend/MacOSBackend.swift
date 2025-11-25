@@ -101,7 +101,14 @@ class MacOSBackendImpl {
     func mapWindow(id: Int) {
         DispatchQueue.main.sync {
             if let window = self.windows[id] {
+                // Activate the app first so windows can be shown
+                NSApplication.shared.activate(ignoringOtherApps: true)
                 window.makeKeyAndOrderFront(nil)
+                // Force an initial display
+                if let contentView = window.contentView {
+                    contentView.setNeedsDisplay(contentView.bounds)
+                }
+                window.displayIfNeeded()
             }
         }
     }
@@ -167,6 +174,9 @@ class MacOSBackendImpl {
             if let window = self.windows[id],
                let contentView = window.contentView {
                 contentView.unlockFocus()
+                // Mark the view as needing display to show the changes
+                contentView.setNeedsDisplay(contentView.bounds)
+                contentView.displayIfNeeded()
             }
         }
     }
@@ -749,7 +759,16 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
 
 @_cdecl("macos_backend_flush")
 public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
     DispatchQueue.main.sync {
+        // Force all windows to display their content
+        for (_, window) in backend.windows {
+            if let contentView = window.contentView {
+                contentView.setNeedsDisplay(contentView.bounds)
+                contentView.displayIfNeeded()
+            }
+            window.displayIfNeeded()
+        }
         NSApplication.shared.updateWindows()
     }
     return BackendResult.success.rawValue
