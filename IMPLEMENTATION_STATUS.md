@@ -42,9 +42,9 @@ This document tracks the implementation status of X11 protocol features across d
 | ConfigureWindow | ✅ | ✅ | ✅ | ⚪ | SetWindowPos on Windows, setFrame on macOS |
 | ReparentWindow | 🟡 | ❌ | ❌ | ⚪ | May have limitations on native platforms |
 | ChangeWindowAttributes | 🟡 | ❌ | ❌ | ⚪ | Partial support |
-| GetWindowAttributes | ✅ | ❌ | ❌ | ⚪ | Not yet implemented in native backends |
-| GetGeometry | ✅ | ❌ | ❌ | ⚪ | Not yet implemented in native backends |
-| QueryTree | ✅ | ❌ | ❌ | ⚪ | Not yet implemented in native backends |
+| GetWindowAttributes | ✅ | ✅ | ✅ | ⚪ | Server-side; returns default window attributes |
+| GetGeometry | ✅ | ✅ | ✅ | ⚪ | Server-side; returns window/drawable geometry |
+| QueryTree | ✅ | ✅ | ✅ | ⚪ | Server-side; returns window hierarchy |
 | RaiseWindow | ✅ | ✅ | ✅ | ⚪ | SetWindowPos(HWND_TOP) on Windows, orderFront on macOS |
 | LowerWindow | ✅ | ✅ | ✅ | ⚪ | SetWindowPos(HWND_BOTTOM) on Windows, orderBack on macOS |
 
@@ -174,6 +174,14 @@ This document tracks the implementation status of X11 protocol features across d
 |---------|-----|---------|-------|---------|-------|
 | QueryExtension | ✅ | ✅ | ✅ | ⚪ | Returns extension info from server registry |
 | ListExtensions | ✅ | ✅ | ✅ | ⚪ | Lists all registered extensions |
+
+### Miscellaneous
+
+| Feature | X11 | Windows | macOS | Wayland | Notes |
+|---------|-----|---------|-------|---------|-------|
+| Bell | ✅ | ✅ | ✅ | ⚪ | No-op; could use platform beep APIs |
+| GetInputFocus | ✅ | ✅ | ✅ | ⚪ | Returns focus window |
+| SetInputFocus | 🟡 | 🟡 | 🟡 | ⚪ | Partially implemented |
 
 ### X11 Extensions Status
 

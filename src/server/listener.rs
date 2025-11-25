@@ -87,10 +87,13 @@ fn handle_client(
         // Handle basic opcodes needed for visual test
         match opcode {
             1 => handle_create_window(&mut stream, &header, &request_data, &server)?,
+            3 => handle_get_window_attributes(&mut stream, &header, &request_data, &server)?,
             4 => handle_destroy_window(&mut stream, &header, &request_data, &server)?,
             8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
             10 => handle_unmap_window(&mut stream, &header, &request_data, &server)?,
             12 => handle_configure_window(&mut stream, &header, &request_data, &server)?,
+            14 => handle_get_geometry(&mut stream, &header, &request_data, &server)?,
+            15 => handle_query_tree(&mut stream, &header, &request_data, &server)?,
             45 => handle_open_font(&mut stream, &header, &request_data, &server)?,
             46 => handle_close_font(&mut stream, &header, &request_data, &server)?,
             47 => handle_query_font(&mut stream, &header, &request_data, &server)?,
@@ -100,6 +103,7 @@ fn handle_client(
             85 => handle_alloc_named_color(&mut stream, &header, &request_data, &server)?,
             98 => handle_query_extension(&mut stream, &header, &request_data, &server)?,
             99 => handle_list_extensions(&mut stream, &header, &request_data, &server)?,
+            104 => handle_bell(&mut stream, &header, &request_data, &server)?,
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
             64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
             65 => handle_poly_line(&mut stream, &header, &request_data, &server)?,
@@ -1299,6 +1303,168 @@ fn handle_list_extensions(
     let reply = encoder.encode_list_extensions_reply(sequence, &extension_names);
 
     stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_get_window_attributes(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GetWindowAttributes request: window(4)
+    if data.len() < 4 {
+        log::warn!("GetWindowAttributes request too short");
+        return Ok(());
+    }
+
+    let window_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("GetWindowAttributes: window=0x{:x}", window_id);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let _server = server.lock().unwrap();
+
+    // Return default attributes for the window
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_get_window_attributes_reply(
+        sequence,
+        crate::protocol::types::VisualID::new(0x21), // Default visual
+        crate::protocol::types::WindowClass::InputOutput,
+        0, // bit_gravity: Forget
+        crate::protocol::types::BackingStore::NotUseful,
+        0xFFFFFFFF, // backing_planes
+        0,          // backing_pixel
+        false,      // save_under
+        true,       // map_is_installed
+        crate::protocol::types::MapState::Viewable,
+        false,                                       // override_redirect
+        crate::protocol::types::Colormap::new(0x20), // Default colormap
+        0xFFFFFFFF,                                  // all_event_masks
+        0xFFFFFFFF,                                  // your_event_mask
+        0,                                           // do_not_propagate_mask
+    );
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_get_geometry(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GetGeometry request: drawable(4)
+    if data.len() < 4 {
+        log::warn!("GetGeometry request too short");
+        return Ok(());
+    }
+
+    let drawable_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("GetGeometry: drawable=0x{:x}", drawable_id);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+
+    // Get window dimensions if it's a window we know about
+    let (x, y, width, height) = if let Some(_backend_window) = server
+        .windows
+        .get(&crate::protocol::types::Window::new(drawable_id))
+    {
+        // Try to get actual dimensions from backend - for now return defaults
+        (0i16, 0i16, 800u16, 600u16)
+    } else {
+        // Could be root window or unknown - return defaults
+        (0i16, 0i16, 1920u16, 1080u16)
+    };
+
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_get_geometry_reply(
+        sequence,
+        24, // depth (24-bit TrueColor)
+        server.root_window(),
+        x,
+        y,
+        width,
+        height,
+        0, // border_width
+    );
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_query_tree(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse QueryTree request: window(4)
+    if data.len() < 4 {
+        log::warn!("QueryTree request too short");
+        return Ok(());
+    }
+
+    let window_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("QueryTree: window=0x{:x}", window_id);
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    let server = server.lock().unwrap();
+
+    // Get the root window
+    let root = server.root_window();
+
+    // For now, return empty children list with root as parent
+    // TODO: Track window hierarchy properly
+    let parent = if window_id == root.id().get() {
+        crate::protocol::types::Window::NONE
+    } else {
+        root
+    };
+
+    // Get all windows as children of root for now
+    let children: Vec<crate::protocol::types::Window> = if window_id == root.id().get() {
+        server.windows.keys().cloned().collect()
+    } else {
+        Vec::new()
+    };
+
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_query_tree_reply(sequence, root, parent, &children);
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_bell(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Bell request has percent in the data byte of header
+    let percent = header[1] as i8;
+    log::debug!("Bell: percent={}", percent);
+
+    // Bell is a no-op for now (would need platform-specific audio)
+    // Could use platform beep APIs in future:
+    // - Windows: MessageBeep or Beep
+    // - macOS: NSBeep
+    // - Linux: XBell passthrough or console bell
 
     Ok(())
 }
