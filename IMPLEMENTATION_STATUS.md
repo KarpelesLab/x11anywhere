@@ -307,18 +307,18 @@ The visual test (`tests/visual_test.rs`) validates the following operations:
 - [x] **Both**: Implement pixmap support
 - [ ] **Both**: Test with simple X11 applications ⏳ **IN PROGRESS**
 
-### Phase 3: Advanced Features (Current Phase)
-- [x] **Both**: Enhanced event handling (ButtonRelease, MotionNotify, Focus events) ✅ **COMPLETED**
-- [x] **Both**: Arc and polygon drawing operations ✅ **COMPLETED**
-- [x] **Both**: Image operations (PutImage, GetImage) ✅ **COMPLETED**
-- [x] **macOS**: Improve copy_area() with proper CGImage implementation ✅ **COMPLETED**
-- [x] **Both**: Cursor support (standard system cursors) ✅ **COMPLETED**
-- [x] **Both**: Window property operations (server-side storage) ✅ **COMPLETED**
-- [x] **Both**: Selection/clipboard support (server-side tracking) ✅ **COMPLETED**
-- [x] **Both**: Advanced font handling (QueryFont, ListFonts) ✅ **COMPLETED**
-- [x] **Both**: Advanced color management (AllocColor, AllocNamedColor) ✅ **COMPLETED**
+### Phase 3: Advanced Features ✅ **COMPLETED**
+- [x] **Both**: Enhanced event handling (ButtonRelease, MotionNotify, Focus events) ✅
+- [x] **Both**: Arc and polygon drawing operations ✅
+- [x] **Both**: Image operations (PutImage, GetImage) ✅
+- [x] **macOS**: Improve copy_area() with proper CGImage implementation ✅
+- [x] **Both**: Cursor support (standard system cursors) ✅
+- [x] **Both**: Window property operations (server-side storage) ✅
+- [x] **Both**: Selection/clipboard support (server-side tracking) ✅
+- [x] **Both**: Advanced font handling (QueryFont, ListFonts) ✅
+- [x] **Both**: Advanced color management (AllocColor, AllocNamedColor) ✅
 
-### Phase 4: Optimization & Testing
+### Phase 4: Optimization & Testing (Current Phase)
 - [ ] Performance profiling
 - [ ] Comprehensive testing with various X11 applications
 - [ ] Bug fixes and edge cases

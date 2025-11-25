@@ -192,40 +192,52 @@ DISPLAY=:99 untrusted-app
 
 ## Development Status
 
-This project is in early development. Current status:
+This project has completed its core implementation across all major platforms:
 
-- ✅ Architecture designed and documented
-- ✅ Core protocol types implemented
-- ✅ Backend trait defined
-- ✅ Project structure established
-- ⏳ Protocol parser/encoder (in progress)
-- ⏳ Core server implementation (in progress)
-- ⏳ Backend implementations (not started)
-- ⏳ Connection handling (basic structure done)
+### Implemented Features ✅
+
+**Core Protocol**
+- ✅ Connection setup and authentication
+- ✅ Window operations (Create, Map, Unmap, Destroy, Configure, Raise, Lower)
+- ✅ Graphics contexts (Create, Change, Free)
+- ✅ All drawing operations (rectangles, lines, points, arcs, polygons, text)
+- ✅ Image operations (PutImage, GetImage)
+- ✅ Pixmap support (off-screen drawables)
+- ✅ Event handling (Expose, Configure, Key, Button, Motion, Focus, Enter/Leave)
+
+**Resources**
+- ✅ Properties and atoms (InternAtom, GetAtomName, ChangeProperty, GetProperty)
+- ✅ Selections/clipboard (SetSelectionOwner, GetSelectionOwner, ConvertSelection)
+- ✅ Fonts (OpenFont, CloseFont, QueryFont, ListFonts)
+- ✅ Colors (AllocColor, AllocNamedColor with 70+ named colors)
+- ✅ Cursors (standard system cursors)
+
+**Backends**
+- ✅ **X11 Backend** (Linux/BSD) - Full passthrough to native X11
+- ✅ **Windows Backend** - Complete Win32/GDI implementation
+- ✅ **macOS Backend** - Full Cocoa/Core Graphics via Swift FFI
 
 ### Roadmap
 
-**Phase 1: Core Protocol** (Current)
-- [ ] Connection setup and authentication
-- [ ] Basic window operations (Create, Map, Destroy)
-- [ ] Basic drawing (rectangles, lines, text)
-- [ ] Event handling
-- [ ] One working backend (X11)
+**Phase 1: Core Window Management** ✅ COMPLETED
 
-**Phase 2: Essential Features**
-- [ ] Graphics contexts
-- [ ] Pixmaps
-- [ ] Properties and atoms
-- [ ] Selections (clipboard)
-- [ ] Fonts
-- [ ] Images
+**Phase 2: Basic Drawing** ✅ COMPLETED
 
-**Phase 3: Additional Backends**
-- [ ] Wayland backend
-- [ ] macOS backend
-- [ ] Windows backend
+**Phase 3: Advanced Features** ✅ COMPLETED
+- Enhanced event handling, arc/polygon drawing, image operations
+- Cursor support, window properties, selections, fonts, colors
 
-**Phase 4: Extensions**
+**Phase 4: Optimization & Testing** (Current)
+- [ ] Performance profiling
+- [ ] Comprehensive testing with various X11 applications
+- [ ] Bug fixes and edge cases
+- [ ] Documentation improvements
+
+**Phase 5: Wayland Support**
+- [ ] Research and design Wayland backend
+- [ ] Implement basic Wayland support
+
+**Future: X11 Extensions**
 - [ ] RENDER (alpha blending)
 - [ ] XFIXES
 - [ ] DAMAGE
@@ -235,10 +247,12 @@ This project is in early development. Current status:
 
 Contributions are welcome! Areas where help is needed:
 
-- Backend implementations (especially macOS and Windows)
-- Protocol implementation and testing
+- Testing with real X11 applications (xclock, xterm, xeyes, etc.)
+- Wayland backend implementation
+- X11 extension support (RENDER, XFIXES, etc.)
 - Documentation and examples
-- Testing with real X11 applications
+- Performance optimization
+- Bug reports and fixes
 
 ## License
 
