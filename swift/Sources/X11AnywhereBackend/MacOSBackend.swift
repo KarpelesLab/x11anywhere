@@ -100,34 +100,33 @@ class MacOSBackendImpl {
     var screenHeightMM: Int = 285
 
     init() {
-        // Initialize NSApplication first (required for Cocoa operations)
-        let initBlock = { [self] in
-            let app = NSApplication.shared
-            app.setActivationPolicy(.regular)
-
-            // Get screen dimensions
-            if let screen = NSScreen.main {
-                let frame = screen.frame
-                self.screenWidth = Int(frame.width)
-                self.screenHeight = Int(frame.height)
-
-                // Estimate physical size (72 DPI base * backing scale)
-                let backingScale = screen.backingScaleFactor
-                let dpi = 72.0 * backingScale
-                self.screenWidthMM = Int(Double(self.screenWidth) * 25.4 / dpi)
-                self.screenHeightMM = Int(Double(self.screenHeight) * 25.4 / dpi)
-            }
-            // If NSScreen.main is nil, we keep the default values
-        }
-
-        // Run on main thread without deadlock
+        // Initialize NSApplication on main thread
         if Thread.isMainThread {
-            initBlock()
+            initializeOnMainThread()
         } else {
             DispatchQueue.main.sync {
-                initBlock()
+                self.initializeOnMainThread()
             }
         }
+    }
+
+    private func initializeOnMainThread() {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+
+        // Get screen dimensions
+        if let screen = NSScreen.main {
+            let frame = screen.frame
+            screenWidth = Int(frame.width)
+            screenHeight = Int(frame.height)
+
+            // Estimate physical size (72 DPI base * backing scale)
+            let backingScale = screen.backingScaleFactor
+            let dpi = 72.0 * backingScale
+            screenWidthMM = Int(Double(screenWidth) * 25.4 / dpi)
+            screenHeightMM = Int(Double(screenHeight) * 25.4 / dpi)
+        }
+        // If NSScreen.main is nil, we keep the default values (1920x1080)
     }
 
     func createWindow(x: Int, y: Int, width: Int, height: Int) -> Int {
