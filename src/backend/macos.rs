@@ -1129,6 +1129,18 @@ impl MacOSBackend {
             }),
             8 => Some(BackendEvent::FocusIn { window }),
             9 => Some(BackendEvent::FocusOut { window }),
+            10 => Some(BackendEvent::EnterNotify {
+                window,
+                x: x as i16,
+                y: y as i16,
+                time: time as u32,
+            }),
+            11 => Some(BackendEvent::LeaveNotify {
+                window,
+                x: x as i16,
+                y: y as i16,
+                time: time as u32,
+            }),
             _ => None,
         }
     }

@@ -1153,6 +1153,16 @@ public func macos_backend_poll_event(
                 evtX = Int32(nsEvent.locationInWindow.x)
                 evtY = Int32(nsEvent.locationInWindow.y)
 
+            case .mouseEntered:
+                evtType = 10 // enterNotify
+                evtX = Int32(nsEvent.locationInWindow.x)
+                evtY = Int32(nsEvent.locationInWindow.y)
+
+            case .mouseExited:
+                evtType = 11 // leaveNotify
+                evtX = Int32(nsEvent.locationInWindow.x)
+                evtY = Int32(nsEvent.locationInWindow.y)
+
             case .keyDown:
                 evtType = 3 // keypress
                 evtKeycode = Int32(nsEvent.keyCode)
@@ -1267,6 +1277,16 @@ public func macos_backend_wait_for_event(
 
             case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
                 evtType = 7 // motion
+                evtX = Int32(nsEvent.locationInWindow.x)
+                evtY = Int32(nsEvent.locationInWindow.y)
+
+            case .mouseEntered:
+                evtType = 10 // enterNotify
+                evtX = Int32(nsEvent.locationInWindow.x)
+                evtY = Int32(nsEvent.locationInWindow.y)
+
+            case .mouseExited:
+                evtType = 11 // leaveNotify
                 evtX = Int32(nsEvent.locationInWindow.x)
                 evtY = Int32(nsEvent.locationInWindow.y)
 
