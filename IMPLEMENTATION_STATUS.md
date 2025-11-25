@@ -144,12 +144,12 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| InternAtom | ✅ | ❌ | ❌ | ⚪ | String-to-ID mapping |
-| GetAtomName | ✅ | ❌ | ❌ | ⚪ | ID-to-string lookup |
-| ChangeProperty | 🟡 | ❌ | ❌ | ⚪ | Window properties storage |
-| DeleteProperty | 🟡 | ❌ | ❌ | ⚪ | |
-| GetProperty | 🟡 | ❌ | ❌ | ⚪ | |
-| ListProperties | 🟡 | ❌ | ❌ | ⚪ | |
+| InternAtom | ✅ | ✅ | ✅ | ⚪ | String-to-ID mapping (server-side) |
+| GetAtomName | ✅ | ✅ | ✅ | ⚪ | ID-to-string lookup (server-side) |
+| ChangeProperty | ✅ | ✅ | ✅ | ⚪ | Window properties storage (server-side) |
+| DeleteProperty | ✅ | ✅ | ✅ | ⚪ | Server-side property storage |
+| GetProperty | ✅ | ✅ | ✅ | ⚪ | Server-side property storage |
+| ListProperties | ✅ | ✅ | ✅ | ⚪ | Server-side property storage |
 
 ### Selections (Clipboard)
 
@@ -313,10 +313,10 @@ The visual test (`tests/visual_test.rs`) validates the following operations:
 - [x] **Both**: Image operations (PutImage, GetImage) ✅ **COMPLETED**
 - [x] **macOS**: Improve copy_area() with proper CGImage implementation ✅ **COMPLETED**
 - [x] **Both**: Cursor support (standard system cursors) ✅ **COMPLETED**
+- [x] **Both**: Window property operations (server-side storage) ✅ **COMPLETED**
 - [ ] **Both**: Advanced font handling
 - [ ] **Both**: Advanced color management
 - [ ] **Both**: Clipboard/selection integration
-- [ ] **Both**: Window property operations
 
 ### Phase 4: Optimization & Testing
 - [ ] Performance profiling

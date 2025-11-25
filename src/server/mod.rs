@@ -24,6 +24,17 @@ pub struct ExtensionInfo {
     pub first_error: u8,
 }
 
+/// Property value stored on a window
+#[derive(Debug, Clone)]
+pub struct PropertyValue {
+    /// The type of the property (an atom)
+    pub type_: Atom,
+    /// The format (8, 16, or 32 bits per element)
+    pub format: u8,
+    /// The raw data
+    pub data: Vec<u8>,
+}
+
 /// The main X11 server
 pub struct Server {
     /// The display backend
@@ -59,6 +70,9 @@ pub struct Server {
     /// Font ID -> name mapping
     fonts: HashMap<u32, String>,
 
+    /// Window properties: Window -> (Property Atom -> PropertyValue)
+    properties: HashMap<Window, HashMap<Atom, PropertyValue>>,
+
     /// Resource tracker for all clients
     resource_tracker: ResourceTracker,
 
@@ -87,6 +101,7 @@ impl Server {
             next_atom_id: 69, // Predefined atoms use 1-68
             extensions: HashMap::new(),
             fonts: HashMap::new(),
+            properties: HashMap::new(),
             resource_tracker: ResourceTracker::new(),
             security_policy: SecurityPolicy::default(),
         };
@@ -237,6 +252,98 @@ impl Server {
     /// Get atom name by ID
     pub fn get_atom_name(&self, atom: Atom) -> Option<&str> {
         self.atom_ids.get(&atom).map(|s| s.as_str())
+    }
+
+    /// Change a property on a window
+    ///
+    /// mode: 0=Replace, 1=Prepend, 2=Append
+    pub fn change_property(
+        &mut self,
+        window: Window,
+        property: Atom,
+        type_: Atom,
+        format: u8,
+        mode: u8,
+        data: Vec<u8>,
+    ) {
+        let window_props = self.properties.entry(window).or_default();
+
+        match mode {
+            0 => {
+                // Replace
+                window_props.insert(
+                    property,
+                    PropertyValue {
+                        type_,
+                        format,
+                        data,
+                    },
+                );
+            }
+            1 => {
+                // Prepend
+                if let Some(existing) = window_props.get_mut(&property) {
+                    let mut new_data = data;
+                    new_data.extend_from_slice(&existing.data);
+                    existing.data = new_data;
+                } else {
+                    window_props.insert(
+                        property,
+                        PropertyValue {
+                            type_,
+                            format,
+                            data,
+                        },
+                    );
+                }
+            }
+            2 => {
+                // Append
+                if let Some(existing) = window_props.get_mut(&property) {
+                    existing.data.extend_from_slice(&data);
+                } else {
+                    window_props.insert(
+                        property,
+                        PropertyValue {
+                            type_,
+                            format,
+                            data,
+                        },
+                    );
+                }
+            }
+            _ => {} // Invalid mode, ignore
+        }
+    }
+
+    /// Get a property from a window
+    ///
+    /// Returns None if the property doesn't exist
+    pub fn get_property(
+        &self,
+        window: Window,
+        property: Atom,
+        _type_: Option<Atom>,
+        _long_offset: u32,
+        _long_length: u32,
+        _delete: bool,
+    ) -> Option<&PropertyValue> {
+        self.properties.get(&window)?.get(&property)
+    }
+
+    /// Delete a property from a window
+    pub fn delete_property(&mut self, window: Window, property: Atom) {
+        if let Some(window_props) = self.properties.get_mut(&window) {
+            window_props.remove(&property);
+        }
+    }
+
+    /// List all properties on a window
+    pub fn list_properties(&self, window: Window) -> Vec<Atom> {
+        self.properties
+            .get(&window)
+            .map(|props| props.keys().copied().collect())
+            .unwrap_or_default()
     }
 
     /// Initialize common X11 extensions
