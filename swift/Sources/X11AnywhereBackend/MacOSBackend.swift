@@ -3,6 +3,7 @@
 
 import Cocoa
 import Foundation
+import ImageIO
 
 // MARK: - C API Types
 
@@ -108,6 +109,8 @@ class MacOSBackendImpl {
             // Convert Y coordinate (X11 top-left to macOS bottom-left)
             let flippedY = self.screenHeight - y - height
 
+            NSLog("createWindow: id=\(id), x=\(x), y=\(y) (flipped=\(flippedY)), size=\(width)x\(height), screen=\(self.screenWidth)x\(self.screenHeight)")
+
             let rect = NSRect(x: CGFloat(x), y: CGFloat(flippedY),
                             width: CGFloat(width), height: CGFloat(height))
 
@@ -132,6 +135,8 @@ class MacOSBackendImpl {
             self.windowImageViews[id] = imageView
             self.windowBuffers[id] = buffer
             windowId = id
+
+            NSLog("createWindow: created window \(id), buffer context: \(buffer.context != nil)")
         }
         return windowId
     }
@@ -148,6 +153,7 @@ class MacOSBackendImpl {
 
     func mapWindow(id: Int) {
         DispatchQueue.main.sync {
+            NSLog("mapWindow: id=\(id)")
             if let window = self.windows[id] {
                 // Make window appear on all spaces (including full screen apps)
                 window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -162,10 +168,13 @@ class MacOSBackendImpl {
                 window.makeKeyAndOrderFront(nil)
                 window.orderFrontRegardless()
 
+                NSLog("mapWindow: window frame=\(window.frame), isVisible=\(window.isVisible)")
+
                 // Update the image view with the current buffer content
                 if let imageView = self.windowImageViews[id], let buffer = self.windowBuffers[id] {
                     imageView.image = buffer.makeNSImage()
                     imageView.needsDisplay = true
+                    NSLog("mapWindow: updated imageView, buffer context: \(buffer.context != nil)")
                 }
                 window.display()
 
@@ -173,6 +182,9 @@ class MacOSBackendImpl {
                 for _ in 0..<10 {
                     RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
                 }
+                NSLog("mapWindow: done, isVisible=\(window.isVisible)")
+            } else {
+                NSLog("mapWindow: ERROR - window \(id) not found!")
             }
         }
     }
@@ -419,18 +431,25 @@ public func macos_backend_fill_rectangle(_ handle: BackendHandle, isWindow: Int3
                                         r: Float, g: Float, b: Float) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
 
+    NSLog("fill_rectangle: isWindow=\(isWindow), drawable=\(drawableId), rect=(\(x),\(y),\(width),\(height)), color=(\(r),\(g),\(b))")
+
     let context: CGContext?
     if isWindow != 0 {
         context = backend.getWindowContext(id: Int(drawableId))
+        NSLog("fill_rectangle: got window context: \(context != nil)")
     } else {
         context = backend.getPixmapContext(id: Int(drawableId))
     }
 
-    guard let ctx = context else { return BackendResult.error.rawValue }
+    guard let ctx = context else {
+        NSLog("fill_rectangle: ERROR - no context!")
+        return BackendResult.error.rawValue
+    }
 
     let rect = CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))
     ctx.setFillColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
     ctx.fill(rect)
+    NSLog("fill_rectangle: filled rect")
 
     if isWindow != 0 {
         backend.releaseWindowContext(id: Int(drawableId))
@@ -819,12 +838,26 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
 public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
     DispatchQueue.main.sync {
+        NSLog("flush: updating \(backend.windowImageViews.count) windows")
+
         // Update all image views with their buffer contents
         for (id, imageView) in backend.windowImageViews {
             if let buffer = backend.windowBuffers[id] {
                 imageView.image = buffer.makeNSImage()
                 imageView.needsDisplay = true
                 imageView.displayIfNeeded()
+
+                // Debug: save buffer to file
+                if let context = buffer.context, let cgImage = context.makeImage() {
+                    let debugPath = "/tmp/x11anywhere_debug_window_\(id).png"
+                    let url = URL(fileURLWithPath: debugPath)
+                    if let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
+                        CGImageDestinationAddImage(destination, cgImage, nil)
+                        if CGImageDestinationFinalize(destination) {
+                            NSLog("flush: saved debug image to \(debugPath)")
+                        }
+                    }
+                }
             }
         }
         for (_, window) in backend.windows {
@@ -836,6 +869,30 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
     }
     return BackendResult.success.rawValue
+}
+
+/// Save a window's backing buffer to a PNG file (for debugging/testing)
+@_cdecl("macos_backend_save_window_to_png")
+public func macos_backend_save_window_to_png(_ handle: BackendHandle, windowId: Int32, path: UnsafePointer<CChar>) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+    let pathStr = String(cString: path)
+
+    guard let buffer = backend.windowBuffers[Int(windowId)],
+          let context = buffer.context,
+          let cgImage = context.makeImage() else {
+        return BackendResult.error.rawValue
+    }
+
+    let url = URL(fileURLWithPath: pathStr)
+    guard let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
+        return BackendResult.error.rawValue
+    }
+
+    CGImageDestinationAddImage(destination, cgImage, nil)
+    if CGImageDestinationFinalize(destination) {
+        return BackendResult.success.rawValue
+    }
+    return BackendResult.error.rawValue
 }
 
 @_cdecl("macos_backend_poll_event")

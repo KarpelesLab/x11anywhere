@@ -115,6 +115,19 @@ jobs:
           VISUAL_TEST_OUTPUT: ${{ github.workspace }}/visual_output
           DISPLAY: :1
 
+      - name: Copy debug images
+        if: always()
+        run: |
+          cp /tmp/x11anywhere_debug_*.png visual_output/ 2>/dev/null || true
+          ls -la visual_output/ || true
+          ls -la /tmp/x11anywhere* 2>/dev/null || true
+
+      - name: Show server output
+        if: always()
+        run: |
+          # Check system log for our app
+          log show --predicate 'process == "x11anywhere"' --last 5m 2>/dev/null || true
+
       - name: Cleanup
         if: always()
         run: kill $X11ANYWHERE_PID || true
