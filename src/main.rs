@@ -317,9 +317,23 @@ fn main() {
     }
 
     // Keep the main thread alive
-    // On Windows, this allows the TCP listener thread to continue accepting connections
+    // On macOS, we need to run the CFRunLoop to service DispatchQueue.main
     // On other platforms, this just prevents the main thread from exiting
-    loop {
-        std::thread::sleep(std::time::Duration::from_secs(1));
+    #[cfg(target_os = "macos")]
+    {
+        extern "C" {
+            fn CFRunLoopRun();
+        }
+        log::info!("Running macOS CFRunLoop on main thread");
+        unsafe {
+            CFRunLoopRun();
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
     }
 }
