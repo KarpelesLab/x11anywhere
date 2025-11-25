@@ -69,6 +69,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     screenshot::save_png(&screenshot, &output_path)?;
     println!("Screenshot saved to: {}", output_path.display());
 
+    // Validate that rectangles were actually rendered
+    println!("Validating rendered rectangles...");
+    let validation_result = validate_rectangles(&screenshot);
+
+    if !validation_result {
+        eprintln!("FAIL: Rectangle validation failed - rectangles not rendered correctly");
+        std::process::exit(1);
+    }
+    println!("PASS: All rectangles validated successfully");
+
     // Compare with reference if available
     let reference_path = PathBuf::from(&output_dir).join("visual_test_reference.png");
     let test_result = if reference_path.exists() {
@@ -325,4 +335,78 @@ fn draw_colored_rectangles(
 
     stream.flush()?;
     Ok(())
+}
+
+/// Validate that the colored rectangles are actually visible in the screenshot.
+/// This searches for each expected color somewhere in the image.
+fn validate_rectangles(screenshot: &screenshot::Screenshot) -> bool {
+    // Expected colors (RGB)
+    let expected_colors: [(u8, u8, u8, &str); 6] = [
+        (255, 0, 0, "Red"),
+        (0, 255, 0, "Green"),
+        (0, 0, 255, "Blue"),
+        (255, 255, 0, "Yellow"),
+        (255, 0, 255, "Magenta"),
+        (0, 255, 255, "Cyan"),
+    ];
+
+    let mut all_found = true;
+
+    for (expected_r, expected_g, expected_b, name) in expected_colors.iter() {
+        let mut found = false;
+        let mut found_count = 0;
+
+        // Search for this color in the screenshot
+        // Allow some tolerance for color variations
+        let tolerance = 30u8;
+
+        for y in 0..screenshot.height {
+            for x in 0..screenshot.width {
+                let idx = ((y * screenshot.width + x) * 4) as usize;
+                if idx + 2 >= screenshot.data.len() {
+                    continue;
+                }
+
+                let r = screenshot.data[idx];
+                let g = screenshot.data[idx + 1];
+                let b = screenshot.data[idx + 2];
+
+                if color_matches(r, *expected_r, tolerance)
+                    && color_matches(g, *expected_g, tolerance)
+                    && color_matches(b, *expected_b, tolerance)
+                {
+                    found_count += 1;
+                    if found_count >= 100 {
+                        // Need at least 100 pixels of this color
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if found {
+                break;
+            }
+        }
+
+        if found {
+            println!("  {} rectangle: FOUND ({} pixels)", name, found_count);
+        } else {
+            eprintln!(
+                "  {} rectangle: NOT FOUND (only {} pixels)",
+                name, found_count
+            );
+            all_found = false;
+        }
+    }
+
+    all_found
+}
+
+fn color_matches(actual: u8, expected: u8, tolerance: u8) -> bool {
+    let diff = if actual > expected {
+        actual - expected
+    } else {
+        expected - actual
+    };
+    diff <= tolerance
 }
