@@ -21,69 +21,38 @@ public enum BackendResult: Int32 {
     case error = 1
 }
 
-// MARK: - Custom View with Backing Buffer
+// MARK: - Backing Buffer Storage
 
-class X11BackingView: NSView {
-    var backingImage: NSImage?
-    var backingContext: CGContext?
-    var viewWidth: Int = 100
-    var viewHeight: Int = 100
+class X11BackingBuffer {
+    var context: CGContext?
+    var width: Int
+    var height: Int
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setupBacking(width: Int(frameRect.width), height: Int(frameRect.height))
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-    }
-
-    func setupBacking(width: Int, height: Int) {
-        self.viewWidth = max(width, 1)
-        self.viewHeight = max(height, 1)
+    init(width: Int, height: Int) {
+        self.width = max(width, 1)
+        self.height = max(height, 1)
 
         // Create a bitmap context for our backing store
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
 
         if let ctx = CGContext(data: nil,
-                               width: viewWidth,
-                               height: viewHeight,
+                               width: self.width,
+                               height: self.height,
                                bitsPerComponent: 8,
-                               bytesPerRow: viewWidth * 4,
+                               bytesPerRow: self.width * 4,
                                space: colorSpace,
                                bitmapInfo: bitmapInfo) {
             // Fill with white background
             ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-            ctx.fill(CGRect(x: 0, y: 0, width: viewWidth, height: viewHeight))
-            self.backingContext = ctx
+            ctx.fill(CGRect(x: 0, y: 0, width: self.width, height: self.height))
+            self.context = ctx
         }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext,
-              let backingCtx = backingContext,
-              let image = backingCtx.makeImage() else {
-            // Fill with white if no backing
-            NSColor.white.setFill()
-            dirtyRect.fill()
-            return
-        }
-
-        // Draw the backing image to the view
-        // X11 coordinates: origin at top-left, Y increases downward
-        // NSView coordinates: origin at bottom-left, Y increases upward
-        // CGContext backing: origin at bottom-left
-        // We need to flip when drawing from backing to view
-        ctx.saveGState()
-        ctx.translateBy(x: 0, y: bounds.height)
-        ctx.scaleBy(x: 1, y: -1)
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(viewWidth), height: CGFloat(viewHeight)))
-        ctx.restoreGState()
-    }
-
-    func getContext() -> CGContext? {
-        return backingContext
+    func makeNSImage() -> NSImage? {
+        guard let cgImage = context?.makeImage() else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: width, height: height))
     }
 }
 
@@ -91,7 +60,8 @@ class X11BackingView: NSView {
 
 class MacOSBackendImpl {
     var windows: [Int: NSWindow] = [:]
-    var windowViews: [Int: X11BackingView] = [:]
+    var windowImageViews: [Int: NSImageView] = [:]
+    var windowBuffers: [Int: X11BackingBuffer] = [:]
     var contexts: [Int: CGContext] = [:]
     var nextId: Int = 1
     var screenWidth: Int = 1920  // Default fallback
@@ -150,12 +120,17 @@ class MacOSBackendImpl {
             window.title = "X11 Window"
             window.backgroundColor = .white
 
-            // Create our custom backing view
-            let backingView = X11BackingView(frame: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
-            window.contentView = backingView
+            // Create backing buffer and image view
+            let buffer = X11BackingBuffer(width: width, height: height)
+            let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+            imageView.imageScaling = .scaleNone
+            imageView.image = buffer.makeNSImage()
+
+            window.contentView = imageView
 
             self.windows[id] = window
-            self.windowViews[id] = backingView
+            self.windowImageViews[id] = imageView
+            self.windowBuffers[id] = buffer
             windowId = id
         }
         return windowId
@@ -163,7 +138,8 @@ class MacOSBackendImpl {
 
     func destroyWindow(id: Int) {
         DispatchQueue.main.sync {
-            self.windowViews.removeValue(forKey: id)
+            self.windowImageViews.removeValue(forKey: id)
+            self.windowBuffers.removeValue(forKey: id)
             if let window = self.windows.removeValue(forKey: id) {
                 window.close()
             }
@@ -183,10 +159,10 @@ class MacOSBackendImpl {
                 window.makeKeyAndOrderFront(nil)
                 window.orderFrontRegardless()
 
-                // Force display
-                if let view = self.windowViews[id] {
-                    view.needsDisplay = true
-                    view.display()
+                // Update the image view with the current buffer content
+                if let imageView = self.windowImageViews[id], let buffer = self.windowBuffers[id] {
+                    imageView.image = buffer.makeNSImage()
+                    imageView.needsDisplay = true
                 }
                 window.display()
 
@@ -242,16 +218,17 @@ class MacOSBackendImpl {
     }
 
     func getWindowContext(id: Int) -> CGContext? {
-        // Return the backing context from our custom view
-        return self.windowViews[id]?.getContext()
+        // Return the backing context from our buffer
+        return self.windowBuffers[id]?.context
     }
 
     func releaseWindowContext(id: Int) {
-        // Mark the view as needing display to show the changes
+        // Update the image view with the buffer content
         DispatchQueue.main.sync {
-            if let view = self.windowViews[id] {
-                view.setNeedsDisplay(view.bounds)
-                view.displayIfNeeded()
+            if let imageView = self.windowImageViews[id], let buffer = self.windowBuffers[id] {
+                imageView.image = buffer.makeNSImage()
+                imageView.needsDisplay = true
+                imageView.displayIfNeeded()
             }
         }
     }
@@ -836,10 +813,13 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
 public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
     DispatchQueue.main.sync {
-        // Force all windows to display their content
-        for (_, view) in backend.windowViews {
-            view.setNeedsDisplay(view.bounds)
-            view.displayIfNeeded()
+        // Update all image views with their buffer contents
+        for (id, imageView) in backend.windowImageViews {
+            if let buffer = backend.windowBuffers[id] {
+                imageView.image = buffer.makeNSImage()
+                imageView.needsDisplay = true
+                imageView.displayIfNeeded()
+            }
         }
         for (_, window) in backend.windows {
             window.displayIfNeeded()
