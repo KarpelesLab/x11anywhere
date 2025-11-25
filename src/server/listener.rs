@@ -76,9 +76,15 @@ fn handle_client(
         let opcode = header[0];
         let length = u16::from_le_bytes([header[2], header[3]]) as usize * 4;
 
+        log::debug!(
+            "Received opcode {} (length {})",
+            opcode,
+            length
+        );
+
         // Read rest of request
         let mut request_data = vec![0u8; length.saturating_sub(4)];
-        if request_data.len() > 0 {
+        if !request_data.is_empty() {
             stream.read_exact(&mut request_data)?;
         }
 
