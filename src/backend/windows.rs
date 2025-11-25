@@ -478,16 +478,20 @@ impl Backend for WindowsBackend {
             let hdc = self.get_dc(drawable)?;
 
             let (r, g, b) = color_to_rgb(gc.foreground);
+            let color = rgb(r, g, b);
             log::debug!(
                 "Windows fill_rectangle: foreground=0x{:08x}, RGB=({},{},{}), COLORREF=0x{:08x}",
                 gc.foreground,
                 r,
                 g,
                 b,
-                rgb(r, g, b)
+                color
             );
 
-            let brush = self.create_brush(gc);
+            // Use DC_BRUSH with SetDCBrushColor for more reliable color rendering
+            let dc_brush = GetStockObject(DC_BRUSH) as HBRUSH;
+            SetDCBrushColor(hdc, color);
+
             let rect = RECT {
                 left: x as i32,
                 top: y as i32,
@@ -495,8 +499,7 @@ impl Backend for WindowsBackend {
                 bottom: y as i32 + height as i32,
             };
 
-            FillRect(hdc, &rect, brush);
-            DeleteObject(brush as isize);
+            FillRect(hdc, &rect, dc_brush);
 
             Ok(())
         }

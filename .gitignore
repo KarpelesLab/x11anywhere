@@ -19,10 +19,5 @@ Thumbs.db
 # Logs
 *.log
 
-# Visual test outputs (keep reference images)
-visual_test_actual.png
-visual_output/
-!visual_test_reference.png
-
 # temp dir for tests/etc
 /tmp/
