@@ -162,6 +162,22 @@ jobs:
       - name: Run visual test
         shell: powershell
         run: |
+          # Verify server is still running before test
+          Write-Host "Checking if x11anywhere server is still running..."
+          $proc = Get-Process x11anywhere -ErrorAction SilentlyContinue
+          if ($proc) {
+            Write-Host "Server process found: PID=$($proc.Id)"
+          } else {
+            Write-Host "WARNING: Server process not found!"
+            if (Test-Path "server_stderr.log") {
+              Write-Host "Server stderr log:"
+              Get-Content "server_stderr.log"
+            }
+          }
+          # Check port status
+          Write-Host "Checking port 6001..."
+          netstat -an | Select-String "6001"
+          # Run the test
           cargo test --test visual_test -- --nocapture
         continue-on-error: true
         env:
