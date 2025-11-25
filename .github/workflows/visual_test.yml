@@ -233,7 +233,13 @@ jobs:
     name: Commit Screenshots
     runs-on: ubuntu-latest
     needs: [visual-test-linux, visual-test-macos, visual-test-windows]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    # Run even if Windows fails (it's flaky on GitHub Actions)
+    if: |
+      always() &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') &&
+      needs.visual-test-linux.result == 'success' &&
+      needs.visual-test-macos.result == 'success'
     permissions:
       contents: write
     steps:
