@@ -919,31 +919,41 @@ public func macos_backend_flush(_ handle: BackendHandle) -> Int32 {
         // Update all image views with their buffer contents
         for (id, imageView) in backend.windowImageViews {
             if let buffer = backend.windowBuffers[id], let window = backend.windows[id] {
-                let nsImage = buffer.makeNSImage()
-                NSLog("flush: window \(id) - imageView frame: \(imageView.frame), image size: \(nsImage?.size ?? NSSize.zero)")
+                guard let cgImage = buffer.context?.makeImage() else {
+                    NSLog("flush: window \(id) - no CGImage available!")
+                    continue
+                }
 
+                NSLog("flush: window \(id) - cgImage: \(cgImage.width)x\(cgImage.height), imageView frame: \(imageView.frame)")
+
+                // Use layer-backed view and set CGImage directly on layer
+                imageView.wantsLayer = true
+                if let layer = imageView.layer {
+                    layer.contents = cgImage
+                    layer.contentsGravity = .topLeft
+                    NSLog("flush: set layer.contents directly")
+                }
+
+                // Also set the NSImage for compatibility
+                let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: buffer.width, height: buffer.height))
                 imageView.image = nsImage
                 imageView.needsDisplay = true
 
                 // Force the window content view to match window content size
-                if let contentView = window.contentView {
-                    let contentRect = window.contentRect(forFrameRect: window.frame)
-                    imageView.frame = NSRect(x: 0, y: 0, width: contentRect.width, height: contentRect.height)
-                    NSLog("flush: set imageView frame to \(imageView.frame)")
-                }
+                let contentRect = window.contentRect(forFrameRect: window.frame)
+                imageView.frame = NSRect(x: 0, y: 0, width: contentRect.width, height: contentRect.height)
+                NSLog("flush: set imageView frame to \(imageView.frame)")
 
                 imageView.displayIfNeeded()
                 window.display()
 
                 // Debug: save buffer to file
-                if let context = buffer.context, let cgImage = context.makeImage() {
-                    let debugPath = "/tmp/x11anywhere_debug_window_\(id).png"
-                    let url = URL(fileURLWithPath: debugPath)
-                    if let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
-                        CGImageDestinationAddImage(destination, cgImage, nil)
-                        if CGImageDestinationFinalize(destination) {
-                            NSLog("flush: saved debug image to \(debugPath)")
-                        }
+                let debugPath = "/tmp/x11anywhere_debug_window_\(id).png"
+                let url = URL(fileURLWithPath: debugPath)
+                if let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
+                    CGImageDestinationAddImage(destination, cgImage, nil)
+                    if CGImageDestinationFinalize(destination) {
+                        NSLog("flush: saved debug image to \(debugPath)")
                     }
                 }
             }
