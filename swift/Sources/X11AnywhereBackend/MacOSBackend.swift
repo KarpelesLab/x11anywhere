@@ -64,38 +64,33 @@ class X11ContentView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
-        layerContentsRedrawPolicy = .never  // We manage layer contents ourselves
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        wantsLayer = true
-        layerContentsRedrawPolicy = .never
     }
 
-    // Tell AppKit we want to update the layer directly
-    override var wantsUpdateLayer: Bool { return true }
+    override var isFlipped: Bool { return true }  // Use top-left origin like X11
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // Configure the backing layer
-        if let viewLayer = layer {
-            viewLayer.contentsGravity = .topLeft
-            viewLayer.contentsScale = window?.backingScaleFactor ?? 1.0
-            NSLog("X11ContentView.viewDidMoveToWindow: configured layer, scale=\(viewLayer.contentsScale)")
-        }
-    }
-
-    // Called when needsDisplay is true - this is the proper way to set layer contents
-    override func updateLayer() {
-        guard let cgImage = buffer?.context?.makeImage() else {
-            NSLog("X11ContentView.updateLayer: no CGImage!")
+    override func draw(_ dirtyRect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext,
+              let cgImage = buffer?.context?.makeImage() else {
+            NSLog("X11ContentView.draw: no context or CGImage!")
+            // Fill with white as fallback
+            NSColor.white.setFill()
+            dirtyRect.fill()
             return
         }
 
-        NSLog("X11ContentView.updateLayer: setting layer.contents to \(cgImage.width)x\(cgImage.height)")
-        layer?.contents = cgImage
+        NSLog("X11ContentView.draw: drawing \(cgImage.width)x\(cgImage.height) image in bounds \(bounds)")
+
+        // Draw the image - since isFlipped is true, the coordinate system matches X11
+        // But CGContext.draw still draws with origin at bottom-left, so we need to flip
+        context.saveGState()
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: bounds.width, height: bounds.height))
+        context.restoreGState()
     }
 
     func updateContents() {
