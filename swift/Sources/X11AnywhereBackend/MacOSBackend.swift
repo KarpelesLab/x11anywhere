@@ -441,6 +441,21 @@ public func macos_backend_fill_rectangle(_ handle: BackendHandle, isWindow: Int3
                                         r: Float, g: Float, b: Float) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
 
+    // Debug: write to a file to confirm this function is called
+    let debugMsg = "fill_rectangle: isWindow=\(isWindow), drawable=\(drawableId), rect=(\(x),\(y),\(width),\(height)), color=(\(r),\(g),\(b))\n"
+    let debugPath = "/tmp/x11anywhere_debug.log"
+    if let data = debugMsg.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: debugPath) {
+            if let fileHandle = FileHandle(forWritingAtPath: debugPath) {
+                fileHandle.seekToEndOfFile()
+                fileHandle.write(data)
+                fileHandle.closeFile()
+            }
+        } else {
+            FileManager.default.createFile(atPath: debugPath, contents: data, attributes: nil)
+        }
+    }
+
     NSLog("fill_rectangle: isWindow=\(isWindow), drawable=\(drawableId), rect=(\(x),\(y),\(width),\(height)), color=(\(r),\(g),\(b))")
 
     let context: CGContext?
