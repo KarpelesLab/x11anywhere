@@ -61,6 +61,12 @@ class MacOSBackendImpl {
                 let dpi = 72.0 * backingScale
                 self.screenWidthMM = Int(Double(self.screenWidth) * 25.4 / dpi)
                 self.screenHeightMM = Int(Double(self.screenHeight) * 25.4 / dpi)
+            } else {
+                // Fallback dimensions if no screen available
+                self.screenWidth = 1920
+                self.screenHeight = 1080
+                self.screenWidthMM = 508
+                self.screenHeightMM = 285
             }
         }
     }
