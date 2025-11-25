@@ -340,7 +340,7 @@ fn draw_colored_rectangles(
 /// Validate that the colored rectangles are actually visible in the screenshot.
 /// This searches for each expected color somewhere in the image.
 fn validate_rectangles(screenshot: &screenshot::Screenshot) -> bool {
-    // Expected colors (RGB)
+    // Expected colors (RGB) - use wider tolerance for Display P3 color space
     let expected_colors: [(u8, u8, u8, &str); 6] = [
         (255, 0, 0, "Red"),
         (0, 255, 0, "Green"),
@@ -350,6 +350,25 @@ fn validate_rectangles(screenshot: &screenshot::Screenshot) -> bool {
         (0, 255, 255, "Cyan"),
     ];
 
+    // Debug: sample some pixels from the screenshot to see actual color values
+    eprintln!("Debug: Sampling pixels from screenshot {}x{}", screenshot.width, screenshot.height);
+    let sample_points = [(50, 100), (180, 100), (310, 100), (440, 100), (570, 100), (700, 100)];
+    for (x, y) in sample_points {
+        if x < screenshot.width && y < screenshot.height {
+            let idx = ((y * screenshot.width + x) * 4) as usize;
+            if idx + 3 < screenshot.data.len() {
+                eprintln!(
+                    "  Pixel ({}, {}): R={} G={} B={} A={}",
+                    x, y,
+                    screenshot.data[idx],
+                    screenshot.data[idx + 1],
+                    screenshot.data[idx + 2],
+                    screenshot.data[idx + 3]
+                );
+            }
+        }
+    }
+
     let mut all_found = true;
 
     for (expected_r, expected_g, expected_b, name) in expected_colors.iter() {
@@ -357,8 +376,8 @@ fn validate_rectangles(screenshot: &screenshot::Screenshot) -> bool {
         let mut found_count = 0;
 
         // Search for this color in the screenshot
-        // Allow some tolerance for color variations
-        let tolerance = 30u8;
+        // Use wider tolerance (50) to account for Display P3 color space differences
+        let tolerance = 50u8;
 
         for y in 0..screenshot.height {
             for x in 0..screenshot.width {
