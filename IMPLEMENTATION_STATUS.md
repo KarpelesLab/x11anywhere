@@ -122,8 +122,8 @@ This document tracks the implementation status of X11 protocol features across d
 | ButtonPress | 🟡 | ✅ | ✅ | ⚪ | WM_LBUTTONDOWN/etc on Windows; NSEvent mouseDown on macOS |
 | ButtonRelease | 🟡 | ✅ | ✅ | ⚪ | WM_LBUTTONUP/etc on Windows; NSEvent mouseUp on macOS |
 | MotionNotify | 🟡 | ✅ | ✅ | ⚪ | WM_MOUSEMOVE on Windows; NSEvent mouseMoved on macOS |
-| EnterNotify | 🟡 | ✅ | 🟡 | ⚪ | TrackMouseEvent on Windows; mouseEntered on macOS (needs NSTrackingArea) |
-| LeaveNotify | 🟡 | ✅ | 🟡 | ⚪ | WM_MOUSELEAVE on Windows; mouseExited on macOS (needs NSTrackingArea) |
+| EnterNotify | 🟡 | ✅ | ✅ | ⚪ | TrackMouseEvent on Windows; mouseEntered on macOS with NSTrackingArea |
+| LeaveNotify | 🟡 | ✅ | ✅ | ⚪ | WM_MOUSELEAVE on Windows; mouseExited on macOS with NSTrackingArea |
 | FocusIn | 🟡 | ✅ | ✅ | ⚪ | WM_SETFOCUS on Windows; NSWindow becomeKey on macOS |
 | FocusOut | 🟡 | ✅ | ✅ | ⚪ | WM_KILLFOCUS on Windows; NSWindow resignKey on macOS |
 
@@ -163,10 +163,10 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| CreateCursor | 🟡 | ❌ | ❌ | ⚪ | CreateCursor on Windows, NSCursor on macOS |
-| FreeCursor | 🟡 | ❌ | ❌ | ⚪ | DestroyCursor on Windows |
-| DefineCursor | 🟡 | ❌ | ❌ | ⚪ | SetCursor on Windows, set on macOS |
-| CreateGlyphCursor | 🟡 | ❌ | ❌ | ⚪ | Font-based cursors |
+| CreateCursor | 🟡 | 🟡 | 🟡 | ⚪ | System cursors via LoadCursorW on Windows, NSCursor on macOS |
+| FreeCursor | 🟡 | ✅ | ✅ | ⚪ | System cursors don't need freeing |
+| DefineCursor | 🟡 | ✅ | ✅ | ⚪ | SetCursor on Windows, NSCursor.set on macOS |
+| CreateGlyphCursor | 🟡 | ✅ | ✅ | ⚪ | Maps X11 cursor font glyphs to system cursors |
 
 ---
 
@@ -209,19 +209,20 @@ This document tracks the implementation status of X11 protocol features across d
   - Drawing: GDI (`Rectangle`, `FillRect`, `TextOutW`, `LineTo`, `SetPixel`, `BitBlt`, `Arc`, `Pie`, `Polygon`)
   - Resources: `CreatePen`, `CreateSolidBrush`, `CreateCompatibleDC/Bitmap`
   - Events: Windows message loop (`PeekMessageW`, `GetMessageW`, `DispatchMessageW`)
-  - Supported events: WM_PAINT, WM_SIZE, WM_CLOSE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_SETFOCUS, WM_KILLFOCUS
+  - Supported events: WM_PAINT, WM_SIZE, WM_CLOSE, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSELEAVE (for EnterNotify/LeaveNotify via TrackMouseEvent), WM_SETFOCUS, WM_KILLFOCUS
 - **Working Features**:
   - ✅ Window creation, mapping, configuration, raising/lowering
   - ✅ Basic drawing: rectangles, lines, points, text
   - ✅ Arc and polygon drawing (Arc, Pie, Polygon GDI functions)
   - ✅ Image operations (SetDIBitsToDevice for PutImage, GetDIBits for GetImage)
   - ✅ Pixmaps (off-screen drawing with compatible DCs)
-  - ✅ Enhanced event handling: KeyPress/Release, ButtonPress/Release, MotionNotify, FocusIn/Out
+  - ✅ Enhanced event handling: KeyPress/Release, ButtonPress/Release, MotionNotify, EnterNotify/LeaveNotify, FocusIn/Out
   - ✅ Event polling and blocking wait
   - ✅ GC state tracking (foreground, background, line width/style)
+  - ✅ Cursor support: standard system cursors via LoadCursorW, WM_SETCURSOR handling
 - **Known Limitations**:
   - No advanced raster operations (SetROP2)
-  - Missing EnterNotify/LeaveNotify events
+  - Custom bitmap cursors not yet supported
 - **Next Steps**: Test with real X11 applications
 
 ### macOS Backend
@@ -239,9 +240,10 @@ This document tracks the implementation status of X11 protocol features across d
   - Image operations: CGImage for PutImage, CGContext.makeImage for GetImage
   - Resources: CGContext-based bitmap contexts for pixmaps
   - Events: Cocoa event loop with `NSApp.nextEvent`
-  - Enhanced event handling: KeyPress/Release, ButtonPress/Release, MotionNotify, FocusIn/Out, DestroyNotify
+  - Enhanced event handling: KeyPress/Release, ButtonPress/Release, MotionNotify, EnterNotify/LeaveNotify (via NSTrackingArea), FocusIn/Out, DestroyNotify
   - Supported operations: rectangles, lines, points, arcs, polygons, text, images, clear area, copy area (basic)
   - GC state tracking: foreground/background colors, line width
+  - Cursor support: standard system cursors via NSCursor
 - **Build System**:
   - Swift Package Manager integration via `build.rs`
   - Automatic SDK path detection with `xcrun`
@@ -252,7 +254,7 @@ This document tracks the implementation status of X11 protocol features across d
   - ✅ Handled via CTM transform (`translateBy`/`scaleBy`) in X11BackingBuffer context creation
   - All drawing operations use X11 coordinates directly; transform applied at context level
 - **Known Limitations**:
-  - Missing EnterNotify/LeaveNotify events
+  - Custom bitmap cursors not yet supported
 - **Next Steps**: Test with real X11 applications
 
 ### Wayland Backend
@@ -310,9 +312,9 @@ The visual test (`tests/visual_test.rs`) validates the following operations:
 - [x] **Both**: Arc and polygon drawing operations ✅ **COMPLETED**
 - [x] **Both**: Image operations (PutImage, GetImage) ✅ **COMPLETED**
 - [x] **macOS**: Improve copy_area() with proper CGImage implementation ✅ **COMPLETED**
+- [x] **Both**: Cursor support (standard system cursors) ✅ **COMPLETED**
 - [ ] **Both**: Advanced font handling
 - [ ] **Both**: Advanced color management
-- [ ] **Both**: Cursor support
 - [ ] **Both**: Clipboard/selection integration
 - [ ] **Both**: Window property operations
 

@@ -222,6 +222,15 @@ extern "C" {
         state: *mut i32,
         time: *mut i32,
     ) -> i32;
+
+    // Cursor operations
+    fn macos_backend_create_cursor(handle: BackendHandle, cursor_type: i32) -> i32;
+    fn macos_backend_free_cursor(handle: BackendHandle, cursor_id: i32) -> i32;
+    fn macos_backend_set_window_cursor(
+        handle: BackendHandle,
+        window_id: i32,
+        cursor_id: i32,
+    ) -> i32;
 }
 
 /// Window data stored per-window
@@ -231,6 +240,7 @@ struct WindowData {
     height: u16,
     x: i16,
     y: i16,
+    cursor_id: i32,
 }
 
 pub struct MacOSBackend {
@@ -254,6 +264,9 @@ pub struct MacOSBackend {
     /// Pixmap handle mapping (pixmap ID -> Swift pixmap ID)
     pixmaps: HashMap<usize, i32>,
 
+    /// Cursor handle mapping (cursor ID -> Swift cursor ID)
+    cursors: HashMap<usize, i32>,
+
     /// Next resource ID to allocate
     next_resource_id: usize,
 
@@ -276,9 +289,26 @@ impl MacOSBackend {
             screen_height_mm: 285,
             windows: HashMap::new(),
             pixmaps: HashMap::new(),
+            cursors: HashMap::new(),
             next_resource_id: 1,
             event_queue: Vec::new(),
             debug: false,
+        }
+    }
+
+    /// Map StandardCursor to macOS cursor type ID
+    fn standard_cursor_to_macos_type(cursor: StandardCursor) -> i32 {
+        match cursor {
+            StandardCursor::LeftPtr | StandardCursor::Arrow | StandardCursor::TopLeftArrow => 0, // arrow
+            StandardCursor::Xterm => 1,                                                           // IBeam
+            StandardCursor::Crosshair | StandardCursor::Cross | StandardCursor::Tcross => 2,     // crosshair
+            StandardCursor::Hand1 | StandardCursor::Hand2 => 3,                                   // pointingHand
+            StandardCursor::Fleur => 4,                                                           // closedHand (move)
+            StandardCursor::SbHDoubleArrow | StandardCursor::DoubleArrow => 5,                   // resizeLeftRight
+            StandardCursor::SbVDoubleArrow => 6,                                                  // resizeUpDown
+            StandardCursor::Watch | StandardCursor::Clock => 7,                                   // operationNotAllowed (closest to busy)
+            StandardCursor::XCursor | StandardCursor::Pirate => 8,                               // operationNotAllowed
+            _ => 0,                                                                               // Default to arrow
         }
     }
 
@@ -416,6 +446,7 @@ impl Backend for MacOSBackend {
                     height: params.height,
                     x: params.x,
                     y: params.y,
+                    cursor_id: 0, // Default cursor
                 },
             );
 
@@ -999,6 +1030,49 @@ impl Backend for MacOSBackend {
             }
 
             Ok(std::mem::take(&mut self.event_queue))
+        }
+    }
+
+    fn create_standard_cursor(&mut self, cursor_shape: StandardCursor) -> BackendResult<BackendCursor> {
+        unsafe {
+            let cursor_type = Self::standard_cursor_to_macos_type(cursor_shape);
+            let swift_cursor_id = macos_backend_create_cursor(self.handle, cursor_type);
+            if swift_cursor_id <= 0 {
+                return Err("Failed to create cursor".into());
+            }
+
+            let id = self.next_resource_id;
+            self.next_resource_id += 1;
+            self.cursors.insert(id, swift_cursor_id);
+            Ok(BackendCursor(id))
+        }
+    }
+
+    fn free_cursor(&mut self, cursor: BackendCursor) -> BackendResult<()> {
+        if let Some(swift_cursor_id) = self.cursors.remove(&cursor.0) {
+            unsafe {
+                macos_backend_free_cursor(self.handle, swift_cursor_id);
+            }
+        }
+        Ok(())
+    }
+
+    fn set_window_cursor(&mut self, window: BackendWindow, cursor: BackendCursor) -> BackendResult<()> {
+        unsafe {
+            let swift_cursor_id = if cursor == BackendCursor::NONE {
+                0 // Default cursor
+            } else {
+                match self.cursors.get(&cursor.0) {
+                    Some(&id) => id,
+                    None => return Err("Invalid cursor handle".into()),
+                }
+            };
+
+            if let Some(window_data) = self.windows.get_mut(&window.0) {
+                window_data.cursor_id = swift_cursor_id;
+                macos_backend_set_window_cursor(self.handle, window_data.swift_id, swift_cursor_id);
+            }
+            Ok(())
         }
     }
 

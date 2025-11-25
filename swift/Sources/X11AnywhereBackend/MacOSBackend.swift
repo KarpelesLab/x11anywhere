@@ -68,15 +68,18 @@ class X11BackingBuffer {
 class X11ContentView: NSView {
     var buffer: X11BackingBuffer?
     private var imageView: NSImageView?
+    private var trackingArea: NSTrackingArea?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setupImageView()
+        setupTrackingArea()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupImageView()
+        setupTrackingArea()
     }
 
     private func setupImageView() {
@@ -85,6 +88,26 @@ class X11ContentView: NSView {
         iv.autoresizingMask = [.width, .height]
         addSubview(iv)
         self.imageView = iv
+    }
+
+    private func setupTrackingArea() {
+        let options: NSTrackingArea.Options = [
+            .mouseEnteredAndExited,
+            .mouseMoved,
+            .activeAlways,
+            .inVisibleRect
+        ]
+        trackingArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        addTrackingArea(trackingArea!)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        // Remove old tracking area and add a new one when the view resizes
+        if let area = trackingArea {
+            removeTrackingArea(area)
+        }
+        setupTrackingArea()
     }
 
     // Use flipped coordinates to match X11 (origin at top-left)
@@ -111,6 +134,8 @@ class MacOSBackendImpl {
     var windowContentViews: [Int: X11ContentView] = [:]
     var windowBuffers: [Int: X11BackingBuffer] = [:]
     var contexts: [Int: CGContext] = [:]
+    var cursors: [Int: NSCursor] = [:]
+    var windowCursors: [Int: NSCursor] = [:]  // Per-window cursor
     var nextId: Int = 1
     var screenWidth: Int = 1920  // Default fallback
     var screenHeight: Int = 1080 // Default fallback
@@ -1326,4 +1351,67 @@ public func macos_backend_wait_for_event(
     state.pointee = evtState
     time.pointee = evtTime
     return 1 // Has event
+}
+
+// MARK: - Cursor Operations
+
+/// Convert cursor type to NSCursor
+func cursorTypeToNSCursor(_ cursorType: Int) -> NSCursor {
+    switch cursorType {
+    case 0: return NSCursor.arrow
+    case 1: return NSCursor.iBeam
+    case 2: return NSCursor.crosshair
+    case 3: return NSCursor.pointingHand
+    case 4: return NSCursor.closedHand
+    case 5: return NSCursor.resizeLeftRight
+    case 6: return NSCursor.resizeUpDown
+    case 7: return NSCursor.operationNotAllowed
+    case 8: return NSCursor.operationNotAllowed
+    default: return NSCursor.arrow
+    }
+}
+
+@_cdecl("macos_backend_create_cursor")
+public func macos_backend_create_cursor(_ handle: BackendHandle, cursorType: Int32) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+
+    let id = backend.nextId
+    backend.nextId += 1
+
+    let cursor = cursorTypeToNSCursor(Int(cursorType))
+    backend.cursors[id] = cursor
+
+    return Int32(id)
+}
+
+@_cdecl("macos_backend_free_cursor")
+public func macos_backend_free_cursor(_ handle: BackendHandle, cursorId: Int32) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+    backend.cursors.removeValue(forKey: Int(cursorId))
+    return BackendResult.success.rawValue
+}
+
+@_cdecl("macos_backend_set_window_cursor")
+public func macos_backend_set_window_cursor(_ handle: BackendHandle, windowId: Int32, cursorId: Int32) -> Int32 {
+    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
+
+    let cursor: NSCursor
+    if cursorId == 0 {
+        cursor = NSCursor.arrow
+    } else if let c = backend.cursors[Int(cursorId)] {
+        cursor = c
+    } else {
+        return BackendResult.error.rawValue
+    }
+
+    backend.windowCursors[Int(windowId)] = cursor
+
+    // Set the cursor if the window is key
+    DispatchQueue.main.async {
+        if let window = backend.windows[Int(windowId)], window.isKeyWindow {
+            cursor.set()
+        }
+    }
+
+    return BackendResult.success.rawValue
 }

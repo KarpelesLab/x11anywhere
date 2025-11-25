@@ -13,6 +13,117 @@ pub type BackendResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BackendWindow(pub usize);
 
+/// Backend-specific cursor handle
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BackendCursor(pub usize);
+
+impl BackendCursor {
+    /// No cursor (use parent's cursor)
+    pub const NONE: BackendCursor = BackendCursor(0);
+}
+
+/// Standard X11 cursor shapes (from cursor font glyph indices)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum StandardCursor {
+    XCursor = 0,
+    Arrow = 2,
+    BasedArrowDown = 4,
+    BasedArrowUp = 6,
+    Boat = 8,
+    Bogosity = 10,
+    BottomLeftCorner = 12,
+    BottomRightCorner = 14,
+    BottomSide = 16,
+    BottomTee = 18,
+    BoxSpiral = 20,
+    CenterPtr = 22,
+    Circle = 24,
+    Clock = 26,
+    CoffeeMug = 28,
+    Cross = 30,
+    CrossReverse = 32,
+    Crosshair = 34,
+    DiamondCross = 36,
+    Dot = 38,
+    Dotbox = 40,
+    DoubleArrow = 42,
+    DraftLarge = 44,
+    DraftSmall = 46,
+    DrapedBox = 48,
+    Exchange = 50,
+    Fleur = 52,
+    Gobbler = 54,
+    Gumby = 56,
+    Hand1 = 58,
+    Hand2 = 60,
+    Heart = 62,
+    Icon = 64,
+    IronCross = 66,
+    LeftPtr = 68,
+    LeftSide = 70,
+    LeftTee = 72,
+    Leftbutton = 74,
+    LlAngle = 76,
+    LrAngle = 78,
+    Man = 80,
+    Middlebutton = 82,
+    Mouse = 84,
+    Pencil = 86,
+    Pirate = 88,
+    Plus = 90,
+    QuestionArrow = 92,
+    RightPtr = 94,
+    RightSide = 96,
+    RightTee = 98,
+    Rightbutton = 100,
+    RtlLogo = 102,
+    Sailboat = 104,
+    SbDownArrow = 106,
+    SbHDoubleArrow = 108,
+    SbLeftArrow = 110,
+    SbRightArrow = 112,
+    SbUpArrow = 114,
+    SbVDoubleArrow = 116,
+    Shuttle = 118,
+    Sizing = 120,
+    Spider = 122,
+    Spraycan = 124,
+    Star = 126,
+    Target = 128,
+    Tcross = 130,
+    TopLeftArrow = 132,
+    TopLeftCorner = 134,
+    TopRightCorner = 136,
+    TopSide = 138,
+    TopTee = 140,
+    Trek = 142,
+    UlAngle = 144,
+    Umbrella = 146,
+    UrAngle = 148,
+    Watch = 150,
+    Xterm = 152,
+}
+
+impl StandardCursor {
+    /// Convert a glyph index from the cursor font to a StandardCursor
+    pub fn from_glyph(glyph: u16) -> Option<StandardCursor> {
+        match glyph {
+            0 => Some(StandardCursor::XCursor),
+            2 => Some(StandardCursor::Arrow),
+            34 => Some(StandardCursor::Crosshair),
+            52 => Some(StandardCursor::Fleur),
+            58 => Some(StandardCursor::Hand1),
+            60 => Some(StandardCursor::Hand2),
+            68 => Some(StandardCursor::LeftPtr),
+            150 => Some(StandardCursor::Watch),
+            152 => Some(StandardCursor::Xterm),
+            // Add more as needed
+            _ => None,
+        }
+    }
+}
+
 /// Backend-specific drawable handle
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BackendDrawable {
@@ -459,6 +570,33 @@ pub trait Backend: Send {
         plane_mask: u32,
         format: u8,
     ) -> BackendResult<Vec<u8>>;
+
+    // Cursor operations
+
+    /// Create a standard cursor from a glyph index in the cursor font
+    ///
+    /// Returns a backend cursor handle that can be used with set_window_cursor.
+    /// The glyph index corresponds to the X11 cursor font character.
+    fn create_standard_cursor(&mut self, cursor_shape: StandardCursor) -> BackendResult<BackendCursor> {
+        // Default implementation: return NONE (no cursor change)
+        let _ = cursor_shape;
+        Ok(BackendCursor::NONE)
+    }
+
+    /// Free a cursor
+    fn free_cursor(&mut self, _cursor: BackendCursor) -> BackendResult<()> {
+        // Default implementation: no-op (most backends use system cursors)
+        Ok(())
+    }
+
+    /// Set the cursor for a window
+    ///
+    /// If cursor is BackendCursor::NONE, the window uses its parent's cursor.
+    fn set_window_cursor(&mut self, window: BackendWindow, cursor: BackendCursor) -> BackendResult<()> {
+        // Default implementation: no-op
+        let _ = (window, cursor);
+        Ok(())
+    }
 
     // Event handling
 

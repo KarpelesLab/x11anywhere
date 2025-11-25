@@ -60,6 +60,7 @@ pub struct CreateWindowRequest {
     pub background_pixel: Option<u32>,
     pub border_pixel: Option<u32>,
     pub event_mask: Option<u32>,
+    pub cursor: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +68,7 @@ pub struct ChangeWindowAttributesRequest {
     pub window: Window,
     pub background_pixel: Option<u32>,
     pub event_mask: Option<u32>,
+    pub cursor: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -411,25 +413,53 @@ impl ProtocolParser {
         let visual = VisualID::new(self.read_u32(&data[20..24]));
         let value_mask = self.read_u32(&data[24..28]);
 
-        // Parse value list
+        // Parse value list - values appear in bit order
         let mut background_pixel = None;
         let mut border_pixel = None;
         let mut event_mask = None;
+        let mut cursor = None;
         let mut offset = 28;
 
+        // Bit 0: BackPixmap (skip)
+        if value_mask & (1 << 0) != 0 {
+            offset += 4;
+        }
+        // Bit 1: BackPixel
         if value_mask & (1 << 1) != 0 {
-            // Background pixel
             background_pixel = Some(self.read_u32(&data[offset..offset + 4]));
             offset += 4;
         }
+        // Bit 2: BorderPixmap (skip)
+        if value_mask & (1 << 2) != 0 {
+            offset += 4;
+        }
+        // Bit 3: BorderPixel
         if value_mask & (1 << 3) != 0 {
-            // Border pixel
             border_pixel = Some(self.read_u32(&data[offset..offset + 4]));
             offset += 4;
         }
+        // Bits 4-10: Skip (BitGravity, WinGravity, BackingStore, BackingPlanes, BackingPixel, OverrideRedirect, SaveUnder)
+        for bit in 4..=10 {
+            if value_mask & (1 << bit) != 0 {
+                offset += 4;
+            }
+        }
+        // Bit 11: EventMask
         if value_mask & (1 << 11) != 0 {
-            // Event mask
             event_mask = Some(self.read_u32(&data[offset..offset + 4]));
+            offset += 4;
+        }
+        // Bit 12: DoNotPropagateMask (skip)
+        if value_mask & (1 << 12) != 0 {
+            offset += 4;
+        }
+        // Bit 13: Colormap (skip)
+        if value_mask & (1 << 13) != 0 {
+            offset += 4;
+        }
+        // Bit 14: Cursor
+        if value_mask & (1 << 14) != 0 {
+            cursor = Some(self.read_u32(&data[offset..offset + 4]));
         }
 
         Ok(Request::CreateWindow(CreateWindowRequest {
@@ -446,16 +476,57 @@ impl ProtocolParser {
             background_pixel,
             border_pixel,
             event_mask,
+            cursor,
         }))
     }
 
     fn parse_change_window_attributes(&self, data: &[u8]) -> Result<Request, X11Error> {
         let window = Window::new(self.read_u32(&data[0..4]));
+        let value_mask = self.read_u32(&data[4..8]);
+
+        // Parse value list - values appear in bit order
+        let mut background_pixel = None;
+        let mut event_mask = None;
+        let mut cursor = None;
+        let mut offset = 8;
+
+        // Bit 0: BackPixmap (skip)
+        if value_mask & (1 << 0) != 0 {
+            offset += 4;
+        }
+        // Bit 1: BackPixel
+        if value_mask & (1 << 1) != 0 {
+            background_pixel = Some(self.read_u32(&data[offset..offset + 4]));
+            offset += 4;
+        }
+        // Bits 2-10: Skip
+        for bit in 2..=10 {
+            if value_mask & (1 << bit) != 0 {
+                offset += 4;
+            }
+        }
+        // Bit 11: EventMask
+        if value_mask & (1 << 11) != 0 {
+            event_mask = Some(self.read_u32(&data[offset..offset + 4]));
+            offset += 4;
+        }
+        // Bits 12-13: Skip
+        for bit in 12..=13 {
+            if value_mask & (1 << bit) != 0 {
+                offset += 4;
+            }
+        }
+        // Bit 14: Cursor
+        if value_mask & (1 << 14) != 0 {
+            cursor = Some(self.read_u32(&data[offset..offset + 4]));
+        }
+
         Ok(Request::ChangeWindowAttributes(
             ChangeWindowAttributesRequest {
                 window,
-                background_pixel: None,
-                event_mask: None,
+                background_pixel,
+                event_mask,
+                cursor,
             },
         ))
     }

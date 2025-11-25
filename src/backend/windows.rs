@@ -47,6 +47,8 @@ struct WindowData {
     height: u16,
     /// Whether the mouse is currently inside this window
     mouse_inside: bool,
+    /// Current cursor for this window
+    cursor: HCURSOR,
 }
 
 pub struct WindowsBackend {
@@ -70,6 +72,9 @@ pub struct WindowsBackend {
     /// Pixmap handle mapping (X11 pixmap ID -> (HDC, HBITMAP))
     pixmaps: HashMap<usize, (HDC, HBITMAP)>,
 
+    /// Cursor handle mapping (Backend cursor ID -> HCURSOR)
+    cursors: HashMap<usize, HCURSOR>,
+
     /// Next resource ID to allocate
     next_resource_id: usize,
 
@@ -92,9 +97,31 @@ impl WindowsBackend {
             screen_height_mm: 285,
             windows: HashMap::new(),
             pixmaps: HashMap::new(),
+            cursors: HashMap::new(),
             next_resource_id: 1,
             event_queue: Vec::new(),
             debug: false,
+        }
+    }
+
+    /// Map StandardCursor to Windows system cursor ID
+    fn standard_cursor_to_idc(cursor: StandardCursor) -> *const u16 {
+        match cursor {
+            StandardCursor::LeftPtr | StandardCursor::Arrow | StandardCursor::TopLeftArrow => IDC_ARROW,
+            StandardCursor::Xterm => IDC_IBEAM,
+            StandardCursor::Watch | StandardCursor::Clock => IDC_WAIT,
+            StandardCursor::Crosshair | StandardCursor::Cross | StandardCursor::Tcross => IDC_CROSS,
+            StandardCursor::Fleur => IDC_SIZEALL,
+            StandardCursor::Hand1 | StandardCursor::Hand2 => IDC_HAND,
+            StandardCursor::SbHDoubleArrow | StandardCursor::DoubleArrow => IDC_SIZEWE,
+            StandardCursor::SbVDoubleArrow => IDC_SIZENS,
+            StandardCursor::TopLeftCorner | StandardCursor::BottomRightCorner => IDC_SIZENWSE,
+            StandardCursor::TopRightCorner | StandardCursor::BottomLeftCorner => IDC_SIZENESW,
+            StandardCursor::TopSide | StandardCursor::BottomSide => IDC_SIZENS,
+            StandardCursor::LeftSide | StandardCursor::RightSide => IDC_SIZEWE,
+            StandardCursor::QuestionArrow => IDC_HELP,
+            StandardCursor::XCursor | StandardCursor::Pirate => IDC_NO,
+            _ => IDC_ARROW, // Default to arrow for unmapped cursors
         }
     }
 
@@ -309,6 +336,9 @@ impl Backend for WindowsBackend {
             let id = self.next_resource_id;
             self.next_resource_id += 1;
 
+            // Load default arrow cursor
+            let default_cursor = LoadCursorW(0, IDC_ARROW);
+
             self.windows.insert(
                 id,
                 WindowData {
@@ -317,6 +347,7 @@ impl Backend for WindowsBackend {
                     width: params.width,
                     height: params.height,
                     mouse_inside: false,
+                    cursor: default_cursor,
                 },
             );
 
@@ -1091,6 +1122,16 @@ impl Backend for WindowsBackend {
                             }
                         }
                     }
+                    WM_SETCURSOR => {
+                        // Set the window's cursor when mouse is in client area
+                        if (msg.lParam & 0xffff) as u32 == HTCLIENT {
+                            if let Some((_, data)) =
+                                self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                            {
+                                SetCursor(data.cursor);
+                            }
+                        }
+                    }
                     WM_KEYDOWN => {
                         if let Some((id, _)) =
                             self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
@@ -1143,6 +1184,50 @@ impl Backend for WindowsBackend {
 
             // Return accumulated events
             Ok(std::mem::take(&mut self.event_queue))
+        }
+    }
+
+    fn create_standard_cursor(&mut self, cursor_shape: StandardCursor) -> BackendResult<BackendCursor> {
+        unsafe {
+            let idc = Self::standard_cursor_to_idc(cursor_shape);
+            let hcursor = LoadCursorW(0, idc);
+            if hcursor == 0 {
+                return Err("Failed to load cursor".into());
+            }
+
+            let id = self.next_resource_id;
+            self.next_resource_id += 1;
+            self.cursors.insert(id, hcursor);
+            Ok(BackendCursor(id))
+        }
+    }
+
+    fn free_cursor(&mut self, cursor: BackendCursor) -> BackendResult<()> {
+        // System cursors don't need to be freed, just remove from our map
+        self.cursors.remove(&cursor.0);
+        Ok(())
+    }
+
+    fn set_window_cursor(&mut self, window: BackendWindow, cursor: BackendCursor) -> BackendResult<()> {
+        unsafe {
+            let hcursor = if cursor == BackendCursor::NONE {
+                // Use default arrow cursor
+                LoadCursorW(0, IDC_ARROW)
+            } else {
+                match self.cursors.get(&cursor.0) {
+                    Some(&c) => c,
+                    None => return Err("Invalid cursor handle".into()),
+                }
+            };
+
+            if let Some(window_data) = self.windows.get_mut(&window.0) {
+                window_data.cursor = hcursor;
+                // Set the cursor immediately if the mouse is in the window
+                if window_data.mouse_inside {
+                    SetCursor(hcursor);
+                }
+            }
+            Ok(())
         }
     }
 
@@ -1314,6 +1399,16 @@ impl Backend for WindowsBackend {
                             return Ok(BackendEvent::FocusOut {
                                 window: BackendWindow(*id),
                             });
+                        }
+                    }
+                    WM_SETCURSOR => {
+                        // Set the window's cursor when mouse is in client area
+                        if (msg.lParam & 0xffff) as u32 == HTCLIENT {
+                            if let Some((_, data)) =
+                                self.windows.iter().find(|(_, data)| data.hwnd == msg.hwnd)
+                            {
+                                SetCursor(data.cursor);
+                            }
                         }
                     }
                     _ => {}
