@@ -31,6 +31,9 @@ pub struct X11Backend {
     resource_id_base: u32,
     resource_id_mask: u32,
 
+    // Default font for text rendering
+    default_font_id: Option<u32>,
+
     debug: bool,
 }
 
@@ -48,6 +51,7 @@ impl X11Backend {
             next_gc_id: 1,
             resource_id_base: 0,
             resource_id_mask: 0,
+            default_font_id: None,
             debug: true,
         }
     }
@@ -167,6 +171,100 @@ impl X11Backend {
                 gc_id,
                 gc.foreground,
                 gc.background
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Open a default font for text rendering
+    fn open_default_font(&mut self) -> BackendResult<()> {
+        let font_id = self.allocate_server_resource_id();
+
+        // Try to open "fixed" font - a common fallback font on X11 systems
+        let font_name = b"fixed";
+        let name_len = font_name.len();
+        let name_pad = (4 - (name_len % 4)) % 4;
+
+        // Build OpenFont request (opcode 45)
+        // Format: opcode(1), pad(1), length(2), fid(4), name_length(2), pad(2), name
+        let mut req = Vec::new();
+        req.push(45); // Opcode: OpenFont
+        req.push(0); // Padding
+        let length = 3 + (name_len + name_pad) / 4;
+        req.extend_from_slice(&(length as u16).to_le_bytes());
+        req.extend_from_slice(&font_id.to_le_bytes());
+        req.extend_from_slice(&(name_len as u16).to_le_bytes());
+        req.extend_from_slice(&[0, 0]); // padding
+        req.extend_from_slice(font_name);
+        for _ in 0..name_pad {
+            req.push(0);
+        }
+
+        self.send_request(&req)?;
+        self.default_font_id = Some(font_id);
+
+        if self.debug {
+            log::debug!("Opened default font 'fixed' with id 0x{:x}", font_id);
+        }
+
+        Ok(())
+    }
+
+    /// Create a GC on the server with optional font
+    fn create_server_gc_with_font(
+        &mut self,
+        drawable: u32,
+        gc_id: u32,
+        gc: &BackendGC,
+        font_id: Option<u32>,
+    ) -> BackendResult<()> {
+        // Build CreateGC request (opcode 55)
+        let mut req = Vec::new();
+        req.push(55); // Opcode: CreateGC
+        req.push(0); // Padding
+        req.extend_from_slice(&4u16.to_le_bytes()); // Length placeholder
+        req.extend_from_slice(&gc_id.to_le_bytes()); // cid
+        req.extend_from_slice(&drawable.to_le_bytes()); // drawable
+
+        // Value mask and value list
+        let mut value_mask = 0u32;
+        let mut value_list = Vec::new();
+
+        // Foreground (bit 2)
+        value_mask |= 0x00000004;
+        value_list.extend_from_slice(&gc.foreground.to_le_bytes());
+
+        // Background (bit 3)
+        value_mask |= 0x00000008;
+        value_list.extend_from_slice(&gc.background.to_le_bytes());
+
+        // Font (bit 14)
+        if let Some(fid) = font_id {
+            value_mask |= 0x00004000;
+            value_list.extend_from_slice(&fid.to_le_bytes());
+        }
+
+        req.extend_from_slice(&value_mask.to_le_bytes());
+        req.extend_from_slice(&value_list);
+
+        // Update length
+        let len_words = (req.len() + 3) / 4;
+        req[2..4].copy_from_slice(&(len_words as u16).to_le_bytes());
+
+        // Pad to 4-byte boundary
+        while req.len() % 4 != 0 {
+            req.push(0);
+        }
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "Created GC with font: id=0x{:x}, fg=0x{:x}, font={:?}",
+                gc_id,
+                gc.foreground,
+                font_id
             );
         }
 
@@ -634,6 +732,13 @@ impl Backend for X11Backend {
     fn init(&mut self) -> BackendResult<()> {
         self.connect_to_display()?;
         self.perform_handshake()?;
+        // Open a default font for text rendering
+        // This may fail on systems without the "fixed" font, but we continue anyway
+        if let Err(e) = self.open_default_font() {
+            if self.debug {
+                log::debug!("Could not open default font: {}", e);
+            }
+        }
         Ok(())
     }
 
@@ -1056,12 +1161,74 @@ impl Backend for X11Backend {
 
     fn draw_text(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _x: i16,
-        _y: i16,
-        _text: &str,
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        x: i16,
+        y: i16,
+        text: &str,
     ) -> BackendResult<()> {
+        // Check if we have a font
+        let font_id = match self.default_font_id {
+            Some(id) => id,
+            None => return Ok(()), // No font available, silently skip
+        };
+
+        if text.is_empty() {
+            return Ok(());
+        }
+
+        // Get server drawable ID
+        let server_drawable = match drawable {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Pixmap not found")?,
+        };
+
+        // Create GC with font
+        let gc_id = self.allocate_server_resource_id();
+        self.create_server_gc_with_font(server_drawable, gc_id, gc, Some(font_id))?;
+
+        // Convert to bytes (Latin-1 encoding, truncate to 255 chars max per request)
+        let text_bytes: Vec<u8> = text.chars().take(255).map(|c| c as u8).collect();
+        let text_len = text_bytes.len();
+        let text_pad = (4 - ((16 + text_len) % 4)) % 4;
+
+        // Build ImageText8 request (opcode 76)
+        // Format: opcode(1), n(1), length(2), drawable(4), gc(4), x(2), y(2), string
+        let mut req = Vec::new();
+        req.push(76); // Opcode: ImageText8
+        req.push(text_len as u8); // n (string length)
+        let length = 4 + (text_len + text_pad) / 4;
+        req.extend_from_slice(&(length as u16).to_le_bytes());
+        req.extend_from_slice(&server_drawable.to_le_bytes());
+        req.extend_from_slice(&gc_id.to_le_bytes());
+        req.extend_from_slice(&x.to_le_bytes());
+        req.extend_from_slice(&y.to_le_bytes());
+        req.extend_from_slice(&text_bytes);
+
+        // Pad to 4-byte boundary
+        for _ in 0..text_pad {
+            req.push(0);
+        }
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "Drew text: drawable=0x{:x}, ({},{}) \"{}\"",
+                server_drawable, x, y, text
+            );
+        }
+
         Ok(())
     }
 
@@ -1244,16 +1411,77 @@ impl Backend for X11Backend {
 
     fn copy_area(
         &mut self,
-        _src: BackendDrawable,
-        _dst: BackendDrawable,
-        _gc: &BackendGC,
-        _src_x: i16,
-        _src_y: i16,
-        _width: u16,
-        _height: u16,
-        _dst_x: i16,
-        _dst_y: i16,
+        src: BackendDrawable,
+        dst: BackendDrawable,
+        gc: &BackendGC,
+        src_x: i16,
+        src_y: i16,
+        width: u16,
+        height: u16,
+        dst_x: i16,
+        dst_y: i16,
     ) -> BackendResult<()> {
+        // Get server src drawable ID
+        let server_src = match src {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Source window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Source pixmap not found")?,
+        };
+
+        // Get server dst drawable ID
+        let server_dst = match dst {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Destination window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Destination pixmap not found")?,
+        };
+
+        let gc_id = self.allocate_server_resource_id();
+        self.create_server_gc(server_dst, gc_id, gc)?;
+
+        // Build CopyArea request (opcode 62)
+        // Format: opcode(1), pad(1), length(2), src(4), dst(4), gc(4),
+        //         src_x(2), src_y(2), dst_x(2), dst_y(2), width(2), height(2)
+        let mut req = Vec::new();
+        req.push(62); // Opcode: CopyArea
+        req.push(0); // Padding
+        req.extend_from_slice(&7u16.to_le_bytes()); // Length: 7 words = 28 bytes
+        req.extend_from_slice(&server_src.to_le_bytes());
+        req.extend_from_slice(&server_dst.to_le_bytes());
+        req.extend_from_slice(&gc_id.to_le_bytes());
+        req.extend_from_slice(&src_x.to_le_bytes());
+        req.extend_from_slice(&src_y.to_le_bytes());
+        req.extend_from_slice(&dst_x.to_le_bytes());
+        req.extend_from_slice(&dst_y.to_le_bytes());
+        req.extend_from_slice(&width.to_le_bytes());
+        req.extend_from_slice(&height.to_le_bytes());
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "CopyArea: src=0x{:x} ({},{}) -> dst=0x{:x} ({},{}), {}x{}",
+                server_src, src_x, src_y, server_dst, dst_x, dst_y, width, height
+            );
+        }
+
         Ok(())
     }
 
@@ -1269,17 +1497,75 @@ impl Backend for X11Backend {
 
     fn put_image(
         &mut self,
-        _drawable: BackendDrawable,
-        _gc: &BackendGC,
-        _width: u16,
-        _height: u16,
-        _dst_x: i16,
-        _dst_y: i16,
-        _depth: u8,
-        _format: u8,
-        _data: &[u8],
+        drawable: BackendDrawable,
+        gc: &BackendGC,
+        width: u16,
+        height: u16,
+        dst_x: i16,
+        dst_y: i16,
+        depth: u8,
+        format: u8,
+        data: &[u8],
     ) -> BackendResult<()> {
-        // TODO: Implement PutImage request to X11 server
+        // Get server drawable ID
+        let server_drawable = match drawable {
+            BackendDrawable::Window(w) => *self
+                .window_map
+                .lock()
+                .unwrap()
+                .get(&w.0)
+                .ok_or("Window not found")?,
+            BackendDrawable::Pixmap(p) => *self
+                .pixmap_map
+                .lock()
+                .unwrap()
+                .get(&p)
+                .ok_or("Pixmap not found")?,
+        };
+
+        let gc_id = self.allocate_server_resource_id();
+        self.create_server_gc(server_drawable, gc_id, gc)?;
+
+        // Build PutImage request (opcode 72)
+        // Format: opcode(1), format(1), length(2), drawable(4), gc(4),
+        //         width(2), height(2), dst_x(2), dst_y(2), left_pad(1), depth(1), pad(2), data
+        let mut req = Vec::new();
+        req.push(72); // Opcode: PutImage
+        req.push(format); // format: 0=Bitmap, 1=XYPixmap, 2=ZPixmap
+
+        // Calculate padded data length
+        let data_pad = (4 - (data.len() % 4)) % 4;
+        let total_len = 24 + data.len() + data_pad; // 24 byte header + data + padding
+        let length_words = total_len / 4;
+        req.extend_from_slice(&(length_words as u16).to_le_bytes());
+
+        req.extend_from_slice(&server_drawable.to_le_bytes());
+        req.extend_from_slice(&gc_id.to_le_bytes());
+        req.extend_from_slice(&width.to_le_bytes());
+        req.extend_from_slice(&height.to_le_bytes());
+        req.extend_from_slice(&dst_x.to_le_bytes());
+        req.extend_from_slice(&dst_y.to_le_bytes());
+        req.push(0); // left_pad (usually 0 for ZPixmap)
+        req.push(depth);
+        req.extend_from_slice(&[0, 0]); // padding
+
+        // Add image data
+        req.extend_from_slice(data);
+
+        // Pad to 4-byte boundary
+        for _ in 0..data_pad {
+            req.push(0);
+        }
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "PutImage: drawable=0x{:x}, {}x{} at ({},{}), depth={}, format={}, {} bytes",
+                server_drawable, width, height, dst_x, dst_y, depth, format, data.len()
+            );
+        }
+
         Ok(())
     }
 

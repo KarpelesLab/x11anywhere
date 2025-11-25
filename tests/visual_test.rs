@@ -46,6 +46,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     create_gc(&mut stream, gc_id, window_id)?;
     println!("GC created: {}", gc_id);
 
+    // Open a font for text rendering
+    let font_id = 0x02000003u32;
+    if let Err(e) = open_font(&mut stream, font_id, "fixed") {
+        println!("Warning: Could not open font: {}", e);
+    }
+
     // Draw test patterns
     println!("Drawing test patterns...");
     draw_colored_rectangles(&mut stream, window_id, gc_id)?;
@@ -56,6 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     draw_polygon(&mut stream, window_id, gc_id)?;
     draw_points(&mut stream, window_id, gc_id)?;
     draw_segments(&mut stream, window_id, gc_id)?;
+    draw_text_test(&mut stream, window_id, gc_id, font_id)?;
 
     // Wait for rendering - give extra time for compositor to update
     std::thread::sleep(std::time::Duration::from_millis(1000));
@@ -640,6 +647,78 @@ fn draw_segments(
 
     stream.flush()?;
     println!("  Drew PolySegment (dark red X)");
+    Ok(())
+}
+
+/// Open a font (OpenFont - opcode 45)
+fn open_font(
+    stream: &mut TcpStream,
+    font_id: u32,
+    font_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let name_bytes = font_name.as_bytes();
+    let name_len = name_bytes.len();
+    let name_pad = (4 - (name_len % 4)) % 4;
+
+    let mut req = Vec::new();
+    req.push(45); // OpenFont opcode
+    req.push(0);  // Padding
+    let length = 3 + (name_len + name_pad) / 4;
+    req.extend_from_slice(&(length as u16).to_le_bytes());
+    req.extend_from_slice(&font_id.to_le_bytes());
+    req.extend_from_slice(&(name_len as u16).to_le_bytes());
+    req.extend_from_slice(&[0, 0]); // padding
+    req.extend_from_slice(name_bytes);
+    for _ in 0..name_pad {
+        req.push(0);
+    }
+
+    stream.write_all(&req)?;
+    stream.flush()?;
+    println!("  Opened font '{}'", font_name);
+    Ok(())
+}
+
+/// Draw text (ImageText8 - opcode 76)
+fn draw_text_test(
+    stream: &mut TcpStream,
+    window: u32,
+    gc: u32,
+    font_id: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Change GC foreground to navy blue and set font
+    let mut req = Vec::new();
+    req.push(56); // ChangeGC opcode
+    req.push(0);
+    req.extend_from_slice(&5u16.to_le_bytes()); // Length (3 header + 2 values)
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.extend_from_slice(&0x00004004u32.to_le_bytes()); // foreground + font mask
+    req.extend_from_slice(&0x000080u32.to_le_bytes()); // navy blue
+    req.extend_from_slice(&font_id.to_le_bytes()); // font
+    stream.write_all(&req)?;
+
+    // Draw "X11" text
+    let text = b"X11";
+    let text_len = text.len();
+    let text_pad = (4 - ((16 + text_len) % 4)) % 4;
+
+    let mut req = Vec::new();
+    req.push(76); // ImageText8 opcode
+    req.push(text_len as u8);
+    let length = 4 + (text_len + text_pad) / 4;
+    req.extend_from_slice(&(length as u16).to_le_bytes());
+    req.extend_from_slice(&window.to_le_bytes());
+    req.extend_from_slice(&gc.to_le_bytes());
+    req.extend_from_slice(&20i16.to_le_bytes()); // x
+    req.extend_from_slice(&280i16.to_le_bytes()); // y
+    req.extend_from_slice(text);
+    for _ in 0..text_pad {
+        req.push(0);
+    }
+    stream.write_all(&req)?;
+
+    stream.flush()?;
+    println!("  Drew ImageText8 (navy blue 'X11')");
     Ok(())
 }
 

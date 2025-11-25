@@ -56,6 +56,9 @@ pub struct Server {
     /// Extension name -> info mapping
     extensions: HashMap<String, ExtensionInfo>,
 
+    /// Font ID -> name mapping
+    fonts: HashMap<u32, String>,
+
     /// Resource tracker for all clients
     resource_tracker: ResourceTracker,
 
@@ -83,6 +86,7 @@ impl Server {
             atom_ids: HashMap::new(),
             next_atom_id: 69, // Predefined atoms use 1-68
             extensions: HashMap::new(),
+            fonts: HashMap::new(),
             resource_tracker: ResourceTracker::new(),
             security_policy: SecurityPolicy::default(),
         };
@@ -715,6 +719,18 @@ impl Server {
             .draw_text(backend_drawable, backend_gc, x, y, text)?;
         self.backend.flush()?;
         Ok(())
+    }
+
+    /// Open a font
+    pub fn open_font(&mut self, font_id: u32, font_name: &str) {
+        log::debug!("Opening font: id=0x{:x}, name={}", font_id, font_name);
+        self.fonts.insert(font_id, font_name.to_string());
+    }
+
+    /// Close a font
+    pub fn close_font(&mut self, font_id: u32) {
+        log::debug!("Closing font: id=0x{:x}", font_id);
+        self.fonts.remove(&font_id);
     }
 
     /// Helper to get backend drawable from X11 drawable

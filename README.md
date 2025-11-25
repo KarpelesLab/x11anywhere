@@ -14,6 +14,16 @@ X11Anywhere is an X11 display server that can run on Linux, macOS, and Windows. 
 - **Minimal Dependencies**: Lightweight with minimal external dependencies
 - **Protocol Compliant**: Implements the X11 core protocol
 
+## Screenshots
+
+Visual test output showing X11 drawing operations on all supported platforms:
+
+| Linux | macOS | Windows |
+|:-----:|:-----:|:-------:|
+| ![Linux](docs/screenshots/linux/visual_test_actual.png) | ![macOS](docs/screenshots/macos/visual_test_actual.png) | ![Windows](docs/screenshots/windows/visual_test_actual.png) |
+
+*Screenshots are automatically updated by CI after each push to master.*
+
 ## Architecture
 
 ```

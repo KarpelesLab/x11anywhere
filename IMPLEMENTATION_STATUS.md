@@ -13,7 +13,7 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Backend | Status | Priority | Notes |
 |---------|--------|----------|-------|
-| X11 (Linux/BSD) | 🟡 Partial | High | Primary backend, basic passthrough working |
+| X11 (Linux/BSD) | ✅ Implemented | High | All drawing ops working, visual tests passing |
 | Windows | ✅ Implemented | High | Full Win32/GDI implementation complete, **compiles & passes CI** |
 | macOS | ✅ Implemented | High | Swift FFI implementation complete for both ARM64 & x86_64, **compiles & passes CI** |
 | Wayland | ❌ Not Started | Medium | Planned for future |
@@ -53,17 +53,18 @@ This document tracks the implementation status of X11 protocol features across d
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
 | ClearArea | ✅ | ✅ | ✅ | ⚪ | FillRect on Windows, fillRect on macOS |
-| PolyPoint | 🟡 | ✅ | ✅ | ⚪ | SetPixel on Windows, 1x1 rects on macOS |
-| PolyLine | 🟡 | ✅ | ✅ | ⚪ | LineTo on Windows, CGContext paths on macOS |
-| PolySegment | 🟡 | ✅ | ✅ | ⚪ | Multiple LineTo calls |
-| PolyRectangle | 🟡 | ✅ | ✅ | ⚪ | Rectangle on Windows, stroke_rect on macOS |
-| PolyFillRectangle | 🟡 | ✅ | ✅ | ⚪ | FillRect on Windows, fill_rect on macOS |
-| FillPoly | 🟡 | ✅ | ✅ | ⚪ | Polygon on Windows, CGContext paths on macOS |
-| PolyArc | 🟡 | ✅ | ✅ | ⚪ | Arc/Pie on Windows, CGContext ellipse transforms on macOS |
-| CopyArea | 🟡 | ✅ | ✅ | ⚪ | BitBlt on Windows; CGImage cropping/drawing on macOS |
-| ImageText8 | 🟡 | ✅ | ✅ | ⚪ | TextOutW on Windows, NSString on macOS |
-| ImageText16 | 🟡 | ✅ | ✅ | ⚪ | Unicode text rendering supported |
-| PutImage | 🟡 | ✅ | ✅ | ⚪ | SetDIBitsToDevice on Windows, CGImage on macOS |
+| PolyPoint | ✅ | ✅ | ✅ | ⚪ | SetPixel on Windows, 1x1 rects on macOS |
+| PolyLine | ✅ | ✅ | ✅ | ⚪ | LineTo on Windows, CGContext paths on macOS |
+| PolySegment | ✅ | ✅ | ✅ | ⚪ | Multiple LineTo calls |
+| PolyRectangle | ✅ | ✅ | ✅ | ⚪ | Rectangle on Windows, stroke_rect on macOS |
+| PolyFillRectangle | ✅ | ✅ | ✅ | ⚪ | FillRect on Windows, fill_rect on macOS |
+| FillPoly | ✅ | ✅ | ✅ | ⚪ | Polygon on Windows, CGContext paths on macOS |
+| PolyArc | ✅ | ✅ | ✅ | ⚪ | Arc/Pie on Windows, CGContext ellipse transforms on macOS |
+| PolyFillArc | ✅ | ✅ | ✅ | ⚪ | Pie on Windows, CGContext arcs on macOS |
+| CopyArea | ✅ | ✅ | ✅ | ⚪ | BitBlt on Windows; CGImage cropping/drawing on macOS |
+| ImageText8 | ✅ | ✅ | ✅ | ⚪ | TextOutW on Windows, NSString on macOS |
+| ImageText16 | ✅ | ✅ | ✅ | ⚪ | Unicode text rendering supported |
+| PutImage | ✅ | ✅ | ✅ | ⚪ | SetDIBitsToDevice on Windows, CGImage on macOS |
 | GetImage | 🟡 | ✅ | ✅ | ⚪ | GetDIBits on Windows, CGContext.makeImage on macOS |
 
 ### Graphics Context (GC)
@@ -102,8 +103,8 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| OpenFont | 🟡 | ❌ | ❌ | ⚪ | CreateFont on Windows, NSFont on macOS |
-| CloseFont | 🟡 | ❌ | ❌ | ⚪ | DeleteObject on Windows |
+| OpenFont | ✅ | ❌ | ❌ | ⚪ | Tracked in server; CreateFont on Windows, NSFont on macOS |
+| CloseFont | ✅ | ❌ | ❌ | ⚪ | DeleteObject on Windows |
 | QueryFont | 🟡 | ❌ | ❌ | ⚪ | GetTextMetrics on Windows |
 | ListFonts | 🟡 | ❌ | ❌ | ⚪ | EnumFontFamilies on Windows |
 
@@ -184,14 +185,19 @@ This document tracks the implementation status of X11 protocol features across d
   - ✅ PolyArc (opcode 68)
   - ✅ PolyFillArc (opcode 71)
   - ✅ FillPoly (opcode 69)
+  - ✅ PutImage (opcode 72)
+  - ✅ CopyArea (opcode 62)
+  - ✅ ImageText8 (opcode 76)
+  - ✅ OpenFont (opcode 45)
+  - ✅ CloseFont (opcode 46)
 - **Not Yet Implemented**:
-  - ❌ PutImage, GetImage
-  - ❌ ImageText
-  - ❌ CopyArea
+  - ❌ GetImage (opcode 73)
+  - ❌ QueryFont
+  - ❌ ListFonts
 - **Limitations**:
   - Some advanced extensions not implemented
   - Limited error handling
-- **Next Steps**: Implement image operations and text rendering
+- **Next Steps**: Implement remaining query operations
 
 ### Windows Backend
 - **Status**: ✅ **Fully implemented** (visual tests passing)
@@ -273,6 +279,8 @@ The visual test (`tests/visual_test.rs`) validates the following operations:
 - ✅ FillPoly (opcode 69) - triangle
 - ✅ PolyPoint (opcode 64) - dot grid
 - ✅ PolySegment (opcode 66) - X shape
+- ✅ OpenFont (opcode 45) - font loading
+- ✅ ImageText8 (opcode 76) - text rendering
 
 ---
 

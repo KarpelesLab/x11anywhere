@@ -88,6 +88,8 @@ fn handle_client(
         match opcode {
             1 => handle_create_window(&mut stream, &header, &request_data, &server)?,
             8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
+            45 => handle_open_font(&mut stream, &header, &request_data, &server)?,
+            46 => handle_close_font(&mut stream, &header, &request_data, &server)?,
             55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
             64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
@@ -880,6 +882,53 @@ fn handle_put_image(
         format,
         image_data,
     )?;
+
+    Ok(())
+}
+
+fn handle_open_font(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse OpenFont request: fid(4), name_length(2), pad(2), name
+    if data.len() < 4 {
+        log::warn!("OpenFont request too short");
+        return Ok(());
+    }
+
+    let font_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let name_length = u16::from_le_bytes([data[4], data[5]]) as usize;
+    let name_end = (8 + name_length).min(data.len());
+    let font_name = String::from_utf8_lossy(&data[8..name_end]).to_string();
+
+    log::debug!("OpenFont: id=0x{:x}, name={:?}", font_id, font_name);
+
+    // Store the font reference in the server
+    let mut server = server.lock().unwrap();
+    server.open_font(font_id, &font_name);
+
+    Ok(())
+}
+
+fn handle_close_font(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse CloseFont request: fid(4)
+    if data.len() < 4 {
+        log::warn!("CloseFont request too short");
+        return Ok(());
+    }
+
+    let font_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("CloseFont: id=0x{:x}", font_id);
+
+    let mut server = server.lock().unwrap();
+    server.close_font(font_id);
 
     Ok(())
 }
