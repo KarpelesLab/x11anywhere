@@ -62,6 +62,33 @@ pub struct FontInfo {
     pub max_char: u16,
 }
 
+/// RENDER extension Picture resource
+#[derive(Debug, Clone)]
+pub struct Picture {
+    /// The drawable (window or pixmap) this picture is attached to
+    pub drawable: u32,
+    /// Picture format ID
+    pub format: u32,
+    /// Component alpha flag
+    pub component_alpha: bool,
+}
+
+/// RENDER extension Solid Fill picture
+#[derive(Debug, Clone)]
+pub struct SolidFill {
+    /// Red component (0-65535)
+    pub red: u16,
+    /// Green component (0-65535)
+    pub green: u16,
+    /// Blue component (0-65535)
+    pub blue: u16,
+    /// Alpha component (0-65535)
+    pub alpha: u16,
+}
+
+// Re-export RenderTrapezoid from backend for use by extensions
+pub use crate::backend::RenderTrapezoid;
+
 /// Window metadata for event dispatching and geometry queries
 #[derive(Debug, Clone)]
 pub struct WindowInfo {
@@ -113,6 +140,12 @@ pub struct Server {
 
     /// Pixmap mapping: X11 Pixmap ID -> Backend pixmap ID
     pixmaps: HashMap<u32, usize>,
+
+    /// RENDER Picture mapping: Picture ID -> Picture info
+    pictures: HashMap<u32, Picture>,
+
+    /// RENDER Solid Fill mapping: Picture ID -> SolidFill info
+    solid_fills: HashMap<u32, SolidFill>,
 
     /// Root window
     root_window: Window,
@@ -166,6 +199,8 @@ impl Server {
             window_info: HashMap::new(),
             gcs: HashMap::new(),
             pixmaps: HashMap::new(),
+            pictures: HashMap::new(),
+            solid_fills: HashMap::new(),
             root_window,
             root_backend_window: None,
             next_resource_id: 0x200, // Start after reserved IDs
@@ -1367,5 +1402,118 @@ impl Server {
                 }
             }
         }
+    }
+
+    // ========== RENDER extension methods ==========
+
+    /// Create a RENDER picture resource
+    pub fn create_picture(&mut self, picture_id: u32, drawable: u32, format: u32) {
+        log::debug!(
+            "Creating picture 0x{:x} for drawable 0x{:x} format {}",
+            picture_id,
+            drawable,
+            format
+        );
+        self.pictures.insert(
+            picture_id,
+            Picture {
+                drawable,
+                format,
+                component_alpha: false,
+            },
+        );
+    }
+
+    /// Free a RENDER picture resource
+    pub fn free_picture(&mut self, picture_id: u32) {
+        log::debug!("Freeing picture 0x{:x}", picture_id);
+        self.pictures.remove(&picture_id);
+        self.solid_fills.remove(&picture_id);
+    }
+
+    /// Get a picture by ID
+    pub fn get_picture(&self, picture_id: u32) -> Option<&Picture> {
+        self.pictures.get(&picture_id)
+    }
+
+    /// Create a RENDER solid fill picture
+    pub fn create_solid_fill(&mut self, picture_id: u32, red: u16, green: u16, blue: u16, alpha: u16) {
+        log::debug!(
+            "Creating solid fill 0x{:x}: rgba({}, {}, {}, {})",
+            picture_id,
+            red,
+            green,
+            blue,
+            alpha
+        );
+        self.solid_fills.insert(
+            picture_id,
+            SolidFill {
+                red,
+                green,
+                blue,
+                alpha,
+            },
+        );
+    }
+
+    /// Get a solid fill by ID
+    pub fn get_solid_fill(&self, picture_id: u32) -> Option<&SolidFill> {
+        self.solid_fills.get(&picture_id)
+    }
+
+    /// Render trapezoids using the RENDER extension
+    pub fn render_trapezoids(
+        &mut self,
+        _op: u8,
+        src_picture: u32,
+        dst_picture: u32,
+        _mask_format: u32,
+        src_x: i16,
+        src_y: i16,
+        trapezoids: &[RenderTrapezoid],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Get the source color (from solid fill or picture)
+        let (r, g, b, a) = if let Some(solid) = self.get_solid_fill(src_picture) {
+            (
+                (solid.red >> 8) as u8,
+                (solid.green >> 8) as u8,
+                (solid.blue >> 8) as u8,
+                (solid.alpha >> 8) as u8,
+            )
+        } else {
+            // Default to opaque black if not a solid fill
+            (0, 0, 0, 255)
+        };
+
+        log::debug!(
+            "render_trapezoids: src=0x{:x} dst=0x{:x} color=rgba({},{},{},{}) src_offset=({},{}) {} trapezoids",
+            src_picture,
+            dst_picture,
+            r, g, b, a,
+            src_x, src_y,
+            trapezoids.len()
+        );
+
+        // Get the destination drawable from the picture
+        let dst_drawable = if let Some(picture) = self.pictures.get(&dst_picture) {
+            picture.drawable
+        } else {
+            log::warn!("Destination picture 0x{:x} not found", dst_picture);
+            return Ok(());
+        };
+
+        // Resolve to backend drawable
+        let drawable = self.resolve_drawable(dst_drawable);
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        // Convert RGBA to pixel value
+        let color = ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+
+        self.backend
+            .fill_trapezoids(backend_drawable, color, trapezoids)?;
+        self.backend.flush()?;
+
+        Ok(())
     }
 }

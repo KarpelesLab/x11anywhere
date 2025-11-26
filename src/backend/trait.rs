@@ -211,6 +211,21 @@ pub struct VisualInfo {
     pub blue_mask: u32,
 }
 
+/// A trapezoid for RENDER extension (fixed-point 16.16 format)
+#[derive(Debug, Clone, Copy)]
+pub struct RenderTrapezoid {
+    pub top: i32,
+    pub bottom: i32,
+    pub left_x1: i32,
+    pub left_y1: i32,
+    pub left_x2: i32,
+    pub left_y2: i32,
+    pub right_x1: i32,
+    pub right_y1: i32,
+    pub right_x2: i32,
+    pub right_y2: i32,
+}
+
 /// Backend events
 #[derive(Debug, Clone)]
 pub enum BackendEvent {
@@ -495,6 +510,79 @@ pub trait Backend: Send {
         points: &[Point],
     ) -> BackendResult<()>;
 
+    /// Fill trapezoids (RENDER extension)
+    ///
+    /// Trapezoids are defined in fixed-point 16.16 format.
+    /// The color is in ARGB format (0xAARRGGBB).
+    fn fill_trapezoids(
+        &mut self,
+        drawable: BackendDrawable,
+        color: u32,
+        trapezoids: &[RenderTrapezoid],
+    ) -> BackendResult<()> {
+        // Default implementation: rasterize trapezoids as polygons
+        for trap in trapezoids {
+            // Convert fixed-point to integer (shift right 16 bits)
+            let top = (trap.top >> 16) as i16;
+            let bottom = (trap.bottom >> 16) as i16;
+
+            // Calculate left edge X at top and bottom
+            let left_x_top = interpolate_x(
+                trap.left_x1,
+                trap.left_y1,
+                trap.left_x2,
+                trap.left_y2,
+                trap.top,
+            );
+            let left_x_bottom = interpolate_x(
+                trap.left_x1,
+                trap.left_y1,
+                trap.left_x2,
+                trap.left_y2,
+                trap.bottom,
+            );
+
+            // Calculate right edge X at top and bottom
+            let right_x_top = interpolate_x(
+                trap.right_x1,
+                trap.right_y1,
+                trap.right_x2,
+                trap.right_y2,
+                trap.top,
+            );
+            let right_x_bottom = interpolate_x(
+                trap.right_x1,
+                trap.right_y1,
+                trap.right_x2,
+                trap.right_y2,
+                trap.bottom,
+            );
+
+            // Convert to integer coordinates
+            let x1 = (left_x_top >> 16) as i16;
+            let x2 = (right_x_top >> 16) as i16;
+            let x3 = (right_x_bottom >> 16) as i16;
+            let x4 = (left_x_bottom >> 16) as i16;
+
+            // Create a polygon from the trapezoid
+            let points = vec![
+                Point { x: x1, y: top },
+                Point { x: x2, y: top },
+                Point { x: x3, y: bottom },
+                Point { x: x4, y: bottom },
+            ];
+
+            // Create a temporary GC with the color
+            let gc = BackendGC {
+                foreground: color,
+                ..Default::default()
+            };
+
+            self.fill_polygon(drawable, &gc, &points)?;
+        }
+        Ok(())
+    }
+
     /// Copy area from one drawable to another
     #[allow(clippy::too_many_arguments)]
     fn copy_area(
@@ -616,4 +704,17 @@ pub trait Backend: Send {
 
     /// Wait for events (blocking)
     fn wait_for_event(&mut self) -> BackendResult<BackendEvent>;
+}
+
+/// Helper function to interpolate X coordinate along a line at a given Y
+/// All values are in fixed-point 16.16 format
+pub fn interpolate_x(x1: i32, y1: i32, x2: i32, y2: i32, y: i32) -> i32 {
+    if y1 == y2 {
+        return x1;
+    }
+    // Linear interpolation: x = x1 + (x2 - x1) * (y - y1) / (y2 - y1)
+    let dy = y2 - y1;
+    let dx = x2 - x1;
+    let t = y - y1;
+    x1 + ((dx as i64 * t as i64) / dy as i64) as i32
 }

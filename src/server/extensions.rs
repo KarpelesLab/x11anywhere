@@ -2,8 +2,11 @@
 //!
 //! This module handles requests for X11 extensions like COMPOSITE, XFIXES, DAMAGE, etc.
 
+use super::Server;
+use crate::backend::RenderTrapezoid;
 use std::io::Write;
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 
 /// Handle extension request based on major opcode
 pub fn handle_extension_request(
@@ -11,6 +14,7 @@ pub fn handle_extension_request(
     header: &[u8],
     data: &[u8],
     major_opcode: u8,
+    server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let minor_opcode = header[1];
     let sequence = u16::from_le_bytes([header[2], header[3]]);
@@ -29,7 +33,7 @@ pub fn handle_extension_request(
         134 => handle_sync_request(stream, minor_opcode, sequence, data),
         135 => handle_xkb_request(stream, minor_opcode, sequence, data),
         138 => handle_xfixes_request(stream, minor_opcode, sequence, data),
-        139 => handle_render_request(stream, minor_opcode, sequence, data),
+        139 => handle_render_request(stream, minor_opcode, sequence, data, server),
         140 => handle_randr_request(stream, minor_opcode, sequence, data),
         142 => handle_composite_request(stream, minor_opcode, sequence, data),
         143 => handle_damage_request(stream, minor_opcode, sequence, data),
@@ -150,7 +154,8 @@ fn handle_render_request(
     stream: &mut TcpStream,
     minor_opcode: u8,
     sequence: u16,
-    _data: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match minor_opcode {
         0 => {
@@ -166,8 +171,21 @@ fn handle_render_request(
             stream.write_all(&reply)?;
         }
         4 => {
-            // RenderCreatePicture - no reply needed
-            log::debug!("RENDER: CreatePicture");
+            // RenderCreatePicture
+            // Format: picture(4) + drawable(4) + format(4) + value_mask(4) + values...
+            if data.len() >= 16 {
+                let picture_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let drawable = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let format = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "RENDER: CreatePicture picture=0x{:x} drawable=0x{:x} format={}",
+                    picture_id,
+                    drawable,
+                    format
+                );
+                let mut server = server.lock().unwrap();
+                server.create_picture(picture_id, drawable, format);
+            }
         }
         5 => {
             // RenderChangePicture - no reply needed
@@ -178,16 +196,125 @@ fn handle_render_request(
             log::debug!("RENDER: SetPictureClipRectangles");
         }
         7 => {
-            // RenderFreePicture - no reply needed
-            log::debug!("RENDER: FreePicture");
+            // RenderFreePicture
+            if data.len() >= 4 {
+                let picture_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("RENDER: FreePicture picture=0x{:x}", picture_id);
+                let mut server = server.lock().unwrap();
+                server.free_picture(picture_id);
+            }
         }
         8 => {
             // RenderComposite - no reply needed
             log::debug!("RENDER: Composite");
         }
         10 => {
-            // RenderTrapezoids - no reply needed
-            log::debug!("RENDER: Trapezoids");
+            // RenderTrapezoids
+            // Format: op(1) + unused(3) + src(4) + dst(4) + mask_format(4) + src_x(2) + src_y(2) + trapezoids...
+            if data.len() >= 24 {
+                let op = data[0];
+                let src_picture = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let dst_picture = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                let mask_format = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+                let src_x = i16::from_le_bytes([data[16], data[17]]);
+                let src_y = i16::from_le_bytes([data[18], data[19]]);
+
+                // Each trapezoid is 40 bytes (10 * 4-byte fixed-point values)
+                let trap_data = &data[20..];
+                let num_trapezoids = trap_data.len() / 40;
+
+                log::debug!(
+                    "RENDER: Trapezoids op={} src=0x{:x} dst=0x{:x} mask_format={} src=({},{}) count={}",
+                    op,
+                    src_picture,
+                    dst_picture,
+                    mask_format,
+                    src_x,
+                    src_y,
+                    num_trapezoids
+                );
+
+                let mut trapezoids = Vec::with_capacity(num_trapezoids);
+                for i in 0..num_trapezoids {
+                    let offset = i * 40;
+                    let trap = RenderTrapezoid {
+                        top: i32::from_le_bytes([
+                            trap_data[offset],
+                            trap_data[offset + 1],
+                            trap_data[offset + 2],
+                            trap_data[offset + 3],
+                        ]),
+                        bottom: i32::from_le_bytes([
+                            trap_data[offset + 4],
+                            trap_data[offset + 5],
+                            trap_data[offset + 6],
+                            trap_data[offset + 7],
+                        ]),
+                        left_x1: i32::from_le_bytes([
+                            trap_data[offset + 8],
+                            trap_data[offset + 9],
+                            trap_data[offset + 10],
+                            trap_data[offset + 11],
+                        ]),
+                        left_y1: i32::from_le_bytes([
+                            trap_data[offset + 12],
+                            trap_data[offset + 13],
+                            trap_data[offset + 14],
+                            trap_data[offset + 15],
+                        ]),
+                        left_x2: i32::from_le_bytes([
+                            trap_data[offset + 16],
+                            trap_data[offset + 17],
+                            trap_data[offset + 18],
+                            trap_data[offset + 19],
+                        ]),
+                        left_y2: i32::from_le_bytes([
+                            trap_data[offset + 20],
+                            trap_data[offset + 21],
+                            trap_data[offset + 22],
+                            trap_data[offset + 23],
+                        ]),
+                        right_x1: i32::from_le_bytes([
+                            trap_data[offset + 24],
+                            trap_data[offset + 25],
+                            trap_data[offset + 26],
+                            trap_data[offset + 27],
+                        ]),
+                        right_y1: i32::from_le_bytes([
+                            trap_data[offset + 28],
+                            trap_data[offset + 29],
+                            trap_data[offset + 30],
+                            trap_data[offset + 31],
+                        ]),
+                        right_x2: i32::from_le_bytes([
+                            trap_data[offset + 32],
+                            trap_data[offset + 33],
+                            trap_data[offset + 34],
+                            trap_data[offset + 35],
+                        ]),
+                        right_y2: i32::from_le_bytes([
+                            trap_data[offset + 36],
+                            trap_data[offset + 37],
+                            trap_data[offset + 38],
+                            trap_data[offset + 39],
+                        ]),
+                    };
+                    trapezoids.push(trap);
+                }
+
+                let mut server = server.lock().unwrap();
+                if let Err(e) = server.render_trapezoids(
+                    op,
+                    src_picture,
+                    dst_picture,
+                    mask_format,
+                    src_x,
+                    src_y,
+                    &trapezoids,
+                ) {
+                    log::warn!("RENDER: Trapezoids error: {}", e);
+                }
+            }
         }
         11 => {
             // RenderTriangles - no reply needed
@@ -252,8 +379,25 @@ fn handle_render_request(
             log::debug!("RENDER: AddTraps");
         }
         33 => {
-            // RenderCreateSolidFill - no reply needed
-            log::debug!("RENDER: CreateSolidFill");
+            // RenderCreateSolidFill
+            // Format: picture(4) + color(8: red(2) + green(2) + blue(2) + alpha(2))
+            if data.len() >= 12 {
+                let picture_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let red = u16::from_le_bytes([data[4], data[5]]);
+                let green = u16::from_le_bytes([data[6], data[7]]);
+                let blue = u16::from_le_bytes([data[8], data[9]]);
+                let alpha = u16::from_le_bytes([data[10], data[11]]);
+                log::debug!(
+                    "RENDER: CreateSolidFill picture=0x{:x} rgba({},{},{},{})",
+                    picture_id,
+                    red,
+                    green,
+                    blue,
+                    alpha
+                );
+                let mut server = server.lock().unwrap();
+                server.create_solid_fill(picture_id, red, green, blue, alpha);
+            }
         }
         34 => {
             // RenderCreateLinearGradient - no reply needed

@@ -180,6 +180,7 @@ fn handle_client(
                     &header,
                     &request_data,
                     opcode,
+                    &server,
                 )?;
             }
             _ => {
