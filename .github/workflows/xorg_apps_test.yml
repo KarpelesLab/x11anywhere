@@ -469,6 +469,18 @@ jobs:
           echo "xclock running with PID $XCLOCK_PID"
         continue-on-error: true
 
+      - name: Copy server logs
+        shell: pwsh
+        run: |
+          Write-Host "=== Server log output ==="
+          if (Test-Path "C:\temp\x11anywhere_logs\stdout.log") {
+            Get-Content "C:\temp\x11anywhere_logs\stdout.log"
+            Copy-Item "C:\temp\x11anywhere_logs\stdout.log" "xorg_apps_output\windows\server.log"
+          } else {
+            Write-Host "No server log found"
+          }
+        continue-on-error: true
+
       - name: Capture desktop screenshot
         shell: pwsh
         run: |
