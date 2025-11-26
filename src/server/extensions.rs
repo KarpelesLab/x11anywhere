@@ -27,6 +27,7 @@ pub fn handle_extension_request(
         130 => handle_shm_request(stream, minor_opcode, sequence, data),
         133 => handle_big_requests(stream, minor_opcode, sequence, data),
         134 => handle_sync_request(stream, minor_opcode, sequence, data),
+        135 => handle_xkb_request(stream, minor_opcode, sequence, data),
         138 => handle_xfixes_request(stream, minor_opcode, sequence, data),
         139 => handle_render_request(stream, minor_opcode, sequence, data),
         140 => handle_randr_request(stream, minor_opcode, sequence, data),
@@ -349,6 +350,38 @@ fn handle_damage_request(
     Ok(())
 }
 
+/// Handle XKEYBOARD (XKB) extension requests
+fn handle_xkb_request(
+    stream: &mut TcpStream,
+    minor_opcode: u8,
+    sequence: u16,
+    data: &[u8],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    match minor_opcode {
+        0 => {
+            // XkbUseExtension (query extension)
+            if data.len() >= 4 {
+                let wanted_major = u16::from_le_bytes([data[0], data[1]]);
+                let wanted_minor = u16::from_le_bytes([data[2], data[3]]);
+                log::debug!(
+                    "XKB: UseExtension wanted_major={} wanted_minor={}",
+                    wanted_major,
+                    wanted_minor
+                );
+            }
+            // Return XKB version 1.0 as supported
+            let reply = encode_xkb_use_extension_reply(sequence, true, 1, 0);
+            stream.write_all(&reply)?;
+        }
+        _ => {
+            log::debug!("XKB: Unhandled minor opcode {}", minor_opcode);
+            // For most XKB requests, we don't need to send a reply
+            // The important one is UseExtension (opcode 0)
+        }
+    }
+    Ok(())
+}
+
 // Reply encoders
 
 fn write_u16_le(value: u16) -> [u8; 2] {
@@ -459,5 +492,21 @@ fn encode_damage_query_version_reply(sequence: u16) -> Vec<u8> {
     buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
     buffer[8..12].copy_from_slice(&write_u32_le(1)); // major version
     buffer[12..16].copy_from_slice(&write_u32_le(1)); // minor version
+    buffer
+}
+
+fn encode_xkb_use_extension_reply(
+    sequence: u16,
+    supported: bool,
+    server_major: u16,
+    server_minor: u16,
+) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[1] = if supported { 1 } else { 0 }; // supported
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
+    buffer[8..10].copy_from_slice(&write_u16_le(server_major));
+    buffer[10..12].copy_from_slice(&write_u16_le(server_minor));
     buffer
 }
