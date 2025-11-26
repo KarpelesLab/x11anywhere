@@ -340,7 +340,7 @@ impl ProtocolEncoder {
 
         // Reply header
         buffer[0] = 1; // Reply
-        // buffer[1] = unused (already 0)
+                       // buffer[1] = unused (already 0)
         buffer[2..4].copy_from_slice(&self.write_u16(sequence));
         buffer[4..8].copy_from_slice(&self.write_u32(7)); // reply_length = 7 for n=0, m=0
 
@@ -404,6 +404,89 @@ impl ProtocolEncoder {
 
         // Append the string data
         buffer.extend_from_slice(&str_data);
+
+        buffer
+    }
+
+    /// Encode ListFontsWithInfo reply for a single font
+    /// The X11 protocol sends one reply per matching font, each with font metrics
+    pub fn encode_list_fonts_with_info_reply(
+        &self,
+        sequence: u16,
+        font_name: &str,
+        replies_hint: u32,
+    ) -> Vec<u8> {
+        let name_bytes = font_name.as_bytes();
+        let name_len = name_bytes.len().min(255) as u8;
+
+        // Calculate reply length: 7 (base 60 bytes - 32 header = 28 / 4) + name padding
+        let name_padded_len = (name_len as usize + 3) & !3; // Round up to 4
+        let reply_length = 7 + (name_padded_len / 4);
+
+        let mut buffer = vec![0u8; 60 + name_padded_len];
+
+        // Header
+        buffer[0] = 1; // Reply
+        buffer[1] = name_len; // name-len in byte 1
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(reply_length as u32));
+
+        // min-bounds CHARINFO (12 bytes) at offset 8
+        // left-side-bearing, right-side-bearing, character-width, ascent, descent, attributes
+        buffer[8..10].copy_from_slice(&self.write_i16(0)); // left-side-bearing
+        buffer[10..12].copy_from_slice(&self.write_i16(8)); // right-side-bearing
+        buffer[12..14].copy_from_slice(&self.write_i16(8)); // character-width
+        buffer[14..16].copy_from_slice(&self.write_i16(10)); // ascent
+        buffer[16..18].copy_from_slice(&self.write_i16(2)); // descent
+        buffer[18..20].copy_from_slice(&self.write_u16(0)); // attributes
+
+        // unused 4 bytes at offset 20
+        // (already zeroed)
+
+        // max-bounds CHARINFO (12 bytes) at offset 24
+        buffer[24..26].copy_from_slice(&self.write_i16(0)); // left-side-bearing
+        buffer[26..28].copy_from_slice(&self.write_i16(8)); // right-side-bearing
+        buffer[28..30].copy_from_slice(&self.write_i16(8)); // character-width
+        buffer[30..32].copy_from_slice(&self.write_i16(10)); // ascent
+        buffer[32..34].copy_from_slice(&self.write_i16(2)); // descent
+        buffer[34..36].copy_from_slice(&self.write_u16(0)); // attributes
+
+        // unused 4 bytes at offset 36
+        // (already zeroed)
+
+        // Font metrics at offset 40
+        buffer[40..42].copy_from_slice(&self.write_u16(0)); // min-char-or-byte2
+        buffer[42..44].copy_from_slice(&self.write_u16(255)); // max-char-or-byte2
+        buffer[44..46].copy_from_slice(&self.write_u16(0)); // default-char
+        buffer[46..48].copy_from_slice(&self.write_u16(0)); // n-properties
+        buffer[48] = 0; // draw-direction (LeftToRight)
+        buffer[49] = 0; // min-byte1
+        buffer[50] = 0; // max-byte1
+        buffer[51] = 0; // all-chars-exist
+        buffer[52..54].copy_from_slice(&self.write_i16(10)); // font-ascent
+        buffer[54..56].copy_from_slice(&self.write_i16(2)); // font-descent
+        buffer[56..60].copy_from_slice(&self.write_u32(replies_hint)); // replies-hint
+
+        // Font name at offset 60
+        buffer[60..60 + name_len as usize].copy_from_slice(&name_bytes[..name_len as usize]);
+        // Rest is padding (already zeroed)
+
+        buffer
+    }
+
+    /// Encode the final ListFontsWithInfo reply (name-len=0) to signal end of list
+    pub fn encode_list_fonts_with_info_final_reply(&self, sequence: u16) -> Vec<u8> {
+        let mut buffer = vec![0u8; 60];
+
+        // Header
+        buffer[0] = 1; // Reply
+        buffer[1] = 0; // name-len = 0 (signals end of list)
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(7)); // reply-length (28 bytes / 4 = 7)
+
+        // The rest of the reply fields can be zero for the final reply
+        // replies-hint at offset 56 should be 0
+        buffer[56..60].copy_from_slice(&self.write_u32(0)); // replies-hint = 0
 
         buffer
     }

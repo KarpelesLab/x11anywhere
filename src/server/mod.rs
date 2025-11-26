@@ -1437,7 +1437,14 @@ impl Server {
     }
 
     /// Create a RENDER solid fill picture
-    pub fn create_solid_fill(&mut self, picture_id: u32, red: u16, green: u16, blue: u16, alpha: u16) {
+    pub fn create_solid_fill(
+        &mut self,
+        picture_id: u32,
+        red: u16,
+        green: u16,
+        blue: u16,
+        alpha: u16,
+    ) {
         log::debug!(
             "Creating solid fill 0x{:x}: rgba({}, {}, {}, {})",
             picture_id,

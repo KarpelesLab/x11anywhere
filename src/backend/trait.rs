@@ -580,7 +580,14 @@ pub trait Backend: Send {
 
             log::debug!(
                 "fill_trapezoids: polygon ({},{}) ({},{}) ({},{}) ({},{})",
-                x1, top, x2, top, x3, bottom, x4, bottom
+                x1,
+                top,
+                x2,
+                top,
+                x3,
+                bottom,
+                x4,
+                bottom
             );
 
             // Create a temporary GC with the color
