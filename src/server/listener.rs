@@ -61,6 +61,10 @@ fn handle_client(
         server.register_client()
     };
 
+    // Sequence number counter - starts at 0, increments with each request
+    // Note: The first request after connection has sequence 1
+    let mut sequence_number: u16 = 0;
+
     // Handle requests in a loop
     loop {
         // Read request header (4 bytes minimum)
@@ -73,10 +77,20 @@ fn handle_client(
             }
         }
 
+        // Increment sequence number for each request received
+        sequence_number = sequence_number.wrapping_add(1);
+
         let opcode = header[0];
         let length = u16::from_le_bytes([header[2], header[3]]) as usize * 4;
 
-        log::debug!("Received opcode {} (length {})", opcode, length);
+        log::debug!("Received opcode {} (length {}, seq {})", opcode, length, sequence_number);
+
+        // Store the sequence number in header[2-3] so handlers can access it
+        // (handlers currently incorrectly read these bytes as sequence number,
+        // but they actually contain length - we fix this by overwriting with correct value)
+        let seq_bytes = sequence_number.to_le_bytes();
+        header[2] = seq_bytes[0];
+        header[3] = seq_bytes[1];
 
         // Read rest of request
         let mut request_data = vec![0u8; length.saturating_sub(4)];
