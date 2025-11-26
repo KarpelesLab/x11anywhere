@@ -14,7 +14,7 @@ use crate::backend::{Backend, BackendGC, BackendWindow};
 use crate::protocol::*;
 use crate::resources::ResourceTracker;
 use crate::security::SecurityPolicy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 
 /// Extension information
@@ -89,6 +89,9 @@ pub struct Server {
     /// GC mapping: X11 GContext ID -> Backend GC
     gcs: HashMap<GContext, BackendGC>,
 
+    /// Pixmap IDs - tracks which resource IDs are pixmaps (vs windows)
+    pixmaps: HashSet<u32>,
+
     /// Root window
     root_window: Window,
 
@@ -139,6 +142,7 @@ impl Server {
             backend,
             windows: HashMap::new(),
             gcs: HashMap::new(),
+            pixmaps: HashSet::new(),
             root_window,
             root_backend_window: None,
             next_resource_id: 0x200, // Start after reserved IDs
@@ -1230,6 +1234,28 @@ impl Server {
         }
 
         None
+    }
+
+    /// Register a pixmap ID
+    pub fn register_pixmap(&mut self, pixmap_id: u32) {
+        self.pixmaps.insert(pixmap_id);
+        log::debug!("Registered pixmap 0x{:x}", pixmap_id);
+    }
+
+    /// Unregister a pixmap ID
+    pub fn unregister_pixmap(&mut self, pixmap_id: u32) {
+        self.pixmaps.remove(&pixmap_id);
+        log::debug!("Unregistered pixmap 0x{:x}", pixmap_id);
+    }
+
+    /// Resolve a drawable ID to a Drawable enum
+    /// Checks if the ID is a known pixmap, otherwise assumes it's a window
+    pub fn resolve_drawable(&self, drawable_id: u32) -> Drawable {
+        if self.pixmaps.contains(&drawable_id) {
+            Drawable::Pixmap(Pixmap::new(drawable_id))
+        } else {
+            Drawable::Window(Window::new(drawable_id))
+        }
     }
 
     /// Helper to get backend drawable from X11 drawable

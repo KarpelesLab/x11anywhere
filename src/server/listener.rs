@@ -538,9 +538,11 @@ fn handle_create_gc(
     }
 
     let mut server = server.lock().unwrap();
+    // Resolve the drawable - could be a window or pixmap
+    let resolved_drawable = server.resolve_drawable(drawable);
     server.create_gc(
         crate::protocol::GContext::new(cid),
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        resolved_drawable,
         foreground,
         background,
     )?;
@@ -657,8 +659,10 @@ fn handle_poly_fill_rectangle(
     );
 
     let mut server = server.lock().unwrap();
+    // Resolve the drawable - could be a window or pixmap
+    let resolved_drawable = server.resolve_drawable(drawable);
     server.fill_rectangles(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        resolved_drawable,
         crate::protocol::GContext::new(gc),
         &rectangles,
     )?;
@@ -708,8 +712,9 @@ fn handle_poly_point(
     );
 
     let mut server = server.lock().unwrap();
+    let resolved_drawable = server.resolve_drawable(drawable);
     server.draw_points(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        resolved_drawable,
         crate::protocol::GContext::new(gc),
         &points,
     )?;
@@ -759,8 +764,9 @@ fn handle_poly_line(
     );
 
     let mut server = server.lock().unwrap();
+    let resolved_drawable = server.resolve_drawable(drawable);
     server.draw_lines(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        resolved_drawable,
         crate::protocol::GContext::new(gc),
         &points,
     )?;
@@ -803,8 +809,9 @@ fn handle_poly_segment(
     );
 
     let mut server = server.lock().unwrap();
+    let resolved_drawable = server.resolve_drawable(drawable);
     server.draw_segments(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        resolved_drawable,
         crate::protocol::GContext::new(gc),
         &segments,
     )?;
@@ -852,8 +859,9 @@ fn handle_poly_rectangle(
     );
 
     let mut server = server.lock().unwrap();
+    let resolved_drawable = server.resolve_drawable(drawable);
     server.draw_rectangles(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        resolved_drawable,
         crate::protocol::GContext::new(gc),
         &rectangles,
     )?;
@@ -905,11 +913,8 @@ fn handle_poly_arc(
     );
 
     let mut server = server.lock().unwrap();
-    server.draw_arcs(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
-        crate::protocol::GContext::new(gc),
-        &arcs,
-    )?;
+    let resolved_drawable = server.resolve_drawable(drawable);
+    server.draw_arcs(resolved_drawable, crate::protocol::GContext::new(gc), &arcs)?;
 
     Ok(())
 }
@@ -959,8 +964,9 @@ fn handle_fill_poly(
     let _ = header; // suppress unused warning
 
     let mut server = server.lock().unwrap();
+    let resolved_drawable = server.resolve_drawable(drawable);
     server.fill_polygon(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        resolved_drawable,
         crate::protocol::GContext::new(gc),
         &points,
     )?;
@@ -1012,11 +1018,8 @@ fn handle_poly_fill_arc(
     );
 
     let mut server = server.lock().unwrap();
-    server.fill_arcs(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
-        crate::protocol::GContext::new(gc),
-        &arcs,
-    )?;
+    let resolved_drawable = server.resolve_drawable(drawable);
+    server.fill_arcs(resolved_drawable, crate::protocol::GContext::new(gc), &arcs)?;
 
     Ok(())
 }
@@ -1060,8 +1063,10 @@ fn handle_put_image(
     );
 
     let mut server = server.lock().unwrap();
+    // Resolve the drawable - could be a window or pixmap
+    let resolved_drawable = server.resolve_drawable(drawable);
     server.put_image(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        resolved_drawable,
         crate::protocol::GContext::new(gc),
         width,
         height,
@@ -1562,8 +1567,9 @@ fn handle_image_text8(
     );
 
     let mut server = server.lock().unwrap();
+    let resolved_drawable = server.resolve_drawable(drawable);
     server.draw_text(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        resolved_drawable,
         crate::protocol::GContext::new(gc),
         x,
         y,
@@ -1615,8 +1621,9 @@ fn handle_image_text16(
     );
 
     let mut server = server.lock().unwrap();
+    let resolved_drawable = server.resolve_drawable(drawable);
     server.draw_text(
-        crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+        resolved_drawable,
         crate::protocol::GContext::new(gc),
         x,
         y,
@@ -1647,6 +1654,7 @@ fn handle_poly_text8(
     // If len=255, it's a font-shift item (4 bytes total: 255, font(3))
     let mut offset = 12;
     let mut server = server.lock().unwrap();
+    let resolved_drawable = server.resolve_drawable(drawable);
 
     while offset < data.len() {
         let len = data[offset] as usize;
@@ -1677,7 +1685,7 @@ fn handle_poly_text8(
         );
 
         server.draw_text(
-            crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+            resolved_drawable.clone(),
             crate::protocol::GContext::new(gc),
             x,
             y,
@@ -1712,6 +1720,7 @@ fn handle_poly_text16(
     // Parse text items (each item: len(1), delta(1), chars(len*2))
     let mut offset = 12;
     let mut server = server.lock().unwrap();
+    let resolved_drawable = server.resolve_drawable(drawable);
 
     while offset < data.len() {
         let len = data[offset] as usize;
@@ -1754,7 +1763,7 @@ fn handle_poly_text16(
         );
 
         server.draw_text(
-            crate::protocol::Drawable::Window(crate::protocol::Window::new(drawable)),
+            resolved_drawable.clone(),
             crate::protocol::GContext::new(gc),
             x,
             y,
@@ -2154,7 +2163,7 @@ fn handle_create_pixmap(
     _stream: &mut TcpStream,
     header: &[u8],
     data: &[u8],
-    _server: &Arc<Mutex<Server>>,
+    server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     // Parse CreatePixmap request: depth(1 in header), pixmap(4), drawable(4), width(2), height(2)
     if data.len() < 12 {
@@ -2177,7 +2186,10 @@ fn handle_create_pixmap(
         depth
     );
 
-    // TODO: Actually create pixmap in backend
+    // Register the pixmap ID so we can resolve drawables correctly
+    let mut server = server.lock().unwrap();
+    server.register_pixmap(pixmap);
+
     // No reply for CreatePixmap
     Ok(())
 }
@@ -2186,7 +2198,7 @@ fn handle_free_pixmap(
     _stream: &mut TcpStream,
     _header: &[u8],
     data: &[u8],
-    _server: &Arc<Mutex<Server>>,
+    server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     // Parse FreePixmap request: pixmap(4)
     if data.len() < 4 {
@@ -2197,7 +2209,10 @@ fn handle_free_pixmap(
     let pixmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     log::debug!("FreePixmap: pixmap=0x{:x}", pixmap);
 
-    // TODO: Actually free pixmap in backend
+    // Unregister the pixmap ID
+    let mut server = server.lock().unwrap();
+    server.unregister_pixmap(pixmap);
+
     // No reply for FreePixmap
     Ok(())
 }
