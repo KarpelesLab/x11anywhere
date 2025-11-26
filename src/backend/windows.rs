@@ -885,8 +885,18 @@ impl Backend for WindowsBackend {
                     Ok(())
                 }
                 0 | 1 => {
-                    // Bitmap or XYPixmap formats - not commonly used, stub for now
-                    Err(format!("Image format {} not yet implemented", format).into())
+                    // Bitmap or XYPixmap formats - used for cursor/stipple patterns
+                    // For now, just log and continue - cursor patterns won't display correctly
+                    log::debug!(
+                        "PutImage format {} ({}): ignoring {} bytes for {}x{} image to drawable {:?}",
+                        format,
+                        if format == 0 { "Bitmap" } else { "XYPixmap" },
+                        data.len(),
+                        width,
+                        height,
+                        drawable
+                    );
+                    Ok(())
                 }
                 _ => Err(format!("Unknown image format: {}", format).into()),
             }
