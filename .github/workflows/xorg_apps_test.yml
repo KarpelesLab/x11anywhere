@@ -300,39 +300,53 @@ jobs:
   xorg-apps-windows:
     name: X11 Apps Test (Windows)
     runs-on: windows-latest
-    # Note: X11 client apps (xclock, xeyes, etc.) are not natively available on Windows.
-    # This job tests that the x11anywhere server starts correctly on Windows.
-    # The visual_test.rs tests provide actual X11 protocol testing on Windows.
+    defaults:
+      run:
+        shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-libx11
+            mingw-w64-x86_64-libxext
+            mingw-w64-x86_64-libxmu
+            mingw-w64-x86_64-libxaw
+            mingw-w64-x86_64-libxpm
+            mingw-w64-x86_64-libxrender
+            mingw-w64-x86_64-libxft
+            mingw-w64-x86_64-xorg-xeyes
+            mingw-w64-x86_64-xorg-xclock
+            mingw-w64-x86_64-xorg-xlogo
+
+      - name: Setup Rust
+        shell: pwsh
+        run: |
+          rustup default stable
 
       - name: Build x11anywhere (Windows native)
+        shell: pwsh
         run: cargo build --release --features backend-windows
 
       - name: Create output directories
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path xorg_apps_output/windows
           New-Item -ItemType Directory -Force -Path C:\temp\x11anywhere_logs
 
       - name: Start x11anywhere server
+        shell: pwsh
         run: |
           $env:RUST_LOG = "info"
-
-          # Use cmd to start the process in a way that keeps it running
           $pinfo = New-Object System.Diagnostics.ProcessStartInfo
           $pinfo.FileName = "$pwd\target\release\x11anywhere.exe"
           $pinfo.Arguments = "-display 50 -tcp"
-          $pinfo.RedirectStandardOutput = $true
-          $pinfo.RedirectStandardError = $true
           $pinfo.UseShellExecute = $false
-          $pinfo.CreateNoWindow = $true
+          $pinfo.CreateNoWindow = $false
           $pinfo.EnvironmentVariables["RUST_LOG"] = "info"
 
           $process = New-Object System.Diagnostics.Process
@@ -340,19 +354,10 @@ jobs:
           $process.Start() | Out-Null
 
           Write-Host "Started x11anywhere with PID: $($process.Id)"
-          $process.Id | Out-File -FilePath "C:\temp\x11anywhere_logs\server.pid"
+          echo "X11ANYWHERE_PID=$($process.Id)" >> $env:GITHUB_ENV
 
-          # Give it time to start
+          # Wait for server to start
           Start-Sleep -Seconds 3
-
-          # Check if process is still running
-          if (-not $process.HasExited) {
-            Write-Host "Process is running"
-          } else {
-            Write-Host "WARNING: Process exited with code: $($process.ExitCode)"
-            Write-Host "Stdout: $($process.StandardOutput.ReadToEnd())"
-            Write-Host "Stderr: $($process.StandardError.ReadToEnd())"
-          }
 
           # Check if port is listening
           for ($i = 1; $i -le 10; $i++) {
@@ -365,43 +370,38 @@ jobs:
             Start-Sleep -Seconds 1
           }
 
-          if (-not $listening) {
-            Write-Host "WARNING: Port 6050 not in LISTENING state"
-            netstat -an | Select-String "6050"
-          }
-
-      - name: Verify server is running
+      - name: Test xclock
+        run: |
+          export DISPLAY=localhost:50
+          echo "Starting xclock..."
+          xclock -geometry 200x200+50+50 &
+          XCLOCK_PID=$!
+          sleep 3
+          echo "xclock running with PID $XCLOCK_PID"
         continue-on-error: true
+
+      - name: Test xeyes
         run: |
-          # Check by port
-          $listening = netstat -an | Select-String "6050" | Select-String "LISTENING"
-          if ($listening) {
-            Write-Host "Server is listening on port 6050"
-          } else {
-            Write-Host "WARNING: Port 6050 not found listening"
-            netstat -an | Select-String "6050"
+          export DISPLAY=localhost:50
+          echo "Starting xeyes..."
+          xeyes -geometry 150x100+300+50 &
+          XEYES_PID=$!
+          sleep 3
+          echo "xeyes running with PID $XEYES_PID"
+        continue-on-error: true
 
-            # Show any x11anywhere logs
-            if (Test-Path "C:\temp\x11anywhere_logs\server_stderr.log") {
-              Write-Host "=== Server stderr ==="
-              Get-Content "C:\temp\x11anywhere_logs\server_stderr.log"
-            }
-          }
-
-          # Show running processes
-          Write-Host "=== All running processes with x11 in name ==="
-          Get-Process | Where-Object { $_.ProcessName -like "*x11*" } | Format-Table -AutoSize
-
-      - name: Run visual test (creates X11 window)
+      - name: Test xlogo
         run: |
-          # Run the visual test which creates an X11 test window
-          $env:DISPLAY = "localhost:50"
-          $env:VISUAL_TEST_OUTPUT = "$pwd\xorg_apps_output\windows"
-          Write-Host "Running visual_test with DISPLAY=$env:DISPLAY"
-          cargo test --test visual_test -- --nocapture
+          export DISPLAY=localhost:50
+          echo "Starting xlogo..."
+          xlogo -geometry 150x150+500+50 &
+          XLOGO_PID=$!
+          sleep 3
+          echo "xlogo running with PID $XLOGO_PID"
         continue-on-error: true
 
       - name: Capture desktop screenshot
+        shell: pwsh
         run: |
           Start-Sleep -Seconds 2
           Add-Type -AssemblyName System.Windows.Forms
@@ -410,43 +410,19 @@ jobs:
           $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
           $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
-          $bitmap.Save("xorg_apps_output\windows\server_running.png")
+          $bitmap.Save("xorg_apps_output\windows\xorg_apps.png")
           $graphics.Dispose()
           $bitmap.Dispose()
           Write-Host "Desktop screenshot saved"
 
-      - name: Create status file
-        run: |
-          @"
-          X11 Apps Test - Windows
-          =======================
-
-          Note: Native X11 client applications (xclock, xeyes, etc.) are not available
-          on Windows as X11 client libraries aren't natively provided.
-
-          This job:
-          1. Builds x11anywhere with Windows backend
-          2. Starts the server on display :50
-          3. Runs visual_test.rs which creates an X11 window with test patterns
-          4. Captures a desktop screenshot showing the X11 window
-          "@ | Out-File -FilePath "xorg_apps_output\windows\status.txt"
-
-      - name: Show server logs
-        if: always()
-        run: |
-          Write-Host "=== Server stdout ==="
-          if (Test-Path "C:\temp\x11anywhere_logs\server_stdout.log") {
-            Get-Content "C:\temp\x11anywhere_logs\server_stdout.log"
-          }
-          Write-Host "=== Server stderr ==="
-          if (Test-Path "C:\temp\x11anywhere_logs\server_stderr.log") {
-            Get-Content "C:\temp\x11anywhere_logs\server_stderr.log"
-          }
-
       - name: Cleanup
         if: always()
+        shell: pwsh
         run: |
           Get-Process x11anywhere -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process xclock -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process xeyes -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process xlogo -ErrorAction SilentlyContinue | Stop-Process -Force
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
