@@ -312,16 +312,61 @@ jobs:
           msystem: MSYS
           update: true
           install: >-
-            xorg-xeyes
-            xorg-xclock
-            xorg-xlogo
-            libX11
-            libXext
-            libXmu
-            libXaw
-            libXpm
-            libXrender
-            libXft
+            base-devel
+            gcc
+            make
+            autoconf
+            automake
+            libtool
+            pkg-config
+            libX11-devel
+            libXt-devel
+            libXext-devel
+            libXmu-devel
+            libXaw-devel
+            libXpm-devel
+            libXrender-devel
+            libXft-devel
+            libxkbfile-devel
+            wget
+
+      - name: Build X11 apps from source
+        run: |
+          mkdir -p ~/xorg-apps && cd ~/xorg-apps
+
+          # Build xeyes
+          echo "=== Building xeyes ==="
+          wget -q https://www.x.org/releases/individual/app/xeyes-1.3.0.tar.xz
+          tar xf xeyes-1.3.0.tar.xz
+          cd xeyes-1.3.0
+          ./configure --prefix=/usr
+          make -j$(nproc)
+          make install
+          cd ..
+
+          # Build xclock
+          echo "=== Building xclock ==="
+          wget -q https://www.x.org/releases/individual/app/xclock-1.1.1.tar.xz
+          tar xf xclock-1.1.1.tar.xz
+          cd xclock-1.1.1
+          ./configure --prefix=/usr
+          make -j$(nproc)
+          make install
+          cd ..
+
+          # Build xlogo
+          echo "=== Building xlogo ==="
+          wget -q https://www.x.org/releases/individual/app/xlogo-1.0.6.tar.xz
+          tar xf xlogo-1.0.6.tar.xz
+          cd xlogo-1.0.6
+          ./configure --prefix=/usr
+          make -j$(nproc)
+          make install
+          cd ..
+
+          echo "=== Verifying installations ==="
+          which xeyes xclock xlogo || true
+          ls -la /usr/bin/x* | grep -E "(xeyes|xclock|xlogo)" || true
 
       - name: Setup Rust
         shell: pwsh
