@@ -329,26 +329,45 @@ jobs:
           New-Item -ItemType Directory -Force -Path xorg_apps_output/windows
           New-Item -ItemType Directory -Force -Path C:\temp\x11anywhere_logs
 
+      - name: Add firewall rule for x11anywhere
+        shell: pwsh
+        run: |
+          Write-Host "Adding firewall rule for x11anywhere on port 6050..."
+          New-NetFirewallRule -DisplayName "x11anywhere" -Direction Inbound -Protocol TCP -LocalPort 6050 -Action Allow -ErrorAction SilentlyContinue
+          Write-Host "Firewall rule added"
+
       - name: Start x11anywhere server
         shell: pwsh
         run: |
-          $env:RUST_LOG = "info"
-          $pinfo = New-Object System.Diagnostics.ProcessStartInfo
-          $pinfo.FileName = "$pwd\target\release\x11anywhere.exe"
-          $pinfo.Arguments = "-display 50 -tcp"
-          $pinfo.UseShellExecute = $false
-          $pinfo.CreateNoWindow = $false
-          $pinfo.EnvironmentVariables["RUST_LOG"] = "info"
+          $env:RUST_LOG = "debug"
 
-          $process = New-Object System.Diagnostics.Process
-          $process.StartInfo = $pinfo
-          $process.Start() | Out-Null
+          # Start process with cmd.exe to redirect output to file
+          $process = Start-Process -FilePath "cmd.exe" `
+            -ArgumentList "/c", "set RUST_LOG=debug && $pwd\target\release\x11anywhere.exe -display 50 -tcp > C:\temp\x11anywhere_logs\stdout.log 2>&1" `
+            -PassThru `
+            -WindowStyle Hidden
 
           Write-Host "Started x11anywhere with PID: $($process.Id)"
           echo "X11ANYWHERE_PID=$($process.Id)" >> $env:GITHUB_ENV
 
           # Wait for server to start
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 5
+
+          # Show initial log output
+          Write-Host "=== Initial server output ==="
+          if (Test-Path "C:\temp\x11anywhere_logs\stdout.log") {
+            Get-Content "C:\temp\x11anywhere_logs\stdout.log"
+          } else {
+            Write-Host "No log file yet"
+          }
+
+          # Check if process is still running
+          $proc = Get-Process -Name x11anywhere -ErrorAction SilentlyContinue
+          if (-not $proc) {
+            Write-Host "WARNING: x11anywhere process may have exited"
+          } else {
+            Write-Host "Process is running with PID: $($proc.Id)"
+          }
 
           # Check if port is listening
           for ($i = 1; $i -le 10; $i++) {
@@ -359,6 +378,25 @@ jobs:
             }
             Write-Host "Waiting for server to start (attempt $i)..."
             Start-Sleep -Seconds 1
+          }
+
+      - name: Check x11anywhere process status
+        shell: pwsh
+        run: |
+          Write-Host "=== Checking x11anywhere process status ==="
+          $proc = Get-Process -Name x11anywhere -ErrorAction SilentlyContinue
+          if ($proc) {
+            Write-Host "x11anywhere process is running with PID: $($proc.Id)"
+          } else {
+            Write-Host "WARNING: x11anywhere process is NOT running!"
+            Write-Host "=== Server log output ==="
+            if (Test-Path "C:\temp\x11anywhere_logs\stdout.log") {
+              Get-Content "C:\temp\x11anywhere_logs\stdout.log"
+            } else {
+              Write-Host "No log file found"
+            }
+            Write-Host "=== netstat for port 6050 ==="
+            netstat -an | Select-String "6050"
           }
 
       - name: Test TCP connectivity from PowerShell
