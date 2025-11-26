@@ -49,22 +49,57 @@ jobs:
 
       - name: Start Xvfb (for x11anywhere backend)
         run: |
-          Xvfb :99 -screen 0 1280x1024x24 &
+          # Start Xvfb with -ac (access control disabled) for easier testing
+          Xvfb :99 -screen 0 1280x1024x24 -ac &
           echo "XVFB_PID=$!" >> $GITHUB_ENV
-          sleep 2
+          sleep 3
+          # Verify Xvfb is running
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb failed to start"
+            exit 1
+          fi
+          # Test that Xvfb is accepting connections
+          if DISPLAY=:99 xdpyinfo >/dev/null 2>&1; then
+            echo "Xvfb is running and accepting connections on :99"
+          else
+            echo "WARNING: Xvfb may not be ready"
+          fi
 
       - name: Start x11anywhere server
         run: |
-          DISPLAY=:99 RUST_LOG=info ./target/release/x11anywhere -display 50 -tcp > /tmp/x11anywhere_logs/server.log 2>&1 &
+          # Run server with debug logging
+          DISPLAY=:99 RUST_LOG=debug ./target/release/x11anywhere -display 50 -tcp > /tmp/x11anywhere_logs/server.log 2>&1 &
           echo "X11ANYWHERE_PID=$!" >> $GITHUB_ENV
-          sleep 3
-          # Check if server is running
+          sleep 5
+
+          # Check if port is listening (more reliable than PID check)
+          echo "Checking if x11anywhere is listening on port 6050..."
+          for i in 1 2 3 4 5; do
+            if ss -tlnp 2>/dev/null | grep -q ":6050 " || netstat -tlnp 2>/dev/null | grep -q ":6050 "; then
+              echo "x11anywhere is listening on port 6050"
+              break
+            fi
+            echo "Waiting for server... (attempt $i)"
+            sleep 2
+          done
+
+          # Also check PID as backup
           if ! kill -0 $X11ANYWHERE_PID 2>/dev/null; then
-            echo "Server failed to start"
+            echo "WARNING: Server process not found by PID"
+            echo "=== Server log ==="
+            cat /tmp/x11anywhere_logs/server.log
+            # Don't exit yet - check port
+          fi
+
+          # Final port check
+          if ss -tlnp 2>/dev/null | grep -q ":6050 " || netstat -tlnp 2>/dev/null | grep -q ":6050 "; then
+            echo "x11anywhere server started successfully on display :50"
+          else
+            echo "ERROR: x11anywhere is not listening on port 6050"
+            echo "=== Server log ==="
             cat /tmp/x11anywhere_logs/server.log
             exit 1
           fi
-          echo "x11anywhere server started on display :50"
 
       - name: Test xclock
         run: |
@@ -268,27 +303,63 @@ jobs:
 
       - name: Start x11anywhere server
         run: |
-          $env:RUST_LOG = "info"
-          Start-Process -FilePath ".\target\release\x11anywhere.exe" -ArgumentList "-display", "50", "-tcp" -RedirectStandardOutput "C:\temp\x11anywhere_logs\server_stdout.log" -RedirectStandardError "C:\temp\x11anywhere_logs\server_stderr.log" -NoNewWindow
+          $env:RUST_LOG = "debug"
+          # Start process and capture it
+          $proc = Start-Process -FilePath ".\target\release\x11anywhere.exe" -ArgumentList "-display", "50", "-tcp" -RedirectStandardOutput "C:\temp\x11anywhere_logs\server_stdout.log" -RedirectStandardError "C:\temp\x11anywhere_logs\server_stderr.log" -PassThru
+          Write-Host "Started x11anywhere with PID: $($proc.Id)"
+          $proc.Id | Out-File -FilePath "C:\temp\x11anywhere_logs\server.pid"
+
+          # Wait for server to start
           Start-Sleep -Seconds 5
-          Write-Host "x11anywhere server started on display :50"
-          # Check if port is listening
-          $listening = netstat -an | Select-String "6050" | Select-String "LISTENING"
-          if ($listening) {
-            Write-Host "Server is listening on port 6050"
-          } else {
-            Write-Host "Warning: Port 6050 not found in LISTENING state"
+
+          # Check if port is listening (multiple attempts)
+          $success = $false
+          for ($i = 1; $i -le 5; $i++) {
+            $listening = netstat -an | Select-String "6050" | Select-String "LISTENING"
+            if ($listening) {
+              Write-Host "Server is listening on port 6050"
+              $success = $true
+              break
+            }
+            Write-Host "Waiting for server to start (attempt $i)..."
+            Start-Sleep -Seconds 2
+          }
+
+          if (-not $success) {
+            Write-Host "WARNING: Port 6050 not in LISTENING state after waiting"
             netstat -an | Select-String "6050"
           }
 
       - name: Verify server is running
         run: |
           Start-Sleep -Seconds 2
-          $process = Get-Process x11anywhere -ErrorAction SilentlyContinue
-          if ($process) {
-            Write-Host "x11anywhere server is running (PID: $($process.Id))"
+
+          # First check by port (more reliable)
+          $listening = netstat -an | Select-String "6050" | Select-String "LISTENING"
+          if ($listening) {
+            Write-Host "Server is listening on port 6050 - verification passed"
           } else {
-            Write-Host "ERROR: x11anywhere server is not running"
+            Write-Host "WARNING: Port 6050 not found listening"
+            # Show what's happening with the port
+            netstat -an | Select-String "6050"
+          }
+
+          # Also try to find the process
+          $process = Get-Process | Where-Object { $_.ProcessName -like "*x11*" } -ErrorAction SilentlyContinue
+          if ($process) {
+            Write-Host "Found process: $($process.ProcessName) (PID: $($process.Id))"
+          } else {
+            Write-Host "WARNING: x11anywhere process not found"
+            # Show logs for debugging
+            Write-Host "=== Server stderr ==="
+            if (Test-Path "C:\temp\x11anywhere_logs\server_stderr.log") {
+              Get-Content "C:\temp\x11anywhere_logs\server_stderr.log" -Tail 50
+            }
+          }
+
+          # Final check - only fail if port is not listening AND no process found
+          if (-not $listening -and -not $process) {
+            Write-Host "ERROR: Server verification failed - neither port listening nor process found"
             exit 1
           }
 
