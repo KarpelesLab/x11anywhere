@@ -163,12 +163,25 @@ fn auto_detect_backend() -> Option<String> {
     // Platform-specific preferences
     #[cfg(target_os = "linux")]
     {
-        // Prefer Wayland on Linux if available, fall back to X11
-        if available.contains(&"wayland") {
+        // Check the actual session type to determine the best backend
+        let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
+        let wayland_display = std::env::var("WAYLAND_DISPLAY").ok();
+
+        // If running under Wayland, prefer wayland backend
+        if (session_type == "wayland" || wayland_display.is_some())
+            && available.contains(&"wayland")
+        {
             return Some("wayland".to_string());
         }
+
+        // If running under X11 or unknown, prefer x11 backend
         if available.contains(&"x11") {
             return Some("x11".to_string());
+        }
+
+        // Fall back to wayland if x11 not available
+        if available.contains(&"wayland") {
+            return Some("wayland".to_string());
         }
     }
 

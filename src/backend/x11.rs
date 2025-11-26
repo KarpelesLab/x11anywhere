@@ -316,12 +316,13 @@ impl X11Backend {
     }
 
     fn connect_to_display(&mut self) -> BackendResult<()> {
-        // Parse display number
-        let display_num: usize = self
-            .display
-            .trim_start_matches(':')
+        // Parse display number (format: :display.screen or :display)
+        let display_str = self.display.trim_start_matches(':');
+        // Split off the screen number if present (e.g., "0.0" -> "0")
+        let display_num_str = display_str.split('.').next().unwrap_or(display_str);
+        let display_num: usize = display_num_str
             .parse()
-            .map_err(|_| "Invalid display number")?;
+            .map_err(|_| format!("Invalid display number: {}", self.display))?;
 
         // Connect via abstract socket on Linux
         #[cfg(target_os = "linux")]

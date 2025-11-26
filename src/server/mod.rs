@@ -887,7 +887,27 @@ impl Server {
                     return Err("Invalid window".into());
                 }
             },
-            Drawable::Pixmap(p) => crate::backend::BackendDrawable::Pixmap(p.id().get() as usize),
+            Drawable::Pixmap(p) => {
+                let pixmap_id = p.id().get();
+                match self.pixmaps.get(&pixmap_id) {
+                    Some(&backend_id) => {
+                        log::debug!(
+                            "fill_rectangles: mapped pixmap 0x{:x} -> backend {}",
+                            pixmap_id,
+                            backend_id
+                        );
+                        crate::backend::BackendDrawable::Pixmap(backend_id)
+                    }
+                    None => {
+                        log::error!(
+                            "fill_rectangles: Pixmap 0x{:x} not found in pixmaps, available: {:?}",
+                            pixmap_id,
+                            self.pixmaps.keys().collect::<Vec<_>>()
+                        );
+                        return Err(format!("Pixmap 0x{:x} not found", pixmap_id).into());
+                    }
+                }
+            }
         };
 
         log::debug!("fill_rectangles: calling backend.fill_rectangles");
