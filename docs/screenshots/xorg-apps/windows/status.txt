@@ -1,0 +1,12 @@
+X11 Apps Test - Windows
+=======================
+
+Note: Native X11 client applications (xclock, xeyes, etc.) are not available
+on Windows as MSYS2/MinGW does not provide X11 client libraries.
+
+This job verifies that:
+1. x11anywhere compiles successfully with Windows backend
+2. The server starts and listens on the configured port
+
+For actual X11 protocol testing on Windows, see the visual_test.rs tests
+which use Rust-based X11 protocol testing.
