@@ -151,6 +151,7 @@ fn handle_client(
             84 => handle_alloc_color(&mut stream, &header, &request_data, &server)?,
             85 => handle_alloc_named_color(&mut stream, &header, &request_data, &server)?,
             88 => handle_free_colors(&mut stream, &header, &request_data, &server)?,
+            91 => handle_query_colors(&mut stream, &header, &request_data, &server)?,
             93 => handle_create_cursor(&mut stream, &header, &request_data, &server)?,
             94 => handle_create_glyph_cursor(&mut stream, &header, &request_data, &server)?,
             95 => handle_free_cursor(&mut stream, &header, &request_data, &server)?,
@@ -2818,6 +2819,70 @@ fn handle_free_colors(
 
     // For TrueColor, this is a no-op
     // No reply for FreeColors
+    Ok(())
+}
+
+fn handle_query_colors(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse QueryColors request: cmap(4), pixels(n*4)
+    if data.len() < 4 {
+        log::warn!("QueryColors request too short");
+        return Ok(());
+    }
+
+    let cmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let num_pixels = (data.len() - 4) / 4;
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    log::debug!("QueryColors: cmap=0x{:x}, num_pixels={}", cmap, num_pixels);
+
+    // For TrueColor visual, decode pixel values directly
+    // Each pixel is a 32-bit value with RGB packed in it
+    // Reply format: 1(reply), pad, seq(2), length(4), nColors(2), pad(22), then colors(n*8)
+    let reply_length = (num_pixels * 8 + 24) / 4; // in 4-byte units after header
+
+    let mut reply = vec![0u8; 32 + num_pixels * 8];
+    reply[0] = 1; // Reply
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&(reply_length as u32 - 6).to_le_bytes()); // length after first 32 bytes
+    reply[8..10].copy_from_slice(&(num_pixels as u16).to_le_bytes());
+
+    // For each pixel, extract RGB and return
+    for i in 0..num_pixels {
+        let pixel_offset = 4 + i * 4;
+        if pixel_offset + 4 <= data.len() {
+            let pixel = u32::from_le_bytes([
+                data[pixel_offset],
+                data[pixel_offset + 1],
+                data[pixel_offset + 2],
+                data[pixel_offset + 3],
+            ]);
+
+            // For TrueColor 24-bit: pixel = 0x00RRGGBB
+            // Convert 8-bit to 16-bit by shifting left 8 and OR with original
+            let red = ((pixel >> 16) & 0xFF) as u16;
+            let green = ((pixel >> 8) & 0xFF) as u16;
+            let blue = (pixel & 0xFF) as u16;
+
+            // Scale 8-bit to 16-bit
+            let red16 = (red << 8) | red;
+            let green16 = (green << 8) | green;
+            let blue16 = (blue << 8) | blue;
+
+            // Each color entry is 8 bytes: red(2), green(2), blue(2), pad(2)
+            let color_offset = 32 + i * 8;
+            reply[color_offset..color_offset + 2].copy_from_slice(&red16.to_le_bytes());
+            reply[color_offset + 2..color_offset + 4].copy_from_slice(&green16.to_le_bytes());
+            reply[color_offset + 4..color_offset + 6].copy_from_slice(&blue16.to_le_bytes());
+            // pad bytes already 0
+        }
+    }
+
+    stream.write_all(&reply)?;
     Ok(())
 }
 

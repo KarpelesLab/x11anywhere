@@ -225,6 +225,14 @@ fn handle_render_request(
             // RenderFillRectangles - no reply needed
             log::debug!("RENDER: FillRectangles");
         }
+        27 => {
+            // RenderCreateCursor - no reply needed
+            log::debug!("RENDER: CreateCursor");
+        }
+        28 => {
+            // RenderSetPictureTransform - no reply needed
+            log::debug!("RENDER: SetPictureTransform");
+        }
         29 => {
             // RenderQueryFilters
             log::debug!("RENDER: QueryFilters");
@@ -235,19 +243,27 @@ fn handle_render_request(
             // RenderSetPictureFilter - no reply needed
             log::debug!("RENDER: SetPictureFilter");
         }
+        31 => {
+            // RenderCreateAnimCursor - no reply needed
+            log::debug!("RENDER: CreateAnimCursor");
+        }
         32 => {
+            // RenderAddTraps - no reply needed
+            log::debug!("RENDER: AddTraps");
+        }
+        33 => {
             // RenderCreateSolidFill - no reply needed
             log::debug!("RENDER: CreateSolidFill");
         }
-        33 => {
+        34 => {
             // RenderCreateLinearGradient - no reply needed
             log::debug!("RENDER: CreateLinearGradient");
         }
-        34 => {
+        35 => {
             // RenderCreateRadialGradient - no reply needed
             log::debug!("RENDER: CreateRadialGradient");
         }
-        35 => {
+        36 => {
             // RenderCreateConicalGradient - no reply needed
             log::debug!("RENDER: CreateConicalGradient");
         }
