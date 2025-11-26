@@ -143,8 +143,8 @@ fn handle_client(
             54 => handle_free_pixmap(&mut stream, &header, &request_data, &server)?,
             55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
-            57 => handle_free_gc(&mut stream, &header, &request_data, &server)?,
-            60 => handle_clear_area(&mut stream, &header, &request_data, &server)?,
+            60 => handle_free_gc(&mut stream, &header, &request_data, &server)?,
+            61 => handle_clear_area(&mut stream, &header, &request_data, &server)?,
             78 => handle_create_colormap(&mut stream, &header, &request_data, &server)?,
             79 => handle_free_colormap(&mut stream, &header, &request_data, &server)?,
             84 => handle_alloc_color(&mut stream, &header, &request_data, &server)?,
@@ -354,8 +354,8 @@ fn handle_create_window(
 }
 
 fn handle_map_window(
-    _stream: &mut TcpStream,
-    _header: &[u8],
+    stream: &mut TcpStream,
+    header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -365,11 +365,50 @@ fn handle_map_window(
         return Ok(());
     }
 
-    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-    log::debug!("MapWindow: window=0x{:x}", window);
+    let window_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    log::debug!("MapWindow: window=0x{:x}, seq={}", window_id, sequence);
 
-    let mut server = server.lock().unwrap();
-    server.map_window(crate::protocol::Window::new(window))?;
+    let window = crate::protocol::Window::new(window_id);
+
+    // Get window info before mapping (need dimensions for Expose event)
+    let (width, height, event_mask) = {
+        let server = server.lock().unwrap();
+        if let Some(info) = server.get_window_info(window) {
+            (info.width, info.height, info.event_mask)
+        } else {
+            // Default to reasonable size if not found
+            (100, 100, 0)
+        }
+    };
+
+    // Map the window
+    {
+        let mut server = server.lock().unwrap();
+        server.map_window(window)?;
+    }
+
+    // Send Expose event if client requested ExposureMask (0x8000 = bit 15)
+    const EXPOSURE_MASK: u32 = 0x8000;
+    if event_mask & EXPOSURE_MASK != 0 {
+        let encoder =
+            crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+        let expose_event = encoder.encode_expose_event(
+            sequence, // Use current sequence number
+            window, 0,      // x - expose entire window
+            0,      // y
+            width,  // width
+            height, // height
+            0,      // count - no more Expose events following
+        );
+        stream.write_all(&expose_event)?;
+        log::debug!(
+            "Sent Expose event for window 0x{:x} ({}x{})",
+            window_id,
+            width,
+            height
+        );
+    }
 
     Ok(())
 }

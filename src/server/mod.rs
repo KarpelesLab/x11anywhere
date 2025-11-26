@@ -62,6 +62,25 @@ pub struct FontInfo {
     pub max_char: u16,
 }
 
+/// Window metadata for event dispatching and geometry queries
+#[derive(Debug, Clone)]
+pub struct WindowInfo {
+    /// Window width in pixels
+    pub width: u16,
+    /// Window height in pixels
+    pub height: u16,
+    /// Window x position
+    pub x: i16,
+    /// Window y position
+    pub y: i16,
+    /// Border width
+    pub border_width: u16,
+    /// Event mask (which events this window is interested in)
+    pub event_mask: u32,
+    /// Parent window
+    pub parent: Window,
+}
+
 impl FontInfo {
     /// Create FontInfo with default metrics for a given font name
     pub fn new(name: &str) -> Self {
@@ -85,6 +104,9 @@ pub struct Server {
 
     /// Window mapping: X11 Window ID -> Backend Window
     windows: HashMap<Window, BackendWindow>,
+
+    /// Window metadata: X11 Window ID -> WindowInfo
+    window_info: HashMap<Window, WindowInfo>,
 
     /// GC mapping: X11 GContext ID -> Backend GC
     gcs: HashMap<GContext, BackendGC>,
@@ -141,6 +163,7 @@ impl Server {
         let mut server = Server {
             backend,
             windows: HashMap::new(),
+            window_info: HashMap::new(),
             gcs: HashMap::new(),
             pixmaps: HashMap::new(),
             root_window,
@@ -691,6 +714,20 @@ impl Server {
         let backend_window = self.backend.create_window(params)?;
         self.windows.insert(window, backend_window);
 
+        // Store window metadata for event dispatching and geometry queries
+        self.window_info.insert(
+            window,
+            WindowInfo {
+                width,
+                height,
+                x,
+                y,
+                border_width,
+                event_mask,
+                parent,
+            },
+        );
+
         // Store root backend window if this is the root
         if window == self.root_window && self.root_backend_window.is_none() {
             self.root_backend_window = Some(backend_window);
@@ -705,6 +742,11 @@ impl Server {
             self.backend.map_window(backend_window)?;
         }
         Ok(())
+    }
+
+    /// Get window info (dimensions, event_mask, etc.)
+    pub fn get_window_info(&self, window: Window) -> Option<&WindowInfo> {
+        self.window_info.get(&window)
     }
 
     /// Unmap a window (hide it)

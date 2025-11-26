@@ -538,4 +538,57 @@ impl ProtocolEncoder {
 
         buffer
     }
+
+    // ========== Event Encoders ==========
+
+    /// Encode Expose event (event code 12)
+    /// Sent when a window region needs to be redrawn
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode_expose_event(
+        &self,
+        sequence: u16,
+        window: Window,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        count: u16,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 12; // Expose event code
+                        // buffer[1] unused
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(window.id().get()));
+        buffer[8..10].copy_from_slice(&self.write_u16(x));
+        buffer[10..12].copy_from_slice(&self.write_u16(y));
+        buffer[12..14].copy_from_slice(&self.write_u16(width));
+        buffer[14..16].copy_from_slice(&self.write_u16(height));
+        buffer[16..18].copy_from_slice(&self.write_u16(count));
+        // bytes 18-31 unused
+
+        buffer
+    }
+
+    /// Encode MapNotify event (event code 19)
+    /// Sent when a window is mapped
+    pub fn encode_map_notify_event(
+        &self,
+        sequence: u16,
+        event: Window,
+        window: Window,
+        override_redirect: bool,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 19; // MapNotify event code
+                        // buffer[1] unused
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(event.id().get()));
+        buffer[8..12].copy_from_slice(&self.write_u32(window.id().get()));
+        buffer[12] = if override_redirect { 1 } else { 0 };
+        // bytes 13-31 unused
+
+        buffer
+    }
 }
