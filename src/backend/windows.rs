@@ -1441,4 +1441,154 @@ impl Backend for WindowsBackend {
             }
         }
     }
+
+    fn list_system_fonts(&self) -> BackendResult<Vec<BackendFontInfo>> {
+        let mut fonts: Vec<BackendFontInfo> = Vec::new();
+
+        unsafe {
+            let hdc = GetDC(0);
+            if hdc == 0 {
+                return Ok(fonts);
+            }
+
+            // Set up LOGFONTW for enumeration - use DEFAULT_CHARSET to get all fonts
+            let mut lf: LOGFONTW = mem::zeroed();
+            lf.lfCharSet = DEFAULT_CHARSET as u8;
+
+            // Callback data structure
+            struct CallbackData {
+                fonts: Vec<BackendFontInfo>,
+                hdc: HDC,
+            }
+
+            let mut callback_data = CallbackData {
+                fonts: Vec::new(),
+                hdc,
+            };
+
+            // Font enumeration callback
+            unsafe extern "system" fn enum_font_callback(
+                lpelfe: *const LOGFONTW,
+                lpntme: *const TEXTMETRICW,
+                font_type: u32,
+                lparam: LPARAM,
+            ) -> i32 {
+                let data = &mut *(lparam as *mut CallbackData);
+                let lf = &*lpelfe;
+                let tm = &*lpntme;
+
+                // Skip raster fonts (we want TrueType/OpenType)
+                if font_type & TRUETYPE_FONTTYPE == 0 {
+                    return 1; // Continue enumeration
+                }
+
+                // Get font family name from LOGFONTW
+                let family_name: String = lf
+                    .lfFaceName
+                    .iter()
+                    .take_while(|&&c| c != 0)
+                    .map(|&c| char::from_u32(c as u32).unwrap_or('?'))
+                    .collect();
+
+                // Skip fonts starting with @ (vertical fonts)
+                if family_name.starts_with('@') {
+                    return 1;
+                }
+
+                // Determine weight string
+                let weight = match lf.lfWeight {
+                    w if w <= 100 => "thin",
+                    w if w <= 200 => "extralight",
+                    w if w <= 300 => "light",
+                    w if w <= 400 => "medium",
+                    w if w <= 500 => "medium",
+                    w if w <= 600 => "demibold",
+                    w if w <= 700 => "bold",
+                    w if w <= 800 => "extrabold",
+                    _ => "black",
+                };
+
+                // Determine slant
+                let slant = if lf.lfItalic != 0 { "i" } else { "r" };
+
+                // Calculate pixel size from height (can be negative for character height)
+                let pixel_size = if lf.lfHeight < 0 {
+                    (-lf.lfHeight) as u16
+                } else {
+                    lf.lfHeight as u16
+                };
+
+                // Point size in decipoints (pixel * 720 / 96 for 96 DPI)
+                let point_size = if pixel_size > 0 {
+                    ((pixel_size as u32 * 720) / 96) as u16
+                } else {
+                    120 // Default 12pt
+                };
+
+                // Character width (0 for proportional, actual width for fixed-pitch)
+                let char_width = if lf.lfPitchAndFamily & FIXED_PITCH as u8 != 0 {
+                    tm.tmAveCharWidth as u16
+                } else {
+                    0
+                };
+
+                // Determine charset registry/encoding
+                let (registry, encoding) = match lf.lfCharSet as u32 {
+                    ANSI_CHARSET => ("iso8859", "1"),
+                    SYMBOL_CHARSET => ("adobe", "fontspecific"),
+                    SHIFTJIS_CHARSET => ("jisx0208.1983", "0"),
+                    HANGEUL_CHARSET => ("ksc5601.1987", "0"),
+                    GB2312_CHARSET => ("gb2312.1980", "0"),
+                    CHINESEBIG5_CHARSET => ("big5", "0"),
+                    GREEK_CHARSET => ("iso8859", "7"),
+                    TURKISH_CHARSET => ("iso8859", "9"),
+                    HEBREW_CHARSET => ("iso8859", "8"),
+                    ARABIC_CHARSET => ("iso8859", "6"),
+                    BALTIC_CHARSET => ("iso8859", "13"),
+                    RUSSIAN_CHARSET => ("koi8", "r"),
+                    THAI_CHARSET => ("tis620.2533", "0"),
+                    EASTEUROPE_CHARSET => ("iso8859", "2"),
+                    _ => ("iso10646", "1"), // Unicode fallback
+                };
+
+                let font_info = BackendFontInfo {
+                    xlfd_name: String::new(), // Will be generated
+                    family: family_name.clone(),
+                    weight: weight.to_string(),
+                    slant: slant.to_string(),
+                    pixel_size,
+                    point_size,
+                    char_width,
+                    ascent: tm.tmAscent as i16,
+                    descent: tm.tmDescent as i16,
+                    registry: registry.to_string(),
+                    encoding: encoding.to_string(),
+                };
+
+                // Generate XLFD name
+                let mut font_with_xlfd = font_info;
+                font_with_xlfd.xlfd_name = font_with_xlfd.generate_xlfd();
+
+                data.fonts.push(font_with_xlfd);
+
+                1 // Continue enumeration
+            }
+
+            // Enumerate fonts
+            EnumFontFamiliesExW(
+                hdc,
+                &lf,
+                Some(enum_font_callback),
+                &mut callback_data as *mut CallbackData as LPARAM,
+                0,
+            );
+
+            ReleaseDC(0, hdc);
+
+            fonts = callback_data.fonts;
+        }
+
+        log::debug!("Windows backend: enumerated {} fonts", fonts.len());
+        Ok(fonts)
+    }
 }

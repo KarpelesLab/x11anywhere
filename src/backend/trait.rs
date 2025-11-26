@@ -226,6 +226,51 @@ pub struct RenderTrapezoid {
     pub right_y2: i32,
 }
 
+/// Font information from the system
+#[derive(Debug, Clone)]
+pub struct BackendFontInfo {
+    /// X11-style XLFD font name (e.g., "-misc-fixed-medium-r-normal--13-120-75-75-c-80-iso8859-1")
+    pub xlfd_name: String,
+    /// Font family name (e.g., "Arial", "Helvetica")
+    pub family: String,
+    /// Font weight (e.g., "medium", "bold")
+    pub weight: String,
+    /// Font slant (e.g., "r" for roman/regular, "i" for italic, "o" for oblique)
+    pub slant: String,
+    /// Pixel size (0 if scalable)
+    pub pixel_size: u16,
+    /// Point size in decipoints (e.g., 120 = 12pt)
+    pub point_size: u16,
+    /// Character width for monospace, 0 for proportional
+    pub char_width: u16,
+    /// Font ascent in pixels
+    pub ascent: i16,
+    /// Font descent in pixels
+    pub descent: i16,
+    /// Character set registry (e.g., "iso8859")
+    pub registry: String,
+    /// Character set encoding (e.g., "1")
+    pub encoding: String,
+}
+
+impl BackendFontInfo {
+    /// Generate XLFD name from font properties
+    pub fn generate_xlfd(&self) -> String {
+        format!(
+            "-*-{}-{}-{}-normal--{}-{}-75-75-{}-{}-{}-{}",
+            self.family.to_lowercase().replace(' ', "-"),
+            self.weight.to_lowercase(),
+            self.slant.to_lowercase(),
+            self.pixel_size,
+            self.point_size,
+            if self.char_width > 0 { "m" } else { "p" },
+            self.char_width,
+            self.registry.to_lowercase(),
+            self.encoding.to_lowercase()
+        )
+    }
+}
+
 /// Backend events
 #[derive(Debug, Clone)]
 pub enum BackendEvent {
@@ -722,6 +767,16 @@ pub trait Backend: Send {
 
     /// Wait for events (blocking)
     fn wait_for_event(&mut self) -> BackendResult<BackendEvent>;
+
+    // Font operations
+
+    /// List available system fonts
+    /// Returns fonts that can be used for text rendering
+    fn list_system_fonts(&self) -> BackendResult<Vec<BackendFontInfo>> {
+        // Default implementation returns empty list
+        // Backends should override this to enumerate actual system fonts
+        Ok(Vec::new())
+    }
 }
 
 /// Helper function to interpolate X coordinate along a line at a given Y
