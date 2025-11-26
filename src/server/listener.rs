@@ -302,31 +302,82 @@ fn handle_create_window(
         y
     );
 
-    // Parse value list
+    // Parse value list - must iterate through all bits in order
+    // CreateWindow value-mask bits:
+    // 0: background-pixmap, 1: background-pixel, 2: border-pixmap, 3: border-pixel,
+    // 4: bit-gravity, 5: win-gravity, 6: backing-store, 7: backing-planes,
+    // 8: backing-pixel, 9: override-redirect, 10: save-under, 11: event-mask,
+    // 12: do-not-propagate-mask, 13: colormap, 14: cursor
     let mut background_pixel = None;
     let mut event_mask = 0u32;
     let mut offset = 28;
 
-    // Background pixel (bit 1)
-    if value_mask & 0x00000002 != 0 && offset + 4 <= data.len() {
-        background_pixel = Some(u32::from_le_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ]));
-        offset += 4;
+    // Helper to read u32 and advance offset
+    let read_u32 = |off: &mut usize| -> Option<u32> {
+        if *off + 4 <= data.len() {
+            let val =
+                u32::from_le_bytes([data[*off], data[*off + 1], data[*off + 2], data[*off + 3]]);
+            *off += 4;
+            Some(val)
+        } else {
+            None
+        }
+    };
+
+    // Bit 0: background-pixmap
+    if value_mask & 0x00000001 != 0 {
+        read_u32(&mut offset); // Skip
+    }
+    // Bit 1: background-pixel
+    if value_mask & 0x00000002 != 0 {
+        background_pixel = read_u32(&mut offset);
+    }
+    // Bit 2: border-pixmap
+    if value_mask & 0x00000004 != 0 {
+        read_u32(&mut offset); // Skip
+    }
+    // Bit 3: border-pixel
+    if value_mask & 0x00000008 != 0 {
+        read_u32(&mut offset); // Skip
+    }
+    // Bit 4: bit-gravity
+    if value_mask & 0x00000010 != 0 {
+        read_u32(&mut offset); // Skip
+    }
+    // Bit 5: win-gravity
+    if value_mask & 0x00000020 != 0 {
+        read_u32(&mut offset); // Skip
+    }
+    // Bit 6: backing-store
+    if value_mask & 0x00000040 != 0 {
+        read_u32(&mut offset); // Skip
+    }
+    // Bit 7: backing-planes
+    if value_mask & 0x00000080 != 0 {
+        read_u32(&mut offset); // Skip
+    }
+    // Bit 8: backing-pixel
+    if value_mask & 0x00000100 != 0 {
+        read_u32(&mut offset); // Skip
+    }
+    // Bit 9: override-redirect
+    if value_mask & 0x00000200 != 0 {
+        read_u32(&mut offset); // Skip
+    }
+    // Bit 10: save-under
+    if value_mask & 0x00000400 != 0 {
+        read_u32(&mut offset); // Skip
+    }
+    // Bit 11: event-mask
+    if value_mask & 0x00000800 != 0 {
+        event_mask = read_u32(&mut offset).unwrap_or(0);
     }
 
-    // Event mask (bit 11)
-    if value_mask & 0x00000800 != 0 && offset + 4 <= data.len() {
-        event_mask = u32::from_le_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ]);
-    }
+    log::debug!(
+        "CreateWindow value_mask=0x{:x}, event_mask=0x{:x}",
+        value_mask,
+        event_mask
+    );
 
     let window_class = match class {
         0 => WindowClass::CopyFromParent,
