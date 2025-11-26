@@ -309,19 +309,19 @@ jobs:
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: MSYS
           update: true
           install: >-
-            mingw-w64-x86_64-libx11
-            mingw-w64-x86_64-libxext
-            mingw-w64-x86_64-libxmu
-            mingw-w64-x86_64-libxaw
-            mingw-w64-x86_64-libxpm
-            mingw-w64-x86_64-libxrender
-            mingw-w64-x86_64-libxft
-            mingw-w64-x86_64-xorg-xeyes
-            mingw-w64-x86_64-xorg-xclock
-            mingw-w64-x86_64-xorg-xlogo
+            xorg-xeyes
+            xorg-xclock
+            xorg-xlogo
+            libX11
+            libXext
+            libXmu
+            libXaw
+            libXpm
+            libXrender
+            libXft
 
       - name: Setup Rust
         shell: pwsh
