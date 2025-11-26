@@ -749,6 +749,15 @@ impl Server {
         self.window_info.get(&window)
     }
 
+    /// Get all child windows of a parent window
+    pub fn get_children(&self, parent: Window) -> Vec<Window> {
+        self.window_info
+            .iter()
+            .filter(|(_, info)| info.parent == parent)
+            .map(|(window, _)| *window)
+            .collect()
+    }
+
     /// Unmap a window (hide it)
     pub fn unmap_window(&mut self, window: Window) -> Result<(), Box<dyn Error + Send + Sync>> {
         if let Some(&backend_window) = self.windows.get(&window) {

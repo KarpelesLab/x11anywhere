@@ -109,6 +109,7 @@ fn handle_client(
             3 => handle_get_window_attributes(&mut stream, &header, &request_data, &server)?,
             4 => handle_destroy_window(&mut stream, &header, &request_data, &server)?,
             8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
+            9 => handle_map_subwindows(&mut stream, &header, &request_data, &server)?,
             10 => handle_unmap_window(&mut stream, &header, &request_data, &server)?,
             12 => handle_configure_window(&mut stream, &header, &request_data, &server)?,
             14 => handle_get_geometry(&mut stream, &header, &request_data, &server)?,
@@ -459,6 +460,72 @@ fn handle_map_window(
             width,
             height
         );
+    }
+
+    Ok(())
+}
+
+fn handle_map_subwindows(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse MapSubwindows request: window(4)
+    if data.len() < 4 {
+        log::warn!("MapSubwindows request too short");
+        return Ok(());
+    }
+
+    let parent_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    log::debug!("MapSubwindows: parent=0x{:x}, seq={}", parent_id, sequence);
+
+    let parent = crate::protocol::Window::new(parent_id);
+
+    // Get all children and their info
+    let children_info: Vec<(crate::protocol::Window, u16, u16, u32)> = {
+        let server = server.lock().unwrap();
+        server
+            .get_children(parent)
+            .iter()
+            .filter_map(|&child| {
+                server
+                    .get_window_info(child)
+                    .map(|info| (child, info.width, info.height, info.event_mask))
+            })
+            .collect()
+    };
+
+    // Map each child window and send Expose events if needed
+    for (child, width, height, event_mask) in children_info {
+        // Map the child window
+        {
+            let mut server = server.lock().unwrap();
+            server.map_window(child)?;
+        }
+
+        // Send Expose event if child requested ExposureMask (0x8000 = bit 15)
+        const EXPOSURE_MASK: u32 = 0x8000;
+        if event_mask & EXPOSURE_MASK != 0 {
+            let encoder = crate::protocol::encoder::ProtocolEncoder::new(
+                crate::protocol::ByteOrder::LSBFirst,
+            );
+            let expose_event = encoder.encode_expose_event(
+                sequence, child, 0,      // x - expose entire window
+                0,      // y
+                width,  // width
+                height, // height
+                0,      // count - no more Expose events following
+            );
+            stream.write_all(&expose_event)?;
+            log::debug!(
+                "Sent Expose event for child window 0x{:x} ({}x{})",
+                child.id().get(),
+                width,
+                height
+            );
+        }
     }
 
     Ok(())
