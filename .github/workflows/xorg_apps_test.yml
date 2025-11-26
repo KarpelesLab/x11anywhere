@@ -83,7 +83,7 @@ jobs:
       - name: Start x11anywhere server
         run: |
           # Run server with debug logging using nohup
-          nohup env DISPLAY=:99 RUST_LOG=info ./target/release/x11anywhere -display 50 -tcp > /tmp/x11anywhere_logs/server.log 2>&1 &
+          nohup env DISPLAY=:99 RUST_LOG=debug ./target/release/x11anywhere -display 50 -tcp > /tmp/x11anywhere_logs/server.log 2>&1 &
           X11ANYWHERE_PID=$!
           echo "X11ANYWHERE_PID=$X11ANYWHERE_PID" >> $GITHUB_ENV
           echo "Started x11anywhere with PID $X11ANYWHERE_PID"
