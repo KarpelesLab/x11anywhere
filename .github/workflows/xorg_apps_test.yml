@@ -361,6 +361,20 @@ jobs:
             Start-Sleep -Seconds 1
           }
 
+      - name: Test TCP connectivity from PowerShell
+        shell: pwsh
+        run: |
+          Write-Host "=== Testing TCP connectivity from PowerShell (native) ==="
+          try {
+            $client = New-Object System.Net.Sockets.TcpClient
+            $client.Connect("127.0.0.1", 6050)
+            Write-Host "SUCCESS: PowerShell can connect to 127.0.0.1:6050"
+            $client.Close()
+          } catch {
+            Write-Host "FAILED: PowerShell cannot connect to 127.0.0.1:6050 - $_"
+          }
+        continue-on-error: true
+
       - name: Test TCP connectivity from Cygwin
         shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
@@ -374,15 +388,13 @@ jobs:
             echo "FAILED: Cannot connect to 127.0.0.1:6050 via bash /dev/tcp"
           fi
 
-          # Try with nc if available
-          which nc && echo "X" | nc -w 2 127.0.0.1 6050 && echo "nc connected" || echo "nc not available or failed"
+          # Try calling Windows native netstat from Cygwin
+          echo "=== Windows netstat from Cygwin ==="
+          /cygdrive/c/Windows/System32/netstat.exe -an | grep 6050 || echo "Port 6050 not visible"
 
-          # Show network info
-          echo "=== Network interfaces ==="
-          ip addr 2>/dev/null || ipconfig //all 2>/dev/null || echo "No network info available"
-
-          echo "=== Netstat from Cygwin ==="
-          netstat -an 2>/dev/null | grep 6050 || echo "Port 6050 not seen from Cygwin"
+          # Try connecting with PowerShell from Cygwin
+          echo "=== Testing with PowerShell from Cygwin ==="
+          powershell.exe -Command "Test-NetConnection -ComputerName 127.0.0.1 -Port 6050" 2>&1 || echo "PowerShell test failed"
         continue-on-error: true
 
       - name: Test xeyes
