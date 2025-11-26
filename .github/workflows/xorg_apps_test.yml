@@ -364,7 +364,9 @@ jobs:
       - name: Test xeyes
         shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
-          export DISPLAY=localhost:50
+          export DISPLAY=127.0.0.1:50
+          echo "Testing display connectivity..."
+          echo "DISPLAY=$DISPLAY"
           echo "Starting xeyes..."
           /usr/bin/xeyes -geometry 150x100+50+50 &
           XEYES_PID=$!
@@ -375,7 +377,7 @@ jobs:
       - name: Test xlogo
         shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
-          export DISPLAY=localhost:50
+          export DISPLAY=127.0.0.1:50
           echo "Starting xlogo..."
           /usr/bin/xlogo -geometry 150x150+250+50 &
           XLOGO_PID=$!
@@ -386,7 +388,7 @@ jobs:
       - name: Test xclock
         shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
-          export DISPLAY=localhost:50
+          export DISPLAY=127.0.0.1:50
           echo "Starting xclock..."
           /usr/bin/xclock -geometry 150x150+450+50 &
           XCLOCK_PID=$!
