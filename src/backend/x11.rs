@@ -1545,13 +1545,75 @@ impl Backend for X11Backend {
         Ok(())
     }
 
-    fn create_pixmap(&mut self, _width: u16, _height: u16, _depth: u8) -> BackendResult<usize> {
-        let id = self.next_resource_id;
+    fn create_pixmap(&mut self, width: u16, height: u16, depth: u8) -> BackendResult<usize> {
+        // Allocate IDs
+        let our_id = self.next_resource_id;
         self.next_resource_id += 1;
-        Ok(id)
+        let server_pid = self.allocate_server_resource_id();
+
+        // Get root window as the drawable reference
+        let root_drawable = if let Some(ref setup) = self.setup_info {
+            setup.roots[0].root.id().get()
+        } else {
+            return Err("Not initialized".into());
+        };
+
+        // Build CreatePixmap request (opcode 53)
+        // Format: depth(1), opcode(1), length(2), pid(4), drawable(4), width(2), height(2)
+        let mut req = vec![0u8; 16];
+        req[0] = 53; // Opcode: CreatePixmap
+        req[1] = depth; // depth in header byte
+        req[2..4].copy_from_slice(&4u16.to_le_bytes()); // Length: 4 words
+        req[4..8].copy_from_slice(&server_pid.to_le_bytes());
+        req[8..12].copy_from_slice(&root_drawable.to_le_bytes());
+        req[12..14].copy_from_slice(&width.to_le_bytes());
+        req[14..16].copy_from_slice(&height.to_le_bytes());
+
+        self.send_request(&req)?;
+
+        // Store the mapping
+        self.pixmap_map.lock().unwrap().insert(our_id, server_pid);
+
+        if self.debug {
+            log::debug!(
+                "Created X11 pixmap: our_id={}, server_pid=0x{:x}, {}x{}, depth={}",
+                our_id,
+                server_pid,
+                width,
+                height,
+                depth
+            );
+        }
+
+        Ok(our_id)
     }
 
-    fn free_pixmap(&mut self, _pixmap: usize) -> BackendResult<()> {
+    fn free_pixmap(&mut self, pixmap: usize) -> BackendResult<()> {
+        // Get and remove the server pixmap ID
+        let server_pid = self
+            .pixmap_map
+            .lock()
+            .unwrap()
+            .remove(&pixmap)
+            .ok_or("Pixmap not found")?;
+
+        // Build FreePixmap request (opcode 54)
+        let mut req = vec![0u8; 8];
+        req[0] = 54; // Opcode: FreePixmap
+        req[1] = 0; // unused
+        req[2..4].copy_from_slice(&2u16.to_le_bytes()); // Length: 2 words
+        req[4..8].copy_from_slice(&server_pid.to_le_bytes());
+
+        self.send_request(&req)?;
+
+        if self.debug {
+            log::debug!(
+                "Freed X11 pixmap: our_id={}, server_pid=0x{:x}",
+                pixmap,
+                server_pid
+            );
+        }
+
         Ok(())
     }
 
