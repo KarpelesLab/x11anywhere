@@ -361,11 +361,34 @@ jobs:
             Start-Sleep -Seconds 1
           }
 
+      - name: Test TCP connectivity from Cygwin
+        shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
+        run: |
+          echo "=== Testing TCP connectivity from Cygwin ==="
+          echo "Checking if port 6050 is reachable..."
+
+          # Test with bash TCP
+          if timeout 2 bash -c "echo > /dev/tcp/127.0.0.1/6050" 2>/dev/null; then
+            echo "SUCCESS: Can connect to 127.0.0.1:6050 via bash /dev/tcp"
+          else
+            echo "FAILED: Cannot connect to 127.0.0.1:6050 via bash /dev/tcp"
+          fi
+
+          # Try with nc if available
+          which nc && echo "X" | nc -w 2 127.0.0.1 6050 && echo "nc connected" || echo "nc not available or failed"
+
+          # Show network info
+          echo "=== Network interfaces ==="
+          ip addr 2>/dev/null || ipconfig //all 2>/dev/null || echo "No network info available"
+
+          echo "=== Netstat from Cygwin ==="
+          netstat -an 2>/dev/null | grep 6050 || echo "Port 6050 not seen from Cygwin"
+        continue-on-error: true
+
       - name: Test xeyes
         shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
           export DISPLAY=127.0.0.1:50
-          echo "Testing display connectivity..."
           echo "DISPLAY=$DISPLAY"
           echo "Starting xeyes..."
           /usr/bin/xeyes -geometry 150x100+50+50 &
