@@ -83,7 +83,12 @@ fn handle_client(
         let opcode = header[0];
         let length = u16::from_le_bytes([header[2], header[3]]) as usize * 4;
 
-        log::debug!("Received opcode {} (length {}, seq {})", opcode, length, sequence_number);
+        log::debug!(
+            "Received opcode {} (length {}, seq {})",
+            opcode,
+            length,
+            sequence_number
+        );
 
         // Store the sequence number in header[2-3] so handlers can access it
         // (handlers currently incorrectly read these bytes as sequence number,

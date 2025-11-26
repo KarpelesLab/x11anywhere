@@ -159,6 +159,98 @@ fn handle_render_request(
             let reply = encode_render_query_version_reply(sequence);
             stream.write_all(&reply)?;
         }
+        1 => {
+            // RenderQueryPictFormats
+            log::debug!("RENDER: QueryPictFormats");
+            let reply = encode_render_query_pict_formats_reply(sequence);
+            stream.write_all(&reply)?;
+        }
+        4 => {
+            // RenderCreatePicture - no reply needed
+            log::debug!("RENDER: CreatePicture");
+        }
+        5 => {
+            // RenderChangePicture - no reply needed
+            log::debug!("RENDER: ChangePicture");
+        }
+        6 => {
+            // RenderSetPictureClipRectangles - no reply needed
+            log::debug!("RENDER: SetPictureClipRectangles");
+        }
+        7 => {
+            // RenderFreePicture - no reply needed
+            log::debug!("RENDER: FreePicture");
+        }
+        8 => {
+            // RenderComposite - no reply needed
+            log::debug!("RENDER: Composite");
+        }
+        10 => {
+            // RenderTrapezoids - no reply needed
+            log::debug!("RENDER: Trapezoids");
+        }
+        11 => {
+            // RenderTriangles - no reply needed
+            log::debug!("RENDER: Triangles");
+        }
+        17 => {
+            // RenderCreateGlyphSet - no reply needed
+            log::debug!("RENDER: CreateGlyphSet");
+        }
+        18 => {
+            // RenderReferenceGlyphSet - no reply needed
+            log::debug!("RENDER: ReferenceGlyphSet");
+        }
+        19 => {
+            // RenderFreeGlyphSet - no reply needed
+            log::debug!("RENDER: FreeGlyphSet");
+        }
+        20 => {
+            // RenderAddGlyphs - no reply needed
+            log::debug!("RENDER: AddGlyphs");
+        }
+        23 => {
+            // RenderCompositeGlyphs8 - no reply needed
+            log::debug!("RENDER: CompositeGlyphs8");
+        }
+        24 => {
+            // RenderCompositeGlyphs16 - no reply needed
+            log::debug!("RENDER: CompositeGlyphs16");
+        }
+        25 => {
+            // RenderCompositeGlyphs32 - no reply needed
+            log::debug!("RENDER: CompositeGlyphs32");
+        }
+        26 => {
+            // RenderFillRectangles - no reply needed
+            log::debug!("RENDER: FillRectangles");
+        }
+        29 => {
+            // RenderQueryFilters
+            log::debug!("RENDER: QueryFilters");
+            let reply = encode_render_query_filters_reply(sequence);
+            stream.write_all(&reply)?;
+        }
+        30 => {
+            // RenderSetPictureFilter - no reply needed
+            log::debug!("RENDER: SetPictureFilter");
+        }
+        32 => {
+            // RenderCreateSolidFill - no reply needed
+            log::debug!("RENDER: CreateSolidFill");
+        }
+        33 => {
+            // RenderCreateLinearGradient - no reply needed
+            log::debug!("RENDER: CreateLinearGradient");
+        }
+        34 => {
+            // RenderCreateRadialGradient - no reply needed
+            log::debug!("RENDER: CreateRadialGradient");
+        }
+        35 => {
+            // RenderCreateConicalGradient - no reply needed
+            log::debug!("RENDER: CreateConicalGradient");
+        }
         _ => {
             log::debug!("RENDER: Unhandled minor opcode {}", minor_opcode);
         }
@@ -508,5 +600,233 @@ fn encode_xkb_use_extension_reply(
     buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
     buffer[8..10].copy_from_slice(&write_u16_le(server_major));
     buffer[10..12].copy_from_slice(&write_u16_le(server_minor));
+    buffer
+}
+
+/// Encode a PICTFORMINFO structure (28 bytes)
+fn encode_pictforminfo(
+    id: u32,
+    format_type: u8,
+    depth: u8,
+    red_shift: u16,
+    red_mask: u16,
+    green_shift: u16,
+    green_mask: u16,
+    blue_shift: u16,
+    blue_mask: u16,
+    alpha_shift: u16,
+    alpha_mask: u16,
+    colormap: u32,
+) -> Vec<u8> {
+    let mut buf = vec![0u8; 28];
+    buf[0..4].copy_from_slice(&write_u32_le(id));
+    buf[4] = format_type; // 0=indexed, 1=direct
+    buf[5] = depth;
+    // buf[6..8] unused
+    // DIRECTFORMAT starts at offset 8 (16 bytes)
+    buf[8..10].copy_from_slice(&write_u16_le(red_shift));
+    buf[10..12].copy_from_slice(&write_u16_le(red_mask));
+    buf[12..14].copy_from_slice(&write_u16_le(green_shift));
+    buf[14..16].copy_from_slice(&write_u16_le(green_mask));
+    buf[16..18].copy_from_slice(&write_u16_le(blue_shift));
+    buf[18..20].copy_from_slice(&write_u16_le(blue_mask));
+    buf[20..22].copy_from_slice(&write_u16_le(alpha_shift));
+    buf[22..24].copy_from_slice(&write_u16_le(alpha_mask));
+    buf[24..28].copy_from_slice(&write_u32_le(colormap));
+    buf
+}
+
+fn encode_render_query_pict_formats_reply(sequence: u16) -> Vec<u8> {
+    // Define picture formats we support
+    // Format IDs start at 1 (0 is reserved for None)
+    let formats: Vec<Vec<u8>> = vec![
+        // Format 1: 32-bit ARGB (depth 32, with alpha)
+        encode_pictforminfo(
+            1,    // id
+            1,    // type: direct
+            32,   // depth
+            16,   // red_shift
+            0xff, // red_mask
+            8,    // green_shift
+            0xff, // green_mask
+            0,    // blue_shift
+            0xff, // blue_mask
+            24,   // alpha_shift
+            0xff, // alpha_mask
+            0,    // colormap
+        ),
+        // Format 2: 24-bit RGB (depth 24, no alpha)
+        encode_pictforminfo(
+            2,    // id
+            1,    // type: direct
+            24,   // depth
+            16,   // red_shift
+            0xff, // red_mask
+            8,    // green_shift
+            0xff, // green_mask
+            0,    // blue_shift
+            0xff, // blue_mask
+            0,    // alpha_shift
+            0,    // alpha_mask
+            0,    // colormap
+        ),
+        // Format 3: 8-bit alpha only
+        encode_pictforminfo(
+            3,    // id
+            1,    // type: direct
+            8,    // depth
+            0,    // red_shift
+            0,    // red_mask
+            0,    // green_shift
+            0,    // green_mask
+            0,    // blue_shift
+            0,    // blue_mask
+            0,    // alpha_shift
+            0xff, // alpha_mask
+            0,    // colormap
+        ),
+        // Format 4: 1-bit alpha
+        encode_pictforminfo(
+            4,   // id
+            1,   // type: direct
+            1,   // depth
+            0,   // red_shift
+            0,   // red_mask
+            0,   // green_shift
+            0,   // green_mask
+            0,   // blue_shift
+            0,   // blue_mask
+            0,   // alpha_shift
+            0x1, // alpha_mask
+            0,   // colormap
+        ),
+    ];
+
+    let num_formats = formats.len() as u32;
+
+    // Build screen info with depths and visuals
+    // PICTSCREEN: num_depths(4) + fallback(4) + depths
+    // PICTDEPTH: depth(1) + unused(1) + num_visuals(2) + unused(4) + visuals
+    // PICTVISUAL: visual(4) + format(4)
+
+    // We have one screen with depths 24 and 32, each with one visual
+    // Visual IDs: use 0x21 for TrueColor (typical default)
+    let visual_id: u32 = 0x21;
+
+    // Build depth 24 with one visual pointing to format 2 (24-bit RGB)
+    let mut depth24 = vec![0u8; 8]; // PICTDEPTH header
+    depth24[0] = 24; // depth
+    depth24[2..4].copy_from_slice(&write_u16_le(1)); // num_visuals = 1
+                                                     // PICTVISUAL for depth 24
+    let mut visual24 = vec![0u8; 8];
+    visual24[0..4].copy_from_slice(&write_u32_le(visual_id));
+    visual24[4..8].copy_from_slice(&write_u32_le(2)); // format 2 (24-bit RGB)
+    depth24.extend(visual24);
+
+    // Build depth 32 with one visual pointing to format 1 (32-bit ARGB)
+    let mut depth32 = vec![0u8; 8]; // PICTDEPTH header
+    depth32[0] = 32; // depth
+    depth32[2..4].copy_from_slice(&write_u16_le(1)); // num_visuals = 1
+                                                     // PICTVISUAL for depth 32
+    let mut visual32 = vec![0u8; 8];
+    visual32[0..4].copy_from_slice(&write_u32_le(visual_id + 1)); // different visual
+    visual32[4..8].copy_from_slice(&write_u32_le(1)); // format 1 (32-bit ARGB)
+    depth32.extend(visual32);
+
+    // Build screen info
+    let mut screen = vec![0u8; 8]; // PICTSCREEN header
+    screen[0..4].copy_from_slice(&write_u32_le(2)); // num_depths = 2
+    screen[4..8].copy_from_slice(&write_u32_le(2)); // fallback format = 2 (24-bit RGB)
+    screen.extend(depth24);
+    screen.extend(depth32);
+
+    let num_screens: u32 = 1;
+    let num_depths: u32 = 2;
+    let num_visuals: u32 = 2;
+    let num_subpixels: u32 = 0; // No subpixel info
+
+    // Calculate total size of variable-length data
+    let formats_size: usize = formats.iter().map(|f| f.len()).sum();
+    let screen_size = screen.len();
+    let subpixels_size: usize = 0;
+    let total_extra = formats_size + screen_size + subpixels_size;
+
+    // Reply length is in 4-byte units, after the first 32 bytes
+    let reply_length = total_extra / 4;
+
+    // Build the reply
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..12].copy_from_slice(&write_u32_le(num_formats));
+    buffer[12..16].copy_from_slice(&write_u32_le(num_screens));
+    buffer[16..20].copy_from_slice(&write_u32_le(num_depths));
+    buffer[20..24].copy_from_slice(&write_u32_le(num_visuals));
+    buffer[24..28].copy_from_slice(&write_u32_le(num_subpixels));
+    // buffer[28..32] unused
+
+    // Append formats
+    for format in formats {
+        buffer.extend(format);
+    }
+
+    // Append screen info
+    buffer.extend(screen);
+
+    // No subpixels
+
+    buffer
+}
+
+fn encode_render_query_filters_reply(sequence: u16) -> Vec<u8> {
+    // Provide common filter names that X11 apps expect
+    // Filter names: "nearest", "bilinear", "convolution", "fast", "good", "best"
+    let filters = ["nearest", "bilinear", "convolution", "fast", "good", "best"];
+
+    // Calculate alias count (we provide standard aliases)
+    let aliases: [(u16, &str); 3] = [
+        (0, "fast"), // fast -> nearest
+        (1, "good"), // good -> bilinear
+        (1, "best"), // best -> bilinear
+    ];
+
+    // Build the filter name list with padding
+    let mut filter_data = Vec::new();
+    for name in &filters {
+        filter_data.push(name.len() as u8);
+        filter_data.extend(name.as_bytes());
+    }
+    // Pad to 4-byte boundary
+    while filter_data.len() % 4 != 0 {
+        filter_data.push(0);
+    }
+
+    // Build alias list (each is 2 bytes)
+    let mut alias_data = Vec::new();
+    for (idx, _) in &aliases {
+        alias_data.extend(write_u16_le(*idx));
+    }
+    // Pad to 4-byte boundary
+    while alias_data.len() % 4 != 0 {
+        alias_data.push(0);
+    }
+
+    let num_filters = filters.len() as u32;
+    let num_aliases = aliases.len() as u32;
+    let total_extra = filter_data.len() + alias_data.len();
+    let reply_length = total_extra / 4;
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..12].copy_from_slice(&write_u32_le(num_aliases));
+    buffer[12..16].copy_from_slice(&write_u32_le(num_filters));
+    // buffer[16..32] unused
+
+    buffer.extend(alias_data);
+    buffer.extend(filter_data);
+
     buffer
 }
