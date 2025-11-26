@@ -520,6 +520,12 @@ pub trait Backend: Send {
         color: u32,
         trapezoids: &[RenderTrapezoid],
     ) -> BackendResult<()> {
+        log::debug!(
+            "fill_trapezoids: drawable={:?} color=0x{:08x} count={}",
+            drawable,
+            color,
+            trapezoids.len()
+        );
         // Default implementation: rasterize trapezoids as polygons
         for trap in trapezoids {
             // Convert fixed-point to integer (shift right 16 bits)
@@ -571,6 +577,11 @@ pub trait Backend: Send {
                 Point { x: x3, y: bottom },
                 Point { x: x4, y: bottom },
             ];
+
+            log::debug!(
+                "fill_trapezoids: polygon ({},{}) ({},{}) ({},{}) ({},{})",
+                x1, top, x2, top, x3, bottom, x4, bottom
+            );
 
             // Create a temporary GC with the color
             let gc = BackendGC {
