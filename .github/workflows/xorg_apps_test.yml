@@ -116,7 +116,8 @@ jobs:
         continue-on-error: true
         run: |
           echo "Starting xclock..."
-          DISPLAY=:50 xclock -geometry 200x200+50+50 &
+          # Use localhost:50 to force TCP connection (Unix socket not implemented)
+          DISPLAY=localhost:50 xclock -geometry 200x200+50+50 &
           XCLOCK_PID=$!
           sleep 3
           # Capture screenshot via Xvfb
@@ -128,7 +129,7 @@ jobs:
         continue-on-error: true
         run: |
           echo "Starting xeyes..."
-          DISPLAY=:50 xeyes -geometry 200x150+300+50 &
+          DISPLAY=localhost:50 xeyes -geometry 200x150+300+50 &
           XEYES_PID=$!
           sleep 2
           DISPLAY=:99 import -window root xorg_apps_output/linux/xeyes.png || echo "Screenshot capture failed"
@@ -139,7 +140,7 @@ jobs:
         continue-on-error: true
         run: |
           echo "Starting xlogo..."
-          DISPLAY=:50 xlogo -geometry 200x200+550+50 &
+          DISPLAY=localhost:50 xlogo -geometry 200x200+550+50 &
           XLOGO_PID=$!
           sleep 2
           DISPLAY=:99 import -window root xorg_apps_output/linux/xlogo.png || echo "Screenshot capture failed"
@@ -150,7 +151,7 @@ jobs:
         continue-on-error: true
         run: |
           echo "Starting xcalc..."
-          DISPLAY=:50 xcalc -geometry 250x300+50+300 &
+          DISPLAY=localhost:50 xcalc -geometry 250x300+50+300 &
           XCALC_PID=$!
           sleep 2
           DISPLAY=:99 import -window root xorg_apps_output/linux/xcalc.png || echo "Screenshot capture failed"
@@ -161,7 +162,7 @@ jobs:
         continue-on-error: true
         run: |
           echo "Starting xterm..."
-          DISPLAY=:50 xterm -geometry 80x24+350+300 -e "echo 'Hello from xterm running on x11anywhere!'; sleep 5" &
+          DISPLAY=localhost:50 xterm -geometry 80x24+350+300 -e "echo 'Hello from xterm running on x11anywhere!'; sleep 5" &
           XTERM_PID=$!
           sleep 2
           DISPLAY=:99 import -window root xorg_apps_output/linux/xterm.png || echo "Screenshot capture failed"
@@ -172,11 +173,11 @@ jobs:
         continue-on-error: true
         run: |
           echo "Starting multiple apps..."
-          DISPLAY=:50 xclock -geometry 150x150+50+50 &
+          DISPLAY=localhost:50 xclock -geometry 150x150+50+50 &
           PID1=$!
-          DISPLAY=:50 xeyes -geometry 150x100+250+50 &
+          DISPLAY=localhost:50 xeyes -geometry 150x100+250+50 &
           PID2=$!
-          DISPLAY=:50 xlogo -geometry 150x150+450+50 &
+          DISPLAY=localhost:50 xlogo -geometry 150x150+450+50 &
           PID3=$!
           sleep 3
           DISPLAY=:99 import -window root xorg_apps_output/linux/multiple_apps.png || echo "Screenshot capture failed"
@@ -252,7 +253,8 @@ jobs:
           # Check if XQuartz X11 apps are available
           if [ -x /opt/X11/bin/xclock ]; then
             echo "Starting xclock..."
-            DISPLAY=:50 /opt/X11/bin/xclock -geometry 200x200+50+50 &
+            # Use localhost:50 to force TCP connection (Unix socket not implemented)
+            DISPLAY=localhost:50 /opt/X11/bin/xclock -geometry 200x200+50+50 &
             XCLOCK_PID=$!
             sleep 3
             # Use macOS screencapture
@@ -268,7 +270,8 @@ jobs:
         run: |
           if [ -x /opt/X11/bin/xeyes ]; then
             echo "Starting xeyes..."
-            DISPLAY=:50 /opt/X11/bin/xeyes -geometry 200x150+300+50 &
+            # Use localhost:50 to force TCP connection (Unix socket not implemented)
+            DISPLAY=localhost:50 /opt/X11/bin/xeyes -geometry 200x150+300+50 &
             XEYES_PID=$!
             sleep 2
             screencapture -x xorg_apps_output/macos/xeyes.png
