@@ -620,6 +620,7 @@ fn encode_xkb_use_extension_reply(
 }
 
 /// Encode a PICTFORMINFO structure (28 bytes)
+#[allow(clippy::too_many_arguments)]
 fn encode_pictforminfo(
     id: u32,
     format_type: u8,

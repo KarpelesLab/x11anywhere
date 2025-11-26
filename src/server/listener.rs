@@ -1843,7 +1843,7 @@ fn handle_poly_text8(
         );
 
         server.draw_text(
-            resolved_drawable.clone(),
+            resolved_drawable,
             crate::protocol::GContext::new(gc),
             x,
             y,
@@ -1921,7 +1921,7 @@ fn handle_poly_text16(
         );
 
         server.draw_text(
-            resolved_drawable.clone(),
+            resolved_drawable,
             crate::protocol::GContext::new(gc),
             x,
             y,
