@@ -316,37 +316,54 @@ impl ProtocolEncoder {
         char_width: i16,
         _char_height: i16,
     ) -> Vec<u8> {
-        let mut buffer = vec![0u8; 32];
+        // X11 QueryFont reply structure (60 bytes for n=0 properties, m=0 char infos):
+        // bytes 0-7:   reply header (type, unused, sequence, length)
+        // bytes 8-19:  min_bounds CHARINFO (12 bytes)
+        // bytes 20-23: unused (4 bytes)
+        // bytes 24-35: max_bounds CHARINFO (12 bytes)
+        // bytes 36-39: unused (4 bytes)
+        // bytes 40-59: font info (20 bytes)
+        // reply_length = (60 - 32) / 4 = 7
+        let mut buffer = vec![0u8; 60];
 
-        // CHARINFO for min_bounds (all zeros for fixed-width font)
+        // CHARINFO for min_bounds (all zeros for simplicity)
         let min_bounds = [0u8; 12];
+
         // CHARINFO for max_bounds
         let mut max_bounds = [0u8; 12];
         max_bounds[0..2].copy_from_slice(&self.write_i16(0)); // left_side_bearing
-        max_bounds[2..4].copy_from_slice(&self.write_i16(0)); // right_side_bearing
+        max_bounds[2..4].copy_from_slice(&self.write_i16(char_width)); // right_side_bearing
         max_bounds[4..6].copy_from_slice(&self.write_i16(char_width)); // character_width
         max_bounds[6..8].copy_from_slice(&self.write_i16(font_ascent)); // ascent
         max_bounds[8..10].copy_from_slice(&self.write_i16(font_descent)); // descent
         max_bounds[10..12].copy_from_slice(&self.write_u16(0)); // attributes
 
+        // Reply header
         buffer[0] = 1; // Reply
+        // buffer[1] = unused (already 0)
         buffer[2..4].copy_from_slice(&self.write_u16(sequence));
-        buffer[4..8].copy_from_slice(&self.write_u32(7)); // Length (60 bytes / 4)
-        buffer[8..20].copy_from_slice(&min_bounds);
-        buffer[20..32].copy_from_slice(&max_bounds);
+        buffer[4..8].copy_from_slice(&self.write_u32(7)); // reply_length = 7 for n=0, m=0
 
-        // Additional 28 bytes to complete the FONTINFO structure
-        buffer.extend_from_slice(&self.write_u16(0)); // min_char_or_byte2
-        buffer.extend_from_slice(&self.write_u16(255)); // max_char_or_byte2
-        buffer.extend_from_slice(&self.write_u16(0)); // default_char
-        buffer.extend_from_slice(&self.write_u16(0)); // n_font_props
-        buffer.push(0); // draw_direction (LeftToRight)
-        buffer.push(0); // min_byte1
-        buffer.push(0); // max_byte1
-        buffer.push(1); // all_chars_exist
-        buffer.extend_from_slice(&self.write_i16(font_ascent)); // font_ascent
-        buffer.extend_from_slice(&self.write_i16(font_descent)); // font_descent
-        buffer.extend_from_slice(&self.write_u32(0)); // n_char_infos
+        // min_bounds at bytes 8-19
+        buffer[8..20].copy_from_slice(&min_bounds);
+        // bytes 20-23 unused (already 0)
+
+        // max_bounds at bytes 24-35
+        buffer[24..36].copy_from_slice(&max_bounds);
+        // bytes 36-39 unused (already 0)
+
+        // Font info at bytes 40-59
+        buffer[40..42].copy_from_slice(&self.write_u16(0)); // min_char_or_byte2
+        buffer[42..44].copy_from_slice(&self.write_u16(255)); // max_char_or_byte2
+        buffer[44..46].copy_from_slice(&self.write_u16(0)); // default_char
+        buffer[46..48].copy_from_slice(&self.write_u16(0)); // n_font_props
+        buffer[48] = 0; // draw_direction (LeftToRight)
+        buffer[49] = 0; // min_byte1
+        buffer[50] = 0; // max_byte1
+        buffer[51] = 1; // all_chars_exist
+        buffer[52..54].copy_from_slice(&self.write_i16(font_ascent)); // font_ascent
+        buffer[54..56].copy_from_slice(&self.write_i16(font_descent)); // font_descent
+        buffer[56..60].copy_from_slice(&self.write_u32(0)); // n_char_infos (m)
 
         buffer
     }
