@@ -887,7 +887,7 @@ impl Backend for MacOSBackend {
                 dst_y as i32,
             );
 
-            if result == 0 {
+            if result != 0 {
                 Err("Failed to copy area".into())
             } else {
                 Ok(())
@@ -949,7 +949,7 @@ impl Backend for MacOSBackend {
                 data.len() as i32,
             );
 
-            if result == 0 {
+            if result != 0 {
                 Err("Failed to put image".into())
             } else {
                 Ok(())
@@ -986,7 +986,7 @@ impl Backend for MacOSBackend {
                 buffer_size as i32,
             );
 
-            if result == 0 {
+            if result != 0 {
                 Err("Failed to get image".into())
             } else {
                 Ok(buffer)
