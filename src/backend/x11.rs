@@ -1055,12 +1055,22 @@ impl Backend for X11Backend {
                 .unwrap()
                 .get(&w.0)
                 .ok_or("Window not found")?,
-            BackendDrawable::Pixmap(p) => *self
-                .pixmap_map
-                .lock()
-                .unwrap()
-                .get(&p)
-                .ok_or("Pixmap not found")?,
+            BackendDrawable::Pixmap(p) => {
+                let map = self.pixmap_map.lock().unwrap();
+                log::debug!(
+                    "fill_rectangle: looking up backend pixmap {}, map has {} entries: {:?}",
+                    p,
+                    map.len(),
+                    map.keys().collect::<Vec<_>>()
+                );
+                *map.get(&p).ok_or_else(|| {
+                    format!(
+                        "Pixmap not found: backend_id={}, available={:?}",
+                        p,
+                        map.keys().collect::<Vec<_>>()
+                    )
+                })?
+            }
         };
 
         // Create or get GC on server
