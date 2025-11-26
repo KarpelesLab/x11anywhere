@@ -392,6 +392,15 @@ jobs:
           Write-Host "=== All running processes with x11 in name ==="
           Get-Process | Where-Object { $_.ProcessName -like "*x11*" } | Format-Table -AutoSize
 
+      - name: Run visual test (creates X11 window)
+        run: |
+          # Run the visual test which creates an X11 test window
+          $env:DISPLAY = "localhost:50"
+          $env:VISUAL_TEST_OUTPUT = "$pwd\xorg_apps_output\windows"
+          Write-Host "Running visual_test with DISPLAY=$env:DISPLAY"
+          cargo test --test visual_test -- --nocapture
+        continue-on-error: true
+
       - name: Capture desktop screenshot
         run: |
           Start-Sleep -Seconds 2
@@ -413,14 +422,13 @@ jobs:
           =======================
 
           Note: Native X11 client applications (xclock, xeyes, etc.) are not available
-          on Windows as MSYS2/MinGW does not provide X11 client libraries.
+          on Windows as X11 client libraries aren't natively provided.
 
-          This job verifies that:
-          1. x11anywhere compiles successfully with Windows backend
-          2. The server starts and listens on the configured port
-
-          For actual X11 protocol testing on Windows, see the visual_test.rs tests
-          which use Rust-based X11 protocol testing.
+          This job:
+          1. Builds x11anywhere with Windows backend
+          2. Starts the server on display :50
+          3. Runs visual_test.rs which creates an X11 window with test patterns
+          4. Captures a desktop screenshot showing the X11 window
           "@ | Out-File -FilePath "xorg_apps_output\windows\status.txt"
 
       - name: Show server logs
