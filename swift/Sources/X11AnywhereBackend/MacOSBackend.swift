@@ -774,14 +774,21 @@ public func macos_backend_put_image(_ handle: BackendHandle, isWindow: Int32, dr
                                     depth: Int32, format: Int32, data: UnsafePointer<UInt8>, dataLength: Int32) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
 
+    NSLog("put_image: isWindow=\(isWindow), drawableId=\(drawableId), size=\(width)x\(height), depth=\(depth), format=\(format), dataLen=\(dataLength)")
+
     let context: CGContext?
     if isWindow != 0 {
         context = backend.getWindowContext(id: Int(drawableId))
+        NSLog("put_image: getWindowContext(\(drawableId)) = \(context != nil ? "found" : "nil")")
     } else {
         context = backend.getPixmapContext(id: Int(drawableId))
+        NSLog("put_image: getPixmapContext(\(drawableId)) = \(context != nil ? "found" : "nil")")
     }
 
-    guard let ctx = context else { return BackendResult.error.rawValue }
+    guard let ctx = context else {
+        NSLog("put_image: FAILED - context not found for drawable \(drawableId)")
+        return BackendResult.error.rawValue
+    }
 
     // X11 image formats:
     // 0 = Bitmap, 1 = XYPixmap, 2 = ZPixmap (packed pixels)
@@ -799,6 +806,8 @@ public func macos_backend_put_image(_ handle: BackendHandle, isWindow: Int32, dr
             bytesPerPixel = 4
         }
 
+        NSLog("put_image: ZPixmap depth=\(depth), bytesPerPixel=\(bytesPerPixel)")
+
         let bytesPerRow = Int(width) * bytesPerPixel
 
         // Create a data provider from the raw image data
@@ -806,6 +815,7 @@ public func macos_backend_put_image(_ handle: BackendHandle, isWindow: Int32, dr
                                                  data: data,
                                                  size: Int(dataLength),
                                                  releaseData: { _, _, _ in }) else {
+            NSLog("put_image: FAILED - CGDataProvider creation failed")
             if isWindow != 0 {
                 backend.releaseWindowContext(id: Int(drawableId))
             }
@@ -821,12 +831,22 @@ public func macos_backend_put_image(_ handle: BackendHandle, isWindow: Int32, dr
             bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
         } else if bytesPerPixel == 3 {
             bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue)
-        } else {
-            // Unsupported depth for now
+        } else if bytesPerPixel == 2 {
+            // 16-bit: RGB565 - use grayscale as approximation
+            // CoreGraphics doesn't natively support RGB565, so we'll skip drawing for now
+            // but return success to not break the app
+            NSLog("put_image: 16-bit depth not fully supported, skipping draw")
             if isWindow != 0 {
                 backend.releaseWindowContext(id: Int(drawableId))
             }
-            return BackendResult.error.rawValue
+            return BackendResult.success.rawValue
+        } else {
+            // 8-bit indexed color - skip for now but don't fail
+            NSLog("put_image: 8-bit indexed color not fully supported, skipping draw")
+            if isWindow != 0 {
+                backend.releaseWindowContext(id: Int(drawableId))
+            }
+            return BackendResult.success.rawValue
         }
 
         guard let cgImage = CGImage(width: Int(width),
@@ -840,6 +860,7 @@ public func macos_backend_put_image(_ handle: BackendHandle, isWindow: Int32, dr
                                     decode: nil,
                                     shouldInterpolate: false,
                                     intent: .defaultIntent) else {
+            NSLog("put_image: FAILED - CGImage creation failed")
             if isWindow != 0 {
                 backend.releaseWindowContext(id: Int(drawableId))
             }
@@ -849,6 +870,14 @@ public func macos_backend_put_image(_ handle: BackendHandle, isWindow: Int32, dr
         // Draw the image
         let rect = CGRect(x: CGFloat(dst_x), y: CGFloat(dst_y), width: CGFloat(width), height: CGFloat(height))
         ctx.draw(cgImage, in: rect)
+        NSLog("put_image: drew image at \(dst_x),\(dst_y)")
+    } else if format == 0 {
+        // Bitmap format (1-bit) - often used for shape masks
+        // Skip but don't fail - we don't support shaped windows yet
+        NSLog("put_image: Bitmap format (1-bit), skipping")
+    } else {
+        // XYPixmap format - rarely used, skip
+        NSLog("put_image: XYPixmap format, skipping")
     }
 
     if isWindow != 0 {
