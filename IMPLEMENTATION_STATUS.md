@@ -93,11 +93,11 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| AllocColor | ✅ | ✅ | ✅ | ⚪ | Server-side RGB to pixel conversion (TrueColor) |
-| AllocNamedColor | ✅ | ✅ | ✅ | ⚪ | Server-side named color lookup (70+ colors) |
-| FreeColors | 🟡 | ✅ | ✅ | ⚪ | N/A for TrueColor (no-op) |
-| CreateColormap | 🟡 | ✅ | ✅ | ⚪ | Limited support (TrueColor only) |
-| FreeColormap | 🟡 | ✅ | ✅ | ⚪ | N/A for TrueColor (no-op) |
+| CreateColormap | ✅ | ✅ | ✅ | ⚪ | Opcode 78 handler; TrueColor no-op |
+| FreeColormap | ✅ | ✅ | ✅ | ⚪ | Opcode 79 handler; TrueColor no-op |
+| AllocColor | ✅ | ✅ | ✅ | ⚪ | Opcode 84 handler; RGB to pixel (TrueColor) |
+| AllocNamedColor | ✅ | ✅ | ✅ | ⚪ | Opcode 85 handler; named color lookup (70+ colors) |
+| FreeColors | ✅ | ✅ | ✅ | ⚪ | Opcode 88 handler; TrueColor no-op |
 
 ### Fonts
 
@@ -131,18 +131,20 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
+| GrabPointer | ✅ | ✅ | ✅ | ⚪ | Opcode 26 handler; returns Success |
+| UngrabPointer | ✅ | ✅ | ✅ | ⚪ | Opcode 27 handler |
 | GrabServer | ✅ | ✅ | ✅ | ⚪ | Opcode 28 handler; no-op (single client focus) |
 | UngrabServer | ✅ | ✅ | ✅ | ⚪ | Opcode 29 handler; no-op |
-| GrabKeyboard | 🟡 | ❌ | ❌ | ⚪ | SetCapture on Windows (limited) |
-| UngrabKeyboard | 🟡 | ❌ | ❌ | ⚪ | ReleaseCapture on Windows |
-| GrabPointer | 🟡 | ❌ | ❌ | ⚪ | SetCapture on Windows |
-| UngrabPointer | 🟡 | ❌ | ❌ | ⚪ | ReleaseCapture on Windows |
+| GrabButton | ✅ | ✅ | ✅ | ⚪ | Opcode 31 handler; passive grab stub |
+| UngrabButton | ✅ | ✅ | ✅ | ⚪ | Opcode 32 handler |
+| GrabKeyboard | ✅ | ✅ | ✅ | ⚪ | Opcode 33 handler; returns Success |
+| UngrabKeyboard | ✅ | ✅ | ✅ | ⚪ | Opcode 34 handler |
 | QueryPointer | ✅ | ✅ | ✅ | ⚪ | Opcode 38 handler; returns (0,0) for now |
 | TranslateCoords | ✅ | ✅ | ✅ | ⚪ | Opcode 40 handler; returns input coords |
+| WarpPointer | ✅ | ✅ | ✅ | ⚪ | Opcode 41 handler; stub (no actual warp) |
 | SetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 42 handler; backend focus TBD |
 | GetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 43 handler; returns root window |
 | QueryKeymap | ✅ | ✅ | ✅ | ⚪ | Opcode 44 handler; returns empty keymap |
-| WarpPointer | 🟡 | ❌ | ❌ | ⚪ | SetCursorPos on Windows |
 
 ### Properties & Atoms
 
@@ -167,10 +169,10 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| CreateCursor | 🟡 | 🟡 | 🟡 | ⚪ | System cursors via LoadCursorW on Windows, NSCursor on macOS |
-| FreeCursor | 🟡 | ✅ | ✅ | ⚪ | System cursors don't need freeing |
+| CreateCursor | ✅ | ✅ | ✅ | ⚪ | Opcode 93 handler; stub (custom cursors TBD) |
+| CreateGlyphCursor | ✅ | ✅ | ✅ | ⚪ | Opcode 94 handler; stub (glyph mapping TBD) |
+| FreeCursor | ✅ | ✅ | ✅ | ⚪ | Opcode 95 handler; no-op for system cursors |
 | DefineCursor | 🟡 | ✅ | ✅ | ⚪ | SetCursor on Windows, NSCursor.set on macOS |
-| CreateGlyphCursor | 🟡 | ✅ | ✅ | ⚪ | Maps X11 cursor font glyphs to system cursors |
 
 ### Extensions
 
@@ -183,9 +185,11 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| Bell | ✅ | ✅ | ✅ | ⚪ | No-op; could use platform beep APIs |
-| GetInputFocus | ✅ | ✅ | ✅ | ⚪ | Returns focus window |
-| SetInputFocus | 🟡 | 🟡 | 🟡 | ⚪ | Partially implemented |
+| Bell | ✅ | ✅ | ✅ | ⚪ | Opcode 104 handler; no-op |
+| SetScreenSaver | ✅ | ✅ | ✅ | ⚪ | Opcode 107 handler; stub |
+| GetScreenSaver | ✅ | ✅ | ✅ | ⚪ | Opcode 108 handler; returns disabled |
+| GetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 43 handler; returns root window |
+| SetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 42 handler; backend focus TBD |
 
 ### X11 Extensions Status
 

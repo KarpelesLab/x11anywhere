@@ -102,10 +102,17 @@ fn handle_client(
             21 => handle_list_properties(&mut stream, &header, &request_data, &server)?,
             22 => handle_set_selection_owner(&mut stream, &header, &request_data, &server)?,
             23 => handle_get_selection_owner(&mut stream, &header, &request_data, &server)?,
+            26 => handle_grab_pointer(&mut stream, &header, &request_data, &server)?,
+            27 => handle_ungrab_pointer(&mut stream, &header, &request_data, &server)?,
             28 => handle_grab_server(&mut stream, &header, &request_data, &server)?,
             29 => handle_ungrab_server(&mut stream, &header, &request_data, &server)?,
+            31 => handle_grab_button(&mut stream, &header, &request_data, &server)?,
+            32 => handle_ungrab_button(&mut stream, &header, &request_data, &server)?,
+            33 => handle_grab_keyboard(&mut stream, &header, &request_data, &server)?,
+            34 => handle_ungrab_keyboard(&mut stream, &header, &request_data, &server)?,
             38 => handle_query_pointer(&mut stream, &header, &request_data, &server)?,
             40 => handle_translate_coordinates(&mut stream, &header, &request_data, &server)?,
+            41 => handle_warp_pointer(&mut stream, &header, &request_data, &server)?,
             42 => handle_set_input_focus(&mut stream, &header, &request_data, &server)?,
             43 => handle_get_input_focus(&mut stream, &header, &request_data, &server)?,
             44 => handle_query_keymap(&mut stream, &header, &request_data, &server)?,
@@ -119,11 +126,19 @@ fn handle_client(
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
             57 => handle_free_gc(&mut stream, &header, &request_data, &server)?,
             60 => handle_clear_area(&mut stream, &header, &request_data, &server)?,
+            78 => handle_create_colormap(&mut stream, &header, &request_data, &server)?,
+            79 => handle_free_colormap(&mut stream, &header, &request_data, &server)?,
             84 => handle_alloc_color(&mut stream, &header, &request_data, &server)?,
             85 => handle_alloc_named_color(&mut stream, &header, &request_data, &server)?,
+            88 => handle_free_colors(&mut stream, &header, &request_data, &server)?,
+            93 => handle_create_cursor(&mut stream, &header, &request_data, &server)?,
+            94 => handle_create_glyph_cursor(&mut stream, &header, &request_data, &server)?,
+            95 => handle_free_cursor(&mut stream, &header, &request_data, &server)?,
             98 => handle_query_extension(&mut stream, &header, &request_data, &server)?,
             99 => handle_list_extensions(&mut stream, &header, &request_data, &server)?,
             104 => handle_bell(&mut stream, &header, &request_data, &server)?,
+            107 => handle_set_screen_saver(&mut stream, &header, &request_data, &server)?,
+            108 => handle_get_screen_saver(&mut stream, &header, &request_data, &server)?,
             64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
             65 => handle_poly_line(&mut stream, &header, &request_data, &server)?,
             66 => handle_poly_segment(&mut stream, &header, &request_data, &server)?,
@@ -2352,6 +2367,395 @@ fn handle_query_keymap(
     let encoder =
         crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
     let reply = encoder.encode_query_keymap_reply(sequence, &keys);
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_grab_pointer(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GrabPointer request
+    if data.len() < 20 {
+        log::warn!("GrabPointer request too short");
+        return Ok(());
+    }
+
+    let owner_events = header[1] != 0;
+    let grab_window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let event_mask = u16::from_le_bytes([data[4], data[5]]);
+
+    log::debug!(
+        "GrabPointer: window=0x{:x}, owner_events={}, event_mask=0x{:x}",
+        grab_window,
+        owner_events,
+        event_mask
+    );
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    // Return Success (0)
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_grab_pointer_reply(sequence, 0); // Success
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_ungrab_pointer(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse UngrabPointer request: time(4)
+    let time = if data.len() >= 4 {
+        u32::from_le_bytes([data[0], data[1], data[2], data[3]])
+    } else {
+        0
+    };
+
+    log::debug!("UngrabPointer: time={}", time);
+
+    // No reply for UngrabPointer
+    Ok(())
+}
+
+fn handle_grab_button(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 20 {
+        log::warn!("GrabButton request too short");
+        return Ok(());
+    }
+
+    let grab_window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let button = data[10];
+
+    log::debug!("GrabButton: window=0x{:x}, button={}", grab_window, button);
+
+    // No reply for GrabButton
+    Ok(())
+}
+
+fn handle_ungrab_button(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let button = header[1];
+    let grab_window = if data.len() >= 4 {
+        u32::from_le_bytes([data[0], data[1], data[2], data[3]])
+    } else {
+        0
+    };
+
+    log::debug!(
+        "UngrabButton: button={}, window=0x{:x}",
+        button,
+        grab_window
+    );
+
+    // No reply for UngrabButton
+    Ok(())
+}
+
+fn handle_grab_keyboard(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GrabKeyboard request
+    if data.len() < 12 {
+        log::warn!("GrabKeyboard request too short");
+        return Ok(());
+    }
+
+    let owner_events = header[1] != 0;
+    let grab_window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+
+    log::debug!(
+        "GrabKeyboard: window=0x{:x}, owner_events={}",
+        grab_window,
+        owner_events
+    );
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    // Return Success (0)
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_grab_keyboard_reply(sequence, 0); // Success
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_ungrab_keyboard(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse UngrabKeyboard request: time(4)
+    let time = if data.len() >= 4 {
+        u32::from_le_bytes([data[0], data[1], data[2], data[3]])
+    } else {
+        0
+    };
+
+    log::debug!("UngrabKeyboard: time={}", time);
+
+    // No reply for UngrabKeyboard
+    Ok(())
+}
+
+fn handle_warp_pointer(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse WarpPointer request
+    if data.len() < 20 {
+        log::warn!("WarpPointer request too short");
+        return Ok(());
+    }
+
+    let src_window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let dst_window = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let dst_x = i16::from_le_bytes([data[16], data[17]]);
+    let dst_y = i16::from_le_bytes([data[18], data[19]]);
+
+    log::debug!(
+        "WarpPointer: src=0x{:x}, dst=0x{:x}, ({},{})",
+        src_window,
+        dst_window,
+        dst_x,
+        dst_y
+    );
+
+    // TODO: Actually warp pointer using backend
+    // No reply for WarpPointer
+    Ok(())
+}
+
+fn handle_create_colormap(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse CreateColormap request: alloc(1 in header), mid(4), window(4), visual(4)
+    if data.len() < 12 {
+        log::warn!("CreateColormap request too short");
+        return Ok(());
+    }
+
+    let alloc = header[1];
+    let mid = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let window = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let visual = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+
+    log::debug!(
+        "CreateColormap: mid=0x{:x}, window=0x{:x}, visual=0x{:x}, alloc={}",
+        mid,
+        window,
+        visual,
+        alloc
+    );
+
+    // For TrueColor, colormap creation is essentially a no-op
+    // No reply for CreateColormap
+    Ok(())
+}
+
+fn handle_free_colormap(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse FreeColormap request: cmap(4)
+    if data.len() < 4 {
+        log::warn!("FreeColormap request too short");
+        return Ok(());
+    }
+
+    let cmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("FreeColormap: cmap=0x{:x}", cmap);
+
+    // For TrueColor, this is a no-op
+    // No reply for FreeColormap
+    Ok(())
+}
+
+fn handle_free_colors(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse FreeColors request: cmap(4), plane_mask(4), pixels(n*4)
+    if data.len() < 8 {
+        log::warn!("FreeColors request too short");
+        return Ok(());
+    }
+
+    let cmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let plane_mask = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    log::debug!(
+        "FreeColors: cmap=0x{:x}, plane_mask=0x{:x}",
+        cmap,
+        plane_mask
+    );
+
+    // For TrueColor, this is a no-op
+    // No reply for FreeColors
+    Ok(())
+}
+
+fn handle_create_cursor(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse CreateCursor request
+    if data.len() < 28 {
+        log::warn!("CreateCursor request too short");
+        return Ok(());
+    }
+
+    let cid = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let source = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let mask = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+
+    log::debug!(
+        "CreateCursor: cid=0x{:x}, source=0x{:x}, mask=0x{:x}",
+        cid,
+        source,
+        mask
+    );
+
+    // TODO: Create actual cursor from pixmaps
+    // No reply for CreateCursor
+    Ok(())
+}
+
+fn handle_create_glyph_cursor(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse CreateGlyphCursor request
+    if data.len() < 28 {
+        log::warn!("CreateGlyphCursor request too short");
+        return Ok(());
+    }
+
+    let cid = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let source_font = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let source_char = u16::from_le_bytes([data[12], data[13]]);
+
+    log::debug!(
+        "CreateGlyphCursor: cid=0x{:x}, font=0x{:x}, char={}",
+        cid,
+        source_font,
+        source_char
+    );
+
+    // TODO: Map cursor glyph to system cursor
+    // No reply for CreateGlyphCursor
+    Ok(())
+}
+
+fn handle_free_cursor(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse FreeCursor request: cursor(4)
+    if data.len() < 4 {
+        log::warn!("FreeCursor request too short");
+        return Ok(());
+    }
+
+    let cursor = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("FreeCursor: cursor=0x{:x}", cursor);
+
+    // For system cursors, this is a no-op
+    // No reply for FreeCursor
+    Ok(())
+}
+
+fn handle_set_screen_saver(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse SetScreenSaver request: timeout(2), interval(2), prefer_blanking(1), allow_exposures(1)
+    if data.len() < 6 {
+        log::warn!("SetScreenSaver request too short");
+        return Ok(());
+    }
+
+    let timeout = i16::from_le_bytes([data[0], data[1]]);
+    let interval = i16::from_le_bytes([data[2], data[3]]);
+    let prefer_blanking = data[4];
+    let allow_exposures = data[5];
+
+    log::debug!(
+        "SetScreenSaver: timeout={}, interval={}, prefer_blanking={}, allow_exposures={}",
+        timeout,
+        interval,
+        prefer_blanking,
+        allow_exposures
+    );
+
+    // TODO: Could integrate with system screen saver settings
+    // No reply for SetScreenSaver
+    Ok(())
+}
+
+fn handle_get_screen_saver(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("GetScreenSaver");
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    // Return default values (screen saver disabled)
+    let encoder =
+        crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
+    let reply = encoder.encode_get_screen_saver_reply(
+        sequence, 0, // timeout (disabled)
+        0, // interval
+        0, // prefer_blanking (No)
+        0, // allow_exposures (No)
+    );
 
     stream.write_all(&reply)?;
 

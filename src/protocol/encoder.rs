@@ -490,4 +490,52 @@ impl ProtocolEncoder {
 
         buffer
     }
+
+    /// Encode GrabPointer reply
+    /// status: 0=Success, 1=AlreadyGrabbed, 2=InvalidTime, 3=NotViewable, 4=Frozen
+    pub fn encode_grab_pointer_reply(&self, sequence: u16, status: u8) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 1; // Reply
+        buffer[1] = status;
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(0)); // No additional data
+
+        buffer
+    }
+
+    /// Encode GrabKeyboard reply
+    /// status: 0=Success, 1=AlreadyGrabbed, 2=InvalidTime, 3=NotViewable, 4=Frozen
+    pub fn encode_grab_keyboard_reply(&self, sequence: u16, status: u8) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 1; // Reply
+        buffer[1] = status;
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(0)); // No additional data
+
+        buffer
+    }
+
+    /// Encode GetScreenSaver reply
+    pub fn encode_get_screen_saver_reply(
+        &self,
+        sequence: u16,
+        timeout: u16,
+        interval: u16,
+        prefer_blanking: u8,
+        allow_exposures: u8,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+
+        buffer[0] = 1; // Reply
+        buffer[2..4].copy_from_slice(&self.write_u16(sequence));
+        buffer[4..8].copy_from_slice(&self.write_u32(0)); // No additional data
+        buffer[8..10].copy_from_slice(&self.write_u16(timeout));
+        buffer[10..12].copy_from_slice(&self.write_u16(interval));
+        buffer[12] = prefer_blanking;
+        buffer[13] = allow_exposures;
+
+        buffer
+    }
 }
