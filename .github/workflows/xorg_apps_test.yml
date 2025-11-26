@@ -1,0 +1,418 @@
+name: X11 Apps Test
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  xorg-apps-linux:
+    name: X11 Apps Test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xvfb \
+            x11-apps \
+            x11-utils \
+            imagemagick \
+            libxcb1-dev \
+            libxcb-shm0-dev \
+            xterm \
+            xfonts-base \
+            xfonts-100dpi \
+            xfonts-75dpi
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Build x11anywhere
+        run: cargo build --release
+
+      - name: Create output directories
+        run: |
+          mkdir -p xorg_apps_output/linux
+          mkdir -p /tmp/x11anywhere_logs
+
+      - name: Start Xvfb (for x11anywhere backend)
+        run: |
+          Xvfb :99 -screen 0 1280x1024x24 &
+          echo "XVFB_PID=$!" >> $GITHUB_ENV
+          sleep 2
+
+      - name: Start x11anywhere server
+        run: |
+          DISPLAY=:99 RUST_LOG=info ./target/release/x11anywhere -display 50 -tcp > /tmp/x11anywhere_logs/server.log 2>&1 &
+          echo "X11ANYWHERE_PID=$!" >> $GITHUB_ENV
+          sleep 3
+          # Check if server is running
+          if ! kill -0 $X11ANYWHERE_PID 2>/dev/null; then
+            echo "Server failed to start"
+            cat /tmp/x11anywhere_logs/server.log
+            exit 1
+          fi
+          echo "x11anywhere server started on display :50"
+
+      - name: Test xclock
+        run: |
+          echo "Starting xclock..."
+          DISPLAY=:50 xclock -geometry 200x200+50+50 &
+          XCLOCK_PID=$!
+          sleep 3
+          # Capture screenshot via Xvfb
+          DISPLAY=:99 import -window root xorg_apps_output/linux/xclock.png
+          kill $XCLOCK_PID 2>/dev/null || true
+          echo "xclock screenshot captured"
+
+      - name: Test xeyes
+        run: |
+          echo "Starting xeyes..."
+          DISPLAY=:50 xeyes -geometry 200x150+300+50 &
+          XEYES_PID=$!
+          sleep 2
+          DISPLAY=:99 import -window root xorg_apps_output/linux/xeyes.png
+          kill $XEYES_PID 2>/dev/null || true
+          echo "xeyes screenshot captured"
+
+      - name: Test xlogo
+        run: |
+          echo "Starting xlogo..."
+          DISPLAY=:50 xlogo -geometry 200x200+550+50 &
+          XLOGO_PID=$!
+          sleep 2
+          DISPLAY=:99 import -window root xorg_apps_output/linux/xlogo.png
+          kill $XLOGO_PID 2>/dev/null || true
+          echo "xlogo screenshot captured"
+
+      - name: Test xcalc
+        run: |
+          echo "Starting xcalc..."
+          DISPLAY=:50 xcalc -geometry 250x300+50+300 &
+          XCALC_PID=$!
+          sleep 2
+          DISPLAY=:99 import -window root xorg_apps_output/linux/xcalc.png
+          kill $XCALC_PID 2>/dev/null || true
+          echo "xcalc screenshot captured"
+
+      - name: Test xterm
+        run: |
+          echo "Starting xterm..."
+          DISPLAY=:50 xterm -geometry 80x24+350+300 -e "echo 'Hello from xterm running on x11anywhere!'; sleep 5" &
+          XTERM_PID=$!
+          sleep 2
+          DISPLAY=:99 import -window root xorg_apps_output/linux/xterm.png
+          kill $XTERM_PID 2>/dev/null || true
+          echo "xterm screenshot captured"
+
+      - name: Test multiple apps together
+        run: |
+          echo "Starting multiple apps..."
+          DISPLAY=:50 xclock -geometry 150x150+50+50 &
+          PID1=$!
+          DISPLAY=:50 xeyes -geometry 150x100+250+50 &
+          PID2=$!
+          DISPLAY=:50 xlogo -geometry 150x150+450+50 &
+          PID3=$!
+          sleep 3
+          DISPLAY=:99 import -window root xorg_apps_output/linux/multiple_apps.png
+          kill $PID1 $PID2 $PID3 2>/dev/null || true
+          echo "multiple apps screenshot captured"
+
+      - name: Show server logs
+        if: always()
+        run: |
+          echo "=== x11anywhere server log ==="
+          cat /tmp/x11anywhere_logs/server.log || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kill $X11ANYWHERE_PID 2>/dev/null || true
+          kill $XVFB_PID 2>/dev/null || true
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xorg-apps-linux-screenshots
+          path: xorg_apps_output/linux/*.png
+          if-no-files-found: warn
+
+  xorg-apps-macos:
+    name: X11 Apps Test (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XQuartz and X11 apps
+        run: |
+          # Install XQuartz which provides X11 libraries
+          brew install --cask xquartz
+          # Install X11 apps via Homebrew
+          brew install xorg-apps || true
+          # The libs are in /opt/X11 after XQuartz install
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Setup Swift
+        run: swift --version
+
+      - name: Build Swift backend
+        run: |
+          cd swift
+          swift build -c release
+
+      - name: Build x11anywhere
+        run: cargo build --release --features backend-macos
+
+      - name: Create output directories
+        run: |
+          mkdir -p xorg_apps_output/macos
+          mkdir -p /tmp/x11anywhere_logs
+
+      - name: Start x11anywhere server
+        run: |
+          RUST_LOG=info ./target/release/x11anywhere -display 50 -tcp > /tmp/x11anywhere_logs/server.log 2>&1 &
+          echo "X11ANYWHERE_PID=$!" >> $GITHUB_ENV
+          sleep 5
+          echo "x11anywhere server started"
+
+      - name: Test with X11 apps (if available)
+        run: |
+          # Check if XQuartz X11 apps are available
+          if [ -x /opt/X11/bin/xclock ]; then
+            echo "Starting xclock..."
+            DISPLAY=:50 /opt/X11/bin/xclock -geometry 200x200+50+50 &
+            XCLOCK_PID=$!
+            sleep 3
+            # Use macOS screencapture
+            screencapture -x xorg_apps_output/macos/xclock.png
+            kill $XCLOCK_PID 2>/dev/null || true
+          else
+            echo "XQuartz apps not found, skipping X11 app tests"
+            # Create placeholder
+            echo "XQuartz not available" > xorg_apps_output/macos/not_available.txt
+          fi
+
+      - name: Test xeyes (if available)
+        run: |
+          if [ -x /opt/X11/bin/xeyes ]; then
+            echo "Starting xeyes..."
+            DISPLAY=:50 /opt/X11/bin/xeyes -geometry 200x150+300+50 &
+            XEYES_PID=$!
+            sleep 2
+            screencapture -x xorg_apps_output/macos/xeyes.png
+            kill $XEYES_PID 2>/dev/null || true
+          fi
+        continue-on-error: true
+
+      - name: Show server logs
+        if: always()
+        run: |
+          echo "=== x11anywhere server log ==="
+          cat /tmp/x11anywhere_logs/server.log || true
+
+      - name: Cleanup
+        if: always()
+        run: kill $X11ANYWHERE_PID 2>/dev/null || true
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xorg-apps-macos-screenshots
+          path: xorg_apps_output/macos/*
+          if-no-files-found: warn
+
+  xorg-apps-windows:
+    name: X11 Apps Test (Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-libx11
+            mingw-w64-x86_64-libxext
+            mingw-w64-x86_64-libxt
+            mingw-w64-x86_64-libxmu
+            mingw-w64-x86_64-libxaw
+            mingw-w64-x86_64-libxpm
+            mingw-w64-x86_64-xorg-apps
+            mingw-w64-x86_64-xorg-xeyes
+            mingw-w64-x86_64-xorg-xclock
+            make
+            git
+
+      - name: Setup Rust (Windows native)
+        shell: powershell
+        run: |
+          rustup default stable
+          rustup update stable
+
+      - name: Build x11anywhere (Windows native)
+        shell: powershell
+        run: cargo build --release --features backend-windows
+
+      - name: Create output directories
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path xorg_apps_output/windows
+          New-Item -ItemType Directory -Force -Path C:\temp\x11anywhere_logs
+
+      - name: Start x11anywhere server
+        shell: powershell
+        run: |
+          $env:RUST_LOG = "info"
+          Start-Process -FilePath ".\target\release\x11anywhere.exe" -ArgumentList "-display", "50", "-tcp" -RedirectStandardOutput "C:\temp\x11anywhere_logs\server_stdout.log" -RedirectStandardError "C:\temp\x11anywhere_logs\server_stderr.log" -NoNewWindow
+          Start-Sleep -Seconds 5
+          Write-Host "x11anywhere server started"
+          # Check if port is listening
+          netstat -an | Select-String "6050"
+
+      - name: Test X11 apps via MSYS2
+        run: |
+          export DISPLAY=127.0.0.1:50
+          echo "Testing X11 connection..."
+
+          # Try xclock if available
+          if command -v xclock &> /dev/null; then
+            echo "Starting xclock..."
+            xclock -geometry 200x200+50+50 &
+            XCLOCK_PID=$!
+            sleep 3
+            kill $XCLOCK_PID 2>/dev/null || true
+            echo "xclock test completed"
+          else
+            echo "xclock not found in MSYS2"
+          fi
+
+          # Try xeyes if available
+          if command -v xeyes &> /dev/null; then
+            echo "Starting xeyes..."
+            xeyes -geometry 200x150+300+50 &
+            XEYES_PID=$!
+            sleep 2
+            kill $XEYES_PID 2>/dev/null || true
+            echo "xeyes test completed"
+          else
+            echo "xeyes not found in MSYS2"
+          fi
+        continue-on-error: true
+
+      - name: Capture screenshot (PowerShell)
+        shell: powershell
+        run: |
+          Start-Sleep -Seconds 2
+          Add-Type -AssemblyName System.Windows.Forms
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+          $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+          $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
+          $bitmap.Save("xorg_apps_output\windows\screen_capture.png")
+          $graphics.Dispose()
+          $bitmap.Dispose()
+          Write-Host "Screenshot saved"
+
+      - name: Show server logs
+        if: always()
+        shell: powershell
+        run: |
+          Write-Host "=== Server stdout ==="
+          if (Test-Path "C:\temp\x11anywhere_logs\server_stdout.log") {
+            Get-Content "C:\temp\x11anywhere_logs\server_stdout.log"
+          }
+          Write-Host "=== Server stderr ==="
+          if (Test-Path "C:\temp\x11anywhere_logs\server_stderr.log") {
+            Get-Content "C:\temp\x11anywhere_logs\server_stderr.log"
+          }
+
+      - name: Cleanup
+        if: always()
+        shell: powershell
+        run: |
+          Get-Process x11anywhere -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process xclock -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process xeyes -ErrorAction SilentlyContinue | Stop-Process -Force
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xorg-apps-windows-screenshots
+          path: xorg_apps_output/windows/*
+          if-no-files-found: warn
+
+  # Commit screenshots to repository
+  commit-xorg-screenshots:
+    name: Commit X11 Apps Screenshots
+    runs-on: ubuntu-latest
+    needs: [xorg-apps-linux, xorg-apps-macos, xorg-apps-windows]
+    if: |
+      always() &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') &&
+      needs.xorg-apps-linux.result == 'success'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux screenshots
+        uses: actions/download-artifact@v4
+        with:
+          name: xorg-apps-linux-screenshots
+          path: docs/screenshots/xorg-apps/linux
+        continue-on-error: true
+
+      - name: Download macOS screenshots
+        uses: actions/download-artifact@v4
+        with:
+          name: xorg-apps-macos-screenshots
+          path: docs/screenshots/xorg-apps/macos
+        continue-on-error: true
+
+      - name: Download Windows screenshots
+        uses: actions/download-artifact@v4
+        with:
+          name: xorg-apps-windows-screenshots
+          path: docs/screenshots/xorg-apps/windows
+        continue-on-error: true
+
+      - name: List downloaded files
+        run: |
+          echo "=== Downloaded screenshots ==="
+          find docs/screenshots/xorg-apps -type f 2>/dev/null | head -30 || echo "No files found"
+
+      - name: Commit and push screenshots
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "docs/screenshots/xorg-apps"
+          message: "Update X11 apps test screenshots from CI"
+          default_author: github_actions
