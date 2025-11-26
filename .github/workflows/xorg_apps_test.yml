@@ -112,16 +112,33 @@ jobs:
             # Continue anyway to see what happens
           fi
 
-      - name: Test xclock
+      - name: Test xclock with detailed logging
         continue-on-error: true
         run: |
-          echo "Starting xclock..."
+          echo "Starting xclock with longer runtime for debugging..."
           # Use localhost:50 to force TCP connection (Unix socket not implemented)
-          DISPLAY=localhost:50 xclock -geometry 200x200+50+50 &
+          DISPLAY=localhost:50 xclock -geometry 200x200+50+50 -update 1 &
           XCLOCK_PID=$!
-          sleep 3
+          echo "xclock started with PID $XCLOCK_PID"
+
+          # Wait longer to capture more operations
+          sleep 5
+
+          # Check if xclock is still running
+          if ps -p $XCLOCK_PID > /dev/null 2>&1; then
+            echo "xclock is still running"
+          else
+            echo "WARNING: xclock has exited"
+            wait $XCLOCK_PID 2>/dev/null || true
+          fi
+
           # Capture screenshot via Xvfb
           DISPLAY=:99 import -window root xorg_apps_output/linux/xclock.png || echo "Screenshot capture failed"
+
+          # Show server log at this point to see xclock's requests
+          echo "=== Server log after xclock test ==="
+          tail -100 /tmp/x11anywhere_logs/server.log | grep -E "RENDER|CreateWindow|MapWindow|PolyArc|FillArc|PolyLine|FillPoly|Expose|opcode" || true
+
           kill $XCLOCK_PID 2>/dev/null || true
           echo "xclock test completed"
 
@@ -187,8 +204,16 @@ jobs:
       - name: Show server logs
         if: always()
         run: |
-          echo "=== x11anywhere server log ==="
+          echo "=== x11anywhere server log (full) ==="
           cat /tmp/x11anywhere_logs/server.log || true
+
+          echo ""
+          echo "=== RENDER extension operations summary ==="
+          grep -c "RENDER:" /tmp/x11anywhere_logs/server.log || echo "No RENDER operations"
+
+          echo ""
+          echo "=== Unhandled opcodes ==="
+          grep -E "Unhandled|Unknown|not implemented" /tmp/x11anywhere_logs/server.log || echo "None"
 
       - name: Cleanup
         if: always()
