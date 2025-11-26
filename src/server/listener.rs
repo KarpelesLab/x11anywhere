@@ -2186,9 +2186,9 @@ fn handle_create_pixmap(
         depth
     );
 
-    // Register the pixmap ID so we can resolve drawables correctly
+    // Create the pixmap in the backend
     let mut server = server.lock().unwrap();
-    server.register_pixmap(pixmap);
+    server.create_pixmap(pixmap, width, height, depth)?;
 
     // No reply for CreatePixmap
     Ok(())
@@ -2209,9 +2209,9 @@ fn handle_free_pixmap(
     let pixmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     log::debug!("FreePixmap: pixmap=0x{:x}", pixmap);
 
-    // Unregister the pixmap ID
+    // Free the pixmap in the backend
     let mut server = server.lock().unwrap();
-    server.unregister_pixmap(pixmap);
+    server.free_pixmap(pixmap)?;
 
     // No reply for FreePixmap
     Ok(())

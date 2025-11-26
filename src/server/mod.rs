@@ -14,7 +14,7 @@ use crate::backend::{Backend, BackendGC, BackendWindow};
 use crate::protocol::*;
 use crate::resources::ResourceTracker;
 use crate::security::SecurityPolicy;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::error::Error;
 
 /// Extension information
@@ -89,8 +89,8 @@ pub struct Server {
     /// GC mapping: X11 GContext ID -> Backend GC
     gcs: HashMap<GContext, BackendGC>,
 
-    /// Pixmap IDs - tracks which resource IDs are pixmaps (vs windows)
-    pixmaps: HashSet<u32>,
+    /// Pixmap mapping: X11 Pixmap ID -> Backend pixmap ID
+    pixmaps: HashMap<u32, usize>,
 
     /// Root window
     root_window: Window,
@@ -142,7 +142,7 @@ impl Server {
             backend,
             windows: HashMap::new(),
             gcs: HashMap::new(),
-            pixmaps: HashSet::new(),
+            pixmaps: HashMap::new(),
             root_window,
             root_backend_window: None,
             next_resource_id: 0x200, // Start after reserved IDs
@@ -1236,22 +1236,40 @@ impl Server {
         None
     }
 
-    /// Register a pixmap ID
-    pub fn register_pixmap(&mut self, pixmap_id: u32) {
-        self.pixmaps.insert(pixmap_id);
-        log::debug!("Registered pixmap 0x{:x}", pixmap_id);
+    /// Create a pixmap in the backend and register its ID
+    pub fn create_pixmap(
+        &mut self,
+        pixmap_id: u32,
+        width: u16,
+        height: u16,
+        depth: u8,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_id = self.backend.create_pixmap(width, height, depth)?;
+        self.pixmaps.insert(pixmap_id, backend_id);
+        log::debug!(
+            "Created pixmap 0x{:x} -> backend {} ({}x{}, depth={})",
+            pixmap_id,
+            backend_id,
+            width,
+            height,
+            depth
+        );
+        Ok(())
     }
 
-    /// Unregister a pixmap ID
-    pub fn unregister_pixmap(&mut self, pixmap_id: u32) {
-        self.pixmaps.remove(&pixmap_id);
-        log::debug!("Unregistered pixmap 0x{:x}", pixmap_id);
+    /// Free a pixmap from the backend and unregister its ID
+    pub fn free_pixmap(&mut self, pixmap_id: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(backend_id) = self.pixmaps.remove(&pixmap_id) {
+            self.backend.free_pixmap(backend_id)?;
+            log::debug!("Freed pixmap 0x{:x} (backend {})", pixmap_id, backend_id);
+        }
+        Ok(())
     }
 
     /// Resolve a drawable ID to a Drawable enum
     /// Checks if the ID is a known pixmap, otherwise assumes it's a window
     pub fn resolve_drawable(&self, drawable_id: u32) -> Drawable {
-        if self.pixmaps.contains(&drawable_id) {
+        if self.pixmaps.contains_key(&drawable_id) {
             Drawable::Pixmap(Pixmap::new(drawable_id))
         } else {
             Drawable::Window(Window::new(drawable_id))
@@ -1270,9 +1288,13 @@ impl Server {
                 }
                 None => Err("Invalid window".into()),
             },
-            Drawable::Pixmap(p) => Ok(crate::backend::BackendDrawable::Pixmap(
-                p.id().get() as usize
-            )),
+            Drawable::Pixmap(p) => {
+                let pixmap_id = p.id().get();
+                match self.pixmaps.get(&pixmap_id) {
+                    Some(&backend_id) => Ok(crate::backend::BackendDrawable::Pixmap(backend_id)),
+                    None => Err(format!("Pixmap 0x{:x} not found", pixmap_id).into()),
+                }
+            }
         }
     }
 }
