@@ -5,7 +5,7 @@
 //! and drawing commands to their Windows equivalents.
 
 use super::*;
-use crate::protocol::{self, *};
+use crate::protocol::*;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::iter::once;
@@ -1533,7 +1533,7 @@ impl Backend for WindowsBackend {
                 };
 
                 // Determine charset registry/encoding
-                let (registry, encoding) = match lf.lfCharSet as u32 {
+                let (registry, encoding) = match lf.lfCharSet {
                     ANSI_CHARSET => ("iso8859", "1"),
                     SYMBOL_CHARSET => ("adobe", "fontspecific"),
                     SHIFTJIS_CHARSET => ("jisx0208.1983", "0"),
