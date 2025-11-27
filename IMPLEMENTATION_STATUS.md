@@ -86,8 +86,8 @@ This document tracks the implementation status of X11 protocol features across d
 |---------|-----|---------|-------|---------|-------|
 | CreatePixmap | ✅ | ✅ | ✅ | ⚪ | Opcode 53 handler; CreateCompatibleDC/Bitmap on Windows, CGContext on macOS |
 | FreePixmap | ✅ | ✅ | ✅ | ⚪ | Opcode 54 handler; DeleteDC/DeleteObject on Windows; CGContext release on macOS |
-| Draw to pixmap | 🟡 | ✅ | ✅ | ⚪ | All drawing operations work on pixmaps |
-| Copy pixmap to window | 🟡 | ✅ | 🟡 | ⚪ | BitBlt on Windows; macOS needs improvement |
+| Draw to pixmap | ✅ | ✅ | ✅ | ⚪ | All drawing operations work on pixmaps; X11 via CreatePixmap |
+| Copy pixmap to window | ✅ | ✅ | 🟡 | ⚪ | BitBlt on Windows; X11 via CopyArea; macOS needs improvement |
 
 ### Color & Colormaps
 
