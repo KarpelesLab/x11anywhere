@@ -1863,8 +1863,16 @@ impl X11Backend {
 
         // For ascent/descent, we'd need to query font properties
         // Use reasonable defaults based on pixel size
-        let ascent = if pixel_size > 0 { pixel_size as i16 * 3 / 4 } else { 10 };
-        let descent = if pixel_size > 0 { pixel_size as i16 / 4 } else { 3 };
+        let ascent = if pixel_size > 0 {
+            pixel_size as i16 * 3 / 4
+        } else {
+            10
+        };
+        let descent = if pixel_size > 0 {
+            pixel_size as i16 / 4
+        } else {
+            3
+        };
 
         Some(BackendFontInfo {
             xlfd_name: xlfd.to_string(),
