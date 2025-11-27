@@ -142,6 +142,7 @@ fn handle_client(
             36 => handle_grab_key(&mut stream, &header, &request_data, &server)?,
             37 => handle_ungrab_key(&mut stream, &header, &request_data, &server)?,
             38 => handle_query_pointer(&mut stream, &header, &request_data, &server)?,
+            39 => handle_get_motion_events(&mut stream, &header, &request_data, &server)?,
             40 => handle_translate_coordinates(&mut stream, &header, &request_data, &server)?,
             41 => handle_warp_pointer(&mut stream, &header, &request_data, &server)?,
             42 => handle_set_input_focus(&mut stream, &header, &request_data, &server)?,
@@ -150,6 +151,7 @@ fn handle_client(
             45 => handle_open_font(&mut stream, &header, &request_data, &server)?,
             46 => handle_close_font(&mut stream, &header, &request_data, &server)?,
             47 => handle_query_font(&mut stream, &header, &request_data, &server)?,
+            48 => handle_query_text_extents(&mut stream, &header, &request_data, &server)?,
             49 => handle_list_fonts(&mut stream, &header, &request_data, &server)?,
             50 => handle_list_fonts_with_info(&mut stream, &header, &request_data, &server)?,
             53 => handle_create_pixmap(&mut stream, &header, &request_data, &server)?,
@@ -170,11 +172,17 @@ fn handle_client(
             93 => handle_create_cursor(&mut stream, &header, &request_data, &server)?,
             94 => handle_create_glyph_cursor(&mut stream, &header, &request_data, &server)?,
             95 => handle_free_cursor(&mut stream, &header, &request_data, &server)?,
+            97 => handle_query_best_size(&mut stream, &header, &request_data, &server)?,
             98 => handle_query_extension(&mut stream, &header, &request_data, &server)?,
             99 => handle_list_extensions(&mut stream, &header, &request_data, &server)?,
             104 => handle_bell(&mut stream, &header, &request_data, &server)?,
+            100 => handle_change_keyboard_mapping(&mut stream, &header, &request_data, &server)?,
+            101 => handle_get_keyboard_mapping(&mut stream, &header, &request_data, &server)?,
             107 => handle_set_screen_saver(&mut stream, &header, &request_data, &server)?,
             108 => handle_get_screen_saver(&mut stream, &header, &request_data, &server)?,
+            116 => handle_set_pointer_mapping(&mut stream, &header, &request_data, &server)?,
+            117 => handle_get_pointer_mapping(&mut stream, &header, &request_data, &server)?,
+            127 => handle_no_operation(&mut stream, &header, &request_data, &server)?,
             64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
             65 => handle_poly_line(&mut stream, &header, &request_data, &server)?,
             66 => handle_poly_segment(&mut stream, &header, &request_data, &server)?,
@@ -1670,6 +1678,60 @@ fn handle_query_font(
     Ok(())
 }
 
+fn handle_query_text_extents(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse QueryTextExtents request: font(4), string(n)
+    // Note: header[1] contains odd_length flag
+    if data.len() < 4 {
+        log::warn!("QueryTextExtents request too short");
+        return Ok(());
+    }
+
+    let font_or_gc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let string_bytes = &data[4..];
+    // String is CHAR2B (2 bytes per character)
+    let string_len = string_bytes.len() / 2;
+
+    log::debug!(
+        "QueryTextExtents: font=0x{:x}, string_len={}",
+        font_or_gc,
+        string_len
+    );
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    // Return approximate text metrics (assuming 8-pixel wide monospace font)
+    let char_width = 8i16;
+    let ascent = 10i16;
+    let descent = 3i16;
+    let overall_width = (string_len as i32) * (char_width as i32);
+
+    // Reply: reply(1), draw_direction(1), sequence(2), length(4),
+    //        font_ascent(2), font_descent(2), overall_ascent(2), overall_descent(2),
+    //        overall_width(4), overall_left(4), overall_right(4)
+    let mut reply = vec![0u8; 32];
+    reply[0] = 1; // Reply
+    reply[1] = 0; // draw_direction = LeftToRight
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&0u32.to_le_bytes()); // length = 0
+    reply[8..10].copy_from_slice(&ascent.to_le_bytes()); // font_ascent
+    reply[10..12].copy_from_slice(&descent.to_le_bytes()); // font_descent
+    reply[12..14].copy_from_slice(&ascent.to_le_bytes()); // overall_ascent
+    reply[14..16].copy_from_slice(&descent.to_le_bytes()); // overall_descent
+    reply[16..20].copy_from_slice(&overall_width.to_le_bytes()); // overall_width
+    reply[20..24].copy_from_slice(&0i32.to_le_bytes()); // overall_left
+    reply[24..28].copy_from_slice(&overall_width.to_le_bytes()); // overall_right
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
 fn handle_list_fonts(
     stream: &mut TcpStream,
     header: &[u8],
@@ -3077,6 +3139,45 @@ fn handle_query_pointer(
     Ok(())
 }
 
+fn handle_get_motion_events(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GetMotionEvents request: window(4), start(4), stop(4)
+    if data.len() < 12 {
+        log::warn!("GetMotionEvents request too short");
+        return Ok(());
+    }
+
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let start = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let stop = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+
+    log::debug!(
+        "GetMotionEvents: window=0x{:x}, start={}, stop={}",
+        window,
+        start,
+        stop
+    );
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    // Return empty list of motion events (motion history not tracked)
+    // Reply: reply(1), pad(1), sequence(2), length(4), n_events(4), pad(20)
+    let mut reply = vec![0u8; 32];
+    reply[0] = 1; // Reply
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&0u32.to_le_bytes()); // length = 0 (no events)
+    reply[8..12].copy_from_slice(&0u32.to_le_bytes()); // n_events = 0
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
 fn handle_translate_coordinates(
     stream: &mut TcpStream,
     header: &[u8],
@@ -3633,6 +3734,211 @@ fn handle_free_cursor(
 
     // For system cursors, this is a no-op
     // No reply for FreeCursor
+    Ok(())
+}
+
+fn handle_query_best_size(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse QueryBestSize request: class(1 in header), drawable(4), width(2), height(2)
+    if data.len() < 8 {
+        log::warn!("QueryBestSize request too short");
+        return Ok(());
+    }
+
+    let class = header[1]; // 0=Cursor, 1=Tile, 2=Stipple
+    let _drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let width = u16::from_le_bytes([data[4], data[5]]);
+    let height = u16::from_le_bytes([data[6], data[7]]);
+
+    let class_str = match class {
+        0 => "Cursor",
+        1 => "Tile",
+        2 => "Stipple",
+        _ => "Unknown",
+    };
+
+    log::debug!(
+        "QueryBestSize: class={} ({}), width={}, height={}",
+        class,
+        class_str,
+        width,
+        height
+    );
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    // Return the input size as the best size (most servers support arbitrary sizes)
+    // Reply: reply(1), pad(1), sequence(2), length(4), width(2), height(2), pad(20)
+    let mut reply = vec![0u8; 32];
+    reply[0] = 1; // Reply
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&0u32.to_le_bytes()); // length = 0
+    reply[8..10].copy_from_slice(&width.to_le_bytes());
+    reply[10..12].copy_from_slice(&height.to_le_bytes());
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_change_keyboard_mapping(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ChangeKeyboardMapping request: keycode_count(1 in header), first_keycode(1), keysyms_per_keycode(1)
+    if data.len() < 2 {
+        log::warn!("ChangeKeyboardMapping request too short");
+        return Ok(());
+    }
+
+    let keycode_count = header[1];
+    let first_keycode = data[0];
+    let keysyms_per_keycode = data[1];
+
+    log::debug!(
+        "ChangeKeyboardMapping: keycode_count={}, first_keycode={}, keysyms_per_keycode={}",
+        keycode_count,
+        first_keycode,
+        keysyms_per_keycode
+    );
+
+    // No reply for ChangeKeyboardMapping
+    // This would normally update the keyboard mapping table
+    Ok(())
+}
+
+fn handle_get_keyboard_mapping(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GetKeyboardMapping request: first_keycode(1), count(1)
+    if data.len() < 2 {
+        log::warn!("GetKeyboardMapping request too short");
+        return Ok(());
+    }
+
+    let first_keycode = data[0];
+    let count = data[1];
+
+    log::debug!(
+        "GetKeyboardMapping: first_keycode={}, count={}",
+        first_keycode,
+        count
+    );
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    // Return a minimal keyboard mapping (1 keysym per keycode)
+    // For simplicity, just return the keycode as the keysym (ASCII-like mapping)
+    let keysyms_per_keycode = 1u8;
+    let n_keysyms = (count as usize) * (keysyms_per_keycode as usize);
+    let reply_length = n_keysyms; // in 4-byte units (each keysym is 4 bytes)
+
+    // Reply header: reply(1), keysyms_per_keycode(1), sequence(2), length(4)
+    let mut reply = vec![0u8; 32 + n_keysyms * 4];
+    reply[0] = 1; // Reply
+    reply[1] = keysyms_per_keycode;
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&(reply_length as u32).to_le_bytes());
+
+    // Fill in keysyms - map keycodes to basic keysyms
+    for i in 0..count as usize {
+        let keycode = first_keycode as usize + i;
+        // Simple mapping: keycode -> keysym (for printable ASCII)
+        let keysym = if keycode >= 0x20 && keycode < 0x7f {
+            keycode as u32
+        } else {
+            0 // NoSymbol
+        };
+        let offset = 32 + i * 4;
+        reply[offset..offset + 4].copy_from_slice(&keysym.to_le_bytes());
+    }
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_set_pointer_mapping(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse SetPointerMapping request: n_elts(1 in header), map(n)
+    let n_elts = header[1];
+
+    log::debug!(
+        "SetPointerMapping: n_elts={}, data_len={}",
+        n_elts,
+        data.len()
+    );
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    // Reply: reply(1), status(1), sequence(2), length(4), pad(24)
+    let mut reply = vec![0u8; 32];
+    reply[0] = 1; // Reply
+    reply[1] = 0; // Success (MappingSuccess)
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&0u32.to_le_bytes()); // length = 0
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_get_pointer_mapping(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("GetPointerMapping");
+
+    // Get the sequence number from header
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+
+    // Return default pointer mapping (1:1 for 5 buttons)
+    let n_buttons = 5u8;
+    let map_length = ((n_buttons as usize + 3) / 4) as u32; // pad to 4-byte boundary
+
+    // Reply: reply(1), n_elts(1), sequence(2), length(4), pad(24), map(n)
+    let mut reply = vec![0u8; 32 + (map_length as usize) * 4];
+    reply[0] = 1; // Reply
+    reply[1] = n_buttons;
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&map_length.to_le_bytes());
+
+    // Default mapping: button 1->1, 2->2, 3->3, 4->4, 5->5
+    for i in 0..n_buttons as usize {
+        reply[32 + i] = (i + 1) as u8;
+    }
+
+    stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_no_operation(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("NoOperation");
+    // NoOperation - does nothing, no reply
     Ok(())
 }
 

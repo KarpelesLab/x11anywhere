@@ -112,6 +112,7 @@ This document tracks the implementation status of X11 protocol features across d
 | OpenFont | ✅ | ✅ | ✅ | ⚪ | Server-side font tracking with FontInfo struct |
 | CloseFont | ✅ | ✅ | ✅ | ⚪ | Server-side font tracking |
 | QueryFont | ✅ | ✅ | ✅ | ⚪ | Server-side; returns font metrics (ascent, descent, char width) |
+| QueryTextExtents | ✅ | ✅ | ✅ | ⚪ | Opcode 48 handler; returns text metrics for string |
 | ListFonts | ✅ | ✅ | ✅ | ⚪ | Server-side; returns built-in font names matching pattern |
 
 ### Events
@@ -149,6 +150,7 @@ This document tracks the implementation status of X11 protocol features across d
 | GrabKey | ✅ | ✅ | ✅ | ⚪ | Opcode 36 handler; passive key grab (stub) |
 | UngrabKey | ✅ | ✅ | ✅ | ⚪ | Opcode 37 handler |
 | QueryPointer | ✅ | ✅ | ✅ | ⚪ | Opcode 38 handler; returns (0,0) for now |
+| GetMotionEvents | ✅ | ✅ | ✅ | ⚪ | Opcode 39 handler; returns empty motion history |
 | TranslateCoords | ✅ | ✅ | ✅ | ⚪ | Opcode 40 handler; returns input coords |
 | WarpPointer | ✅ | ✅ | ✅ | ⚪ | Opcode 41 handler; stub (no actual warp) |
 | SetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 42 handler; backend focus TBD |
@@ -195,8 +197,14 @@ This document tracks the implementation status of X11 protocol features across d
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
 | Bell | ✅ | ✅ | ✅ | ⚪ | Opcode 104 handler; no-op |
+| QueryBestSize | ✅ | ✅ | ✅ | ⚪ | Opcode 97 handler; returns input size as best |
+| ChangeKeyboardMapping | ✅ | ✅ | ✅ | ⚪ | Opcode 100 handler; parsed/logged |
+| GetKeyboardMapping | ✅ | ✅ | ✅ | ⚪ | Opcode 101 handler; returns basic ASCII mapping |
 | SetScreenSaver | ✅ | ✅ | ✅ | ⚪ | Opcode 107 handler; stub |
 | GetScreenSaver | ✅ | ✅ | ✅ | ⚪ | Opcode 108 handler; returns disabled |
+| SetPointerMapping | ✅ | ✅ | ✅ | ⚪ | Opcode 116 handler; returns success |
+| GetPointerMapping | ✅ | ✅ | ✅ | ⚪ | Opcode 117 handler; returns 1:1 mapping for 5 buttons |
+| NoOperation | ✅ | ✅ | ✅ | ⚪ | Opcode 127 handler; does nothing |
 | GetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 43 handler; returns root window |
 | SetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 42 handler; backend focus TBD |
 
