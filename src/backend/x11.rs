@@ -960,15 +960,102 @@ impl Backend for X11Backend {
         Ok(())
     }
 
-    fn raise_window(&mut self, _window: BackendWindow) -> BackendResult<()> {
+    fn raise_window(&mut self, window: BackendWindow) -> BackendResult<()> {
+        // Get X server window ID
+        let server_wid = *self
+            .window_map
+            .lock()
+            .unwrap()
+            .get(&window.0)
+            .ok_or("Window not found")?;
+
+        // ConfigureWindow (opcode 12) with stack-mode = Above (0)
+        // Value mask bit 6 (0x40) is stack-mode
+        let mut req = Vec::new();
+        req.push(12); // Opcode: ConfigureWindow
+        req.push(0); // Unused
+        req.extend_from_slice(&4u16.to_le_bytes()); // Length: 4 words = 16 bytes
+        req.extend_from_slice(&server_wid.to_le_bytes()); // Window
+        req.extend_from_slice(&0x0040u16.to_le_bytes()); // Value mask: stack-mode
+        req.extend_from_slice(&[0u8; 2]); // Padding
+        req.extend_from_slice(&0u32.to_le_bytes()); // Stack mode: Above = 0
+
+        self.send_request(&req)?;
+        self.flush()?;
+
+        if self.debug {
+            log::debug!("Raised window 0x{:x}", server_wid);
+        }
         Ok(())
     }
 
-    fn lower_window(&mut self, _window: BackendWindow) -> BackendResult<()> {
+    fn lower_window(&mut self, window: BackendWindow) -> BackendResult<()> {
+        // Get X server window ID
+        let server_wid = *self
+            .window_map
+            .lock()
+            .unwrap()
+            .get(&window.0)
+            .ok_or("Window not found")?;
+
+        // ConfigureWindow (opcode 12) with stack-mode = Below (1)
+        // Value mask bit 6 (0x40) is stack-mode
+        let mut req = Vec::new();
+        req.push(12); // Opcode: ConfigureWindow
+        req.push(0); // Unused
+        req.extend_from_slice(&4u16.to_le_bytes()); // Length: 4 words = 16 bytes
+        req.extend_from_slice(&server_wid.to_le_bytes()); // Window
+        req.extend_from_slice(&0x0040u16.to_le_bytes()); // Value mask: stack-mode
+        req.extend_from_slice(&[0u8; 2]); // Padding
+        req.extend_from_slice(&1u32.to_le_bytes()); // Stack mode: Below = 1
+
+        self.send_request(&req)?;
+        self.flush()?;
+
+        if self.debug {
+            log::debug!("Lowered window 0x{:x}", server_wid);
+        }
         Ok(())
     }
 
-    fn set_window_title(&mut self, _window: BackendWindow, _title: &str) -> BackendResult<()> {
+    fn set_window_title(&mut self, window: BackendWindow, title: &str) -> BackendResult<()> {
+        // Get X server window ID
+        let server_wid = *self
+            .window_map
+            .lock()
+            .unwrap()
+            .get(&window.0)
+            .ok_or("Window not found")?;
+
+        // ChangeProperty (opcode 18) to set WM_NAME (atom 39)
+        // Format: opcode(1), mode(1), length(2), window(4), property(4), type(4),
+        //         format(1), pad(3), data_length(4), data(...)
+        let title_bytes = title.as_bytes();
+        let padded_len = (title_bytes.len() + 3) & !3; // Pad to 4-byte boundary
+        let total_len = (24 + padded_len) / 4;
+
+        let mut req = Vec::new();
+        req.push(18); // Opcode: ChangeProperty
+        req.push(0); // Mode: Replace = 0
+        req.extend_from_slice(&(total_len as u16).to_le_bytes()); // Length
+        req.extend_from_slice(&server_wid.to_le_bytes()); // Window
+        req.extend_from_slice(&39u32.to_le_bytes()); // Property: WM_NAME = 39
+        req.extend_from_slice(&31u32.to_le_bytes()); // Type: STRING = 31
+        req.push(8); // Format: 8 bits per element
+        req.extend_from_slice(&[0u8; 3]); // Padding
+        req.extend_from_slice(&(title_bytes.len() as u32).to_le_bytes()); // Data length
+        req.extend_from_slice(title_bytes);
+        // Pad to 4-byte boundary
+        while req.len() < 24 + padded_len {
+            req.push(0);
+        }
+
+        self.send_request(&req)?;
+        self.flush()?;
+
+        if self.debug {
+            log::debug!("Set window 0x{:x} title to: {}", server_wid, title);
+        }
         Ok(())
     }
 
