@@ -74,11 +74,11 @@ This document tracks the implementation status of X11 protocol features across d
 | CreateGC | ✅ | ✅ | ✅ | ⚪ | Opcode 55 handler; GC tracked in BackendGC struct |
 | ChangeGC | ✅ | ✅ | ✅ | ⚪ | Opcode 56 handler; GC state tracked; applied during drawing |
 | FreeGC | ✅ | ✅ | ✅ | ⚪ | Opcode 57 handler; GC cleanup |
-| SetForeground | 🟡 | ✅ | ✅ | ⚪ | Applied via create_pen/create_brush; CGColor on macOS |
-| SetBackground | 🟡 | ✅ | ✅ | ⚪ | Applied during drawing operations |
-| SetLineWidth | 🟡 | ✅ | ✅ | ⚪ | CreatePen with width on Windows; line_width on macOS |
-| SetLineStyle | 🟡 | 🟡 | 🟡 | ⚪ | Basic line styles supported |
-| SetFunction | 🟡 | ❌ | ❌ | ⚪ | Raster operations not fully implemented |
+| SetForeground | ✅ | ✅ | ✅ | ⚪ | Applied via create_pen/create_brush; CGColor on macOS; X11 via ChangeGC |
+| SetBackground | ✅ | ✅ | ✅ | ⚪ | Applied during drawing operations; X11 via ChangeGC |
+| SetLineWidth | ✅ | ✅ | ✅ | ⚪ | CreatePen with width on Windows; line_width on macOS; X11 via ChangeGC |
+| SetLineStyle | ✅ | 🟡 | 🟡 | ⚪ | All line styles forwarded to X11; basic on Windows/macOS |
+| SetFunction | ✅ | ❌ | ❌ | ⚪ | All raster ops forwarded to X11; not implemented on Windows/macOS |
 
 ### Pixmaps (Off-screen Drawables)
 

@@ -147,8 +147,22 @@ impl X11Backend {
         req.extend_from_slice(&drawable.to_le_bytes()); // drawable
 
         // Value mask and value list
+        // X11 GC attribute bits:
+        // 0x00000001 = function
+        // 0x00000004 = foreground
+        // 0x00000008 = background
+        // 0x00000010 = line-width (CARD16, but stored as 4 bytes)
+        // 0x00000020 = line-style
+        // 0x00000040 = cap-style
+        // 0x00000080 = join-style
+        // 0x00000100 = fill-style
+        // 0x00000200 = fill-rule
         let mut value_mask = 0u32;
         let mut value_list = Vec::new();
+
+        // Function (bit 0)
+        value_mask |= 0x00000001;
+        value_list.extend_from_slice(&(gc.function as u32).to_le_bytes());
 
         // Foreground (bit 2)
         value_mask |= 0x00000004;
@@ -157,6 +171,30 @@ impl X11Backend {
         // Background (bit 3)
         value_mask |= 0x00000008;
         value_list.extend_from_slice(&gc.background.to_le_bytes());
+
+        // Line width (bit 4) - CARD16 but padded to 4 bytes
+        value_mask |= 0x00000010;
+        value_list.extend_from_slice(&(gc.line_width as u32).to_le_bytes());
+
+        // Line style (bit 5)
+        value_mask |= 0x00000020;
+        value_list.extend_from_slice(&(gc.line_style as u32).to_le_bytes());
+
+        // Cap style (bit 6)
+        value_mask |= 0x00000040;
+        value_list.extend_from_slice(&(gc.cap_style as u32).to_le_bytes());
+
+        // Join style (bit 7)
+        value_mask |= 0x00000080;
+        value_list.extend_from_slice(&(gc.join_style as u32).to_le_bytes());
+
+        // Fill style (bit 8)
+        value_mask |= 0x00000100;
+        value_list.extend_from_slice(&(gc.fill_style as u32).to_le_bytes());
+
+        // Fill rule (bit 9)
+        value_mask |= 0x00000200;
+        value_list.extend_from_slice(&(gc.fill_rule as u32).to_le_bytes());
 
         req.extend_from_slice(&value_mask.to_le_bytes());
         req.extend_from_slice(&value_list);
@@ -174,10 +212,12 @@ impl X11Backend {
 
         if self.debug {
             log::debug!(
-                "Created GC: id=0x{:x}, fg=0x{:x}, bg=0x{:x}",
+                "Created GC: id=0x{:x}, fg=0x{:x}, bg=0x{:x}, line_width={}, function={:?}",
                 gc_id,
                 gc.foreground,
-                gc.background
+                gc.background,
+                gc.line_width,
+                gc.function
             );
         }
 
@@ -194,8 +234,22 @@ impl X11Backend {
         req.extend_from_slice(&gc_id.to_le_bytes()); // gc
 
         // Value mask and value list
+        // X11 GC attribute bits:
+        // 0x00000001 = function
+        // 0x00000004 = foreground
+        // 0x00000008 = background
+        // 0x00000010 = line-width (CARD16, but stored as 4 bytes)
+        // 0x00000020 = line-style
+        // 0x00000040 = cap-style
+        // 0x00000080 = join-style
+        // 0x00000100 = fill-style
+        // 0x00000200 = fill-rule
         let mut value_mask = 0u32;
         let mut value_list = Vec::new();
+
+        // Function (bit 0)
+        value_mask |= 0x00000001;
+        value_list.extend_from_slice(&(gc.function as u32).to_le_bytes());
 
         // Foreground (bit 2)
         value_mask |= 0x00000004;
@@ -204,6 +258,30 @@ impl X11Backend {
         // Background (bit 3)
         value_mask |= 0x00000008;
         value_list.extend_from_slice(&gc.background.to_le_bytes());
+
+        // Line width (bit 4) - CARD16 but padded to 4 bytes
+        value_mask |= 0x00000010;
+        value_list.extend_from_slice(&(gc.line_width as u32).to_le_bytes());
+
+        // Line style (bit 5)
+        value_mask |= 0x00000020;
+        value_list.extend_from_slice(&(gc.line_style as u32).to_le_bytes());
+
+        // Cap style (bit 6)
+        value_mask |= 0x00000040;
+        value_list.extend_from_slice(&(gc.cap_style as u32).to_le_bytes());
+
+        // Join style (bit 7)
+        value_mask |= 0x00000080;
+        value_list.extend_from_slice(&(gc.join_style as u32).to_le_bytes());
+
+        // Fill style (bit 8)
+        value_mask |= 0x00000100;
+        value_list.extend_from_slice(&(gc.fill_style as u32).to_le_bytes());
+
+        // Fill rule (bit 9)
+        value_mask |= 0x00000200;
+        value_list.extend_from_slice(&(gc.fill_rule as u32).to_le_bytes());
 
         req.extend_from_slice(&value_mask.to_le_bytes());
         req.extend_from_slice(&value_list);
@@ -221,10 +299,12 @@ impl X11Backend {
 
         if self.debug {
             log::debug!(
-                "Changed GC: id=0x{:x}, fg=0x{:x}, bg=0x{:x}",
+                "Changed GC: id=0x{:x}, fg=0x{:x}, bg=0x{:x}, line_width={}, function={:?}",
                 gc_id,
                 gc.foreground,
-                gc.background
+                gc.background,
+                gc.line_width,
+                gc.function
             );
         }
 
