@@ -67,6 +67,7 @@ This document tracks the implementation status of X11 protocol features across d
 | PolyArc | ✅ | ✅ | ✅ | ⚪ | Arc/Pie on Windows, CGContext ellipse transforms on macOS |
 | PolyFillArc | ✅ | ✅ | ✅ | ⚪ | Pie on Windows, CGContext arcs on macOS |
 | CopyArea | ✅ | ✅ | ✅ | ⚪ | BitBlt on Windows; CGImage cropping/drawing on macOS |
+| CopyPlane | ✅ | ✅ | ✅ | ⚪ | Opcode 63 handler; treated as 1-plane CopyArea |
 | ImageText8 | ✅ | ✅ | ✅ | ⚪ | TextOutW on Windows, Core Text (CTLineDraw) on macOS |
 | ImageText16 | ✅ | ✅ | ✅ | ⚪ | Unicode text rendering supported |
 | PutImage | ✅ | ✅ | ✅ | ⚪ | SetDIBitsToDevice on Windows, CGImage on macOS |
@@ -79,6 +80,8 @@ This document tracks the implementation status of X11 protocol features across d
 | CreateGC | ✅ | ✅ | ✅ | ⚪ | Opcode 55 handler; GC tracked in BackendGC struct |
 | ChangeGC | ✅ | ✅ | ✅ | ⚪ | Opcode 56 handler; GC state tracked; applied during drawing |
 | CopyGC | ✅ | ✅ | ✅ | ⚪ | Opcode 57 handler; copies GC attributes based on mask |
+| SetDashes | ✅ | ✅ | ✅ | ⚪ | Opcode 58 handler; dash pattern (stub) |
+| SetClipRectangles | ✅ | ✅ | ✅ | ⚪ | Opcode 59 handler; clip rectangles (stub) |
 | FreeGC | ✅ | ✅ | ✅ | ⚪ | Opcode 60 handler; GC cleanup |
 | SetForeground | ✅ | ✅ | ✅ | ⚪ | Applied via create_pen/create_brush; CGColor on macOS; X11 via ChangeGC |
 | SetBackground | ✅ | ✅ | ✅ | ⚪ | Applied during drawing operations; X11 via ChangeGC |
@@ -101,9 +104,18 @@ This document tracks the implementation status of X11 protocol features across d
 |---------|-----|---------|-------|---------|-------|
 | CreateColormap | ✅ | ✅ | ✅ | ⚪ | Opcode 78 handler; TrueColor no-op |
 | FreeColormap | ✅ | ✅ | ✅ | ⚪ | Opcode 79 handler; TrueColor no-op |
+| CopyColormapAndFree | ✅ | ✅ | ✅ | ⚪ | Opcode 80 handler; TrueColor no-op |
+| InstallColormap | ✅ | ✅ | ✅ | ⚪ | Opcode 81 handler; TrueColor no-op |
+| UninstallColormap | ✅ | ✅ | ✅ | ⚪ | Opcode 82 handler; TrueColor no-op |
+| ListInstalledColormaps | ✅ | ✅ | ✅ | ⚪ | Opcode 83 handler; returns default colormap |
 | AllocColor | ✅ | ✅ | ✅ | ⚪ | Opcode 84 handler; RGB to pixel (TrueColor) |
 | AllocNamedColor | ✅ | ✅ | ✅ | ⚪ | Opcode 85 handler; named color lookup (70+ colors) |
+| AllocColorCells | ✅ | ✅ | ✅ | ⚪ | Opcode 86 handler; returns Alloc error (TrueColor) |
+| AllocColorPlanes | ✅ | ✅ | ✅ | ⚪ | Opcode 87 handler; returns Alloc error (TrueColor) |
 | FreeColors | ✅ | ✅ | ✅ | ⚪ | Opcode 88 handler; TrueColor no-op |
+| StoreColors | ✅ | ✅ | ✅ | ⚪ | Opcode 89 handler; returns Access error (TrueColor) |
+| StoreNamedColor | ✅ | ✅ | ✅ | ⚪ | Opcode 90 handler; returns Access error (TrueColor) |
+| LookupColor | ✅ | ✅ | ✅ | ⚪ | Opcode 92 handler; named color lookup |
 
 ### Fonts
 
@@ -114,6 +126,8 @@ This document tracks the implementation status of X11 protocol features across d
 | QueryFont | ✅ | ✅ | ✅ | ⚪ | Server-side; returns font metrics (ascent, descent, char width) |
 | QueryTextExtents | ✅ | ✅ | ✅ | ⚪ | Opcode 48 handler; returns text metrics for string |
 | ListFonts | ✅ | ✅ | ✅ | ⚪ | Server-side; returns built-in font names matching pattern |
+| SetFontPath | ✅ | ✅ | ✅ | ⚪ | Opcode 51 handler; parsed/logged (stub) |
+| GetFontPath | ✅ | ✅ | ✅ | ⚪ | Opcode 52 handler; returns empty path list |
 
 ### Events
 
@@ -142,6 +156,7 @@ This document tracks the implementation status of X11 protocol features across d
 | UngrabPointer | ✅ | ✅ | ✅ | ⚪ | Opcode 27 handler |
 | GrabServer | ✅ | ✅ | ✅ | ⚪ | Opcode 28 handler; no-op (single client focus) |
 | UngrabServer | ✅ | ✅ | ✅ | ⚪ | Opcode 29 handler; no-op |
+| ChangeActivePointerGrab | ✅ | ✅ | ✅ | ⚪ | Opcode 30 handler; stub (event mask) |
 | GrabButton | ✅ | ✅ | ✅ | ⚪ | Opcode 31 handler; passive grab stub |
 | UngrabButton | ✅ | ✅ | ✅ | ⚪ | Opcode 32 handler |
 | GrabKeyboard | ✅ | ✅ | ✅ | ⚪ | Opcode 33 handler; returns Success |
@@ -183,6 +198,7 @@ This document tracks the implementation status of X11 protocol features across d
 | CreateCursor | ✅ | ✅ | ✅ | ⚪ | Opcode 93 handler; stub (custom cursors TBD) |
 | CreateGlyphCursor | ✅ | ✅ | ✅ | ⚪ | Opcode 94 handler; stub (glyph mapping TBD) |
 | FreeCursor | ✅ | ✅ | ✅ | ⚪ | Opcode 95 handler; no-op for system cursors |
+| RecolorCursor | ✅ | ✅ | ✅ | ⚪ | Opcode 96 handler; stub (recoloring TBD) |
 | DefineCursor | ✅ | ✅ | ✅ | ⚪ | X11: ChangeWindowAttributes with CWCursor; SetCursor on Windows; NSCursor.set on macOS |
 
 ### Extensions
@@ -200,10 +216,23 @@ This document tracks the implementation status of X11 protocol features across d
 | QueryBestSize | ✅ | ✅ | ✅ | ⚪ | Opcode 97 handler; returns input size as best |
 | ChangeKeyboardMapping | ✅ | ✅ | ✅ | ⚪ | Opcode 100 handler; parsed/logged |
 | GetKeyboardMapping | ✅ | ✅ | ✅ | ⚪ | Opcode 101 handler; returns basic ASCII mapping |
+| ChangeKeyboardControl | ✅ | ✅ | ✅ | ⚪ | Opcode 102 handler; stub |
+| GetKeyboardControl | ✅ | ✅ | ✅ | ⚪ | Opcode 103 handler; returns default settings |
+| ChangePointerControl | ✅ | ✅ | ✅ | ⚪ | Opcode 105 handler; stub |
+| GetPointerControl | ✅ | ✅ | ✅ | ⚪ | Opcode 106 handler; returns default values |
 | SetScreenSaver | ✅ | ✅ | ✅ | ⚪ | Opcode 107 handler; stub |
 | GetScreenSaver | ✅ | ✅ | ✅ | ⚪ | Opcode 108 handler; returns disabled |
+| ChangeHosts | ✅ | ✅ | ✅ | ⚪ | Opcode 109 handler; stub (host access control) |
+| ListHosts | ✅ | ✅ | ✅ | ⚪ | Opcode 110 handler; returns empty list, access enabled |
+| SetAccessControl | ✅ | ✅ | ✅ | ⚪ | Opcode 111 handler; stub |
+| SetCloseDownMode | ✅ | ✅ | ✅ | ⚪ | Opcode 112 handler; stub (Destroy/Retain/Permanent) |
+| KillClient | ✅ | ✅ | ✅ | ⚪ | Opcode 113 handler; stub |
+| RotateProperties | ✅ | ✅ | ✅ | ⚪ | Opcode 114 handler; stub |
+| ForceScreenSaver | ✅ | ✅ | ✅ | ⚪ | Opcode 115 handler; stub (activate/reset) |
 | SetPointerMapping | ✅ | ✅ | ✅ | ⚪ | Opcode 116 handler; returns success |
 | GetPointerMapping | ✅ | ✅ | ✅ | ⚪ | Opcode 117 handler; returns 1:1 mapping for 5 buttons |
+| SetModifierMapping | ✅ | ✅ | ✅ | ⚪ | Opcode 118 handler; returns Success |
+| GetModifierMapping | ✅ | ✅ | ✅ | ⚪ | Opcode 119 handler; returns standard 8-modifier mapping |
 | NoOperation | ✅ | ✅ | ✅ | ⚪ | Opcode 127 handler; does nothing |
 | GetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 43 handler; returns root window |
 | SetInputFocus | ✅ | ✅ | ✅ | ⚪ | Opcode 42 handler; backend focus TBD |
