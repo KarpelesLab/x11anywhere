@@ -2265,7 +2265,7 @@ impl Backend for X11Backend {
         req.extend_from_slice(&0u16.to_le_bytes()); // fore_red
         req.extend_from_slice(&0u16.to_le_bytes()); // fore_green
         req.extend_from_slice(&0u16.to_le_bytes()); // fore_blue
-        // Background color: white
+                                                    // Background color: white
         req.extend_from_slice(&0xFFFFu16.to_le_bytes()); // back_red
         req.extend_from_slice(&0xFFFFu16.to_le_bytes()); // back_green
         req.extend_from_slice(&0xFFFFu16.to_le_bytes()); // back_blue

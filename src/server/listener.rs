@@ -1755,7 +1755,8 @@ fn handle_change_window_attributes(
     // Helper to read u32 and advance offset
     let read_u32 = |data: &[u8], off: &mut usize| -> Option<u32> {
         if *off + 4 <= data.len() {
-            let val = u32::from_le_bytes([data[*off], data[*off + 1], data[*off + 2], data[*off + 3]]);
+            let val =
+                u32::from_le_bytes([data[*off], data[*off + 1], data[*off + 2], data[*off + 3]]);
             *off += 4;
             Some(val)
         } else {
