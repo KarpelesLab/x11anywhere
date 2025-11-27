@@ -1130,6 +1130,61 @@ impl Server {
         Ok(())
     }
 
+    /// Copy area from one drawable to another
+    #[allow(clippy::too_many_arguments)]
+    pub fn copy_area(
+        &mut self,
+        src_drawable: Drawable,
+        dst_drawable: Drawable,
+        gc: GContext,
+        src_x: i16,
+        src_y: i16,
+        dst_x: i16,
+        dst_y: i16,
+        width: u16,
+        height: u16,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_gc = match self.gcs.get(&gc) {
+            Some(gc) => gc,
+            None => return Err("Invalid GC".into()),
+        };
+
+        let backend_src = self.get_backend_drawable(src_drawable)?;
+        let backend_dst = self.get_backend_drawable(dst_drawable)?;
+
+        self.backend.copy_area(
+            backend_src,
+            backend_dst,
+            backend_gc,
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_x,
+            dst_y,
+        )?;
+        self.backend.flush()?;
+        Ok(())
+    }
+
+    /// Get image data from a drawable
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_image(
+        &mut self,
+        drawable: Drawable,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        plane_mask: u32,
+        format: u8,
+    ) -> Result<(u8, u32, Vec<u8>), Box<dyn Error + Send + Sync>> {
+        let backend_drawable = self.get_backend_drawable(drawable)?;
+
+        self.backend
+            .get_image(backend_drawable, x, y, width, height, plane_mask, format)
+    }
+
     /// Draw text
     pub fn draw_text(
         &mut self,

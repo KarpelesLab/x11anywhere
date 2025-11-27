@@ -709,7 +709,7 @@ pub trait Backend: Send {
     /// * `format` - Desired image format (typically 2=ZPixmap)
     ///
     /// # Returns
-    /// Returns image data as Vec<u8> in the requested format
+    /// Returns (depth, visual_id, image_data) tuple
     #[allow(clippy::too_many_arguments)]
     fn get_image(
         &mut self,
@@ -720,7 +720,7 @@ pub trait Backend: Send {
         height: u16,
         plane_mask: u32,
         format: u8,
-    ) -> BackendResult<Vec<u8>>;
+    ) -> BackendResult<(u8, u32, Vec<u8>)>;
 
     // Cursor operations
 

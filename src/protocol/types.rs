@@ -329,6 +329,15 @@ impl Rectangle {
     }
 }
 
+/// Segment (for drawing line segments)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Segment {
+    pub x1: i16,
+    pub y1: i16,
+    pub x2: i16,
+    pub y2: i16,
+}
+
 /// Arc (for drawing arcs and ellipses)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Arc {

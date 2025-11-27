@@ -1716,7 +1716,7 @@ impl Backend for X11Backend {
         height: u16,
         plane_mask: u32,
         format: u8,
-    ) -> BackendResult<Vec<u8>> {
+    ) -> BackendResult<(u8, u32, Vec<u8>)> {
         // Get server drawable ID
         let server_drawable = match drawable {
             BackendDrawable::Window(w) => *self
@@ -1762,22 +1762,27 @@ impl Backend for X11Backend {
             return Err("GetImage reply too short".into());
         }
 
+        let depth = reply[1];
+        let visual = u32::from_le_bytes([reply[8], reply[9], reply[10], reply[11]]);
+
         // Extract image data (skip 32-byte header)
         let image_data = reply[32..].to_vec();
 
         if self.debug {
             log::debug!(
-                "GetImage: drawable=0x{:x}, ({},{}) {}x{}, {} bytes",
+                "GetImage: drawable=0x{:x}, ({},{}) {}x{}, depth={}, visual=0x{:x}, {} bytes",
                 server_drawable,
                 x,
                 y,
                 width,
                 height,
+                depth,
+                visual,
                 image_data.len()
             );
         }
 
-        Ok(image_data)
+        Ok((depth, visual, image_data))
     }
 
     fn poll_events(&mut self) -> BackendResult<Vec<BackendEvent>> {

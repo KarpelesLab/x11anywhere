@@ -44,6 +44,12 @@ pub enum Request {
     GetSelectionOwner(GetSelectionOwnerRequest),
     ConvertSelection(ConvertSelectionRequest),
     GetInputFocus,
+    PolySegment(PolySegmentRequest),
+    PolyArc(PolyArcRequest),
+    PolyFillArc(PolyFillArcRequest),
+    CopyArea(CopyAreaRequest),
+    GetImage(GetImageRequest),
+    FillPoly(FillPolyRequest),
     ExtensionRequest { opcode: u8, data: Vec<u8> },
     NoOperation,
 }
@@ -309,6 +315,60 @@ pub struct QueryExtensionRequest {
     pub name: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct PolySegmentRequest {
+    pub drawable: Drawable,
+    pub gc: GContext,
+    pub segments: Vec<Segment>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PolyArcRequest {
+    pub drawable: Drawable,
+    pub gc: GContext,
+    pub arcs: Vec<Arc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PolyFillArcRequest {
+    pub drawable: Drawable,
+    pub gc: GContext,
+    pub arcs: Vec<Arc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CopyAreaRequest {
+    pub src_drawable: Drawable,
+    pub dst_drawable: Drawable,
+    pub gc: GContext,
+    pub src_x: i16,
+    pub src_y: i16,
+    pub dst_x: i16,
+    pub dst_y: i16,
+    pub width: u16,
+    pub height: u16,
+}
+
+#[derive(Debug, Clone)]
+pub struct GetImageRequest {
+    pub format: u8,
+    pub drawable: Drawable,
+    pub x: i16,
+    pub y: i16,
+    pub width: u16,
+    pub height: u16,
+    pub plane_mask: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct FillPolyRequest {
+    pub drawable: Drawable,
+    pub gc: GContext,
+    pub shape: u8,
+    pub coordinate_mode: u8,
+    pub points: Vec<Point>,
+}
+
 /// Request parser
 pub struct ProtocolParser {
     byte_order: ByteOrder,
@@ -395,6 +455,12 @@ impl ProtocolParser {
             }
             Some(RequestOpcode::ConvertSelection) => self.parse_convert_selection(request_data)?,
             Some(RequestOpcode::GetInputFocus) => Request::GetInputFocus,
+            Some(RequestOpcode::PolySegment) => self.parse_poly_segment(request_data)?,
+            Some(RequestOpcode::PolyArc) => self.parse_poly_arc(request_data)?,
+            Some(RequestOpcode::FillPoly) => self.parse_fill_poly(detail, request_data)?,
+            Some(RequestOpcode::PolyFillArc) => self.parse_poly_fill_arc(request_data)?,
+            Some(RequestOpcode::CopyArea) => self.parse_copy_area(request_data)?,
+            Some(RequestOpcode::GetImage) => self.parse_get_image(detail, request_data)?,
             Some(RequestOpcode::NoOperation) => Request::NoOperation,
             _ => {
                 // Handle extension requests (opcodes >= 128)
@@ -956,6 +1022,152 @@ impl ProtocolParser {
             target,
             property,
             time,
+        }))
+    }
+
+    fn parse_poly_segment(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let drawable = Drawable::from_id(self.read_u32(&data[0..4]));
+        let gc = GContext::new(self.read_u32(&data[4..8]));
+
+        let mut segments = Vec::new();
+        let mut offset = 8;
+        while offset + 8 <= data.len() {
+            let x1 = self.read_i16(&data[offset..offset + 2]);
+            let y1 = self.read_i16(&data[offset + 2..offset + 4]);
+            let x2 = self.read_i16(&data[offset + 4..offset + 6]);
+            let y2 = self.read_i16(&data[offset + 6..offset + 8]);
+            segments.push(Segment { x1, y1, x2, y2 });
+            offset += 8;
+        }
+
+        Ok(Request::PolySegment(PolySegmentRequest {
+            drawable,
+            gc,
+            segments,
+        }))
+    }
+
+    fn parse_poly_arc(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let drawable = Drawable::from_id(self.read_u32(&data[0..4]));
+        let gc = GContext::new(self.read_u32(&data[4..8]));
+
+        let mut arcs = Vec::new();
+        let mut offset = 8;
+        while offset + 12 <= data.len() {
+            let x = self.read_i16(&data[offset..offset + 2]);
+            let y = self.read_i16(&data[offset + 2..offset + 4]);
+            let width = self.read_u16(&data[offset + 4..offset + 6]);
+            let height = self.read_u16(&data[offset + 6..offset + 8]);
+            let angle1 = self.read_i16(&data[offset + 8..offset + 10]);
+            let angle2 = self.read_i16(&data[offset + 10..offset + 12]);
+            arcs.push(Arc {
+                x,
+                y,
+                width,
+                height,
+                angle1,
+                angle2,
+            });
+            offset += 12;
+        }
+
+        Ok(Request::PolyArc(PolyArcRequest { drawable, gc, arcs }))
+    }
+
+    fn parse_poly_fill_arc(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let drawable = Drawable::from_id(self.read_u32(&data[0..4]));
+        let gc = GContext::new(self.read_u32(&data[4..8]));
+
+        let mut arcs = Vec::new();
+        let mut offset = 8;
+        while offset + 12 <= data.len() {
+            let x = self.read_i16(&data[offset..offset + 2]);
+            let y = self.read_i16(&data[offset + 2..offset + 4]);
+            let width = self.read_u16(&data[offset + 4..offset + 6]);
+            let height = self.read_u16(&data[offset + 6..offset + 8]);
+            let angle1 = self.read_i16(&data[offset + 8..offset + 10]);
+            let angle2 = self.read_i16(&data[offset + 10..offset + 12]);
+            arcs.push(Arc {
+                x,
+                y,
+                width,
+                height,
+                angle1,
+                angle2,
+            });
+            offset += 12;
+        }
+
+        Ok(Request::PolyFillArc(PolyFillArcRequest {
+            drawable,
+            gc,
+            arcs,
+        }))
+    }
+
+    fn parse_fill_poly(&self, shape: u8, data: &[u8]) -> Result<Request, X11Error> {
+        let drawable = Drawable::from_id(self.read_u32(&data[0..4]));
+        let gc = GContext::new(self.read_u32(&data[4..8]));
+        let coordinate_mode = data[9]; // byte 9 is coordinate-mode
+
+        let mut points = Vec::new();
+        let mut offset = 12; // Skip 2 unused bytes after coordinate-mode
+        while offset + 4 <= data.len() {
+            let x = self.read_i16(&data[offset..offset + 2]);
+            let y = self.read_i16(&data[offset + 2..offset + 4]);
+            points.push(Point { x, y });
+            offset += 4;
+        }
+
+        Ok(Request::FillPoly(FillPolyRequest {
+            drawable,
+            gc,
+            shape,
+            coordinate_mode,
+            points,
+        }))
+    }
+
+    fn parse_copy_area(&self, data: &[u8]) -> Result<Request, X11Error> {
+        let src_drawable = Drawable::from_id(self.read_u32(&data[0..4]));
+        let dst_drawable = Drawable::from_id(self.read_u32(&data[4..8]));
+        let gc = GContext::new(self.read_u32(&data[8..12]));
+        let src_x = self.read_i16(&data[12..14]);
+        let src_y = self.read_i16(&data[14..16]);
+        let dst_x = self.read_i16(&data[16..18]);
+        let dst_y = self.read_i16(&data[18..20]);
+        let width = self.read_u16(&data[20..22]);
+        let height = self.read_u16(&data[22..24]);
+
+        Ok(Request::CopyArea(CopyAreaRequest {
+            src_drawable,
+            dst_drawable,
+            gc,
+            src_x,
+            src_y,
+            dst_x,
+            dst_y,
+            width,
+            height,
+        }))
+    }
+
+    fn parse_get_image(&self, format: u8, data: &[u8]) -> Result<Request, X11Error> {
+        let drawable = Drawable::from_id(self.read_u32(&data[0..4]));
+        let x = self.read_i16(&data[4..6]);
+        let y = self.read_i16(&data[6..8]);
+        let width = self.read_u16(&data[8..10]);
+        let height = self.read_u16(&data[10..12]);
+        let plane_mask = self.read_u32(&data[12..16]);
+
+        Ok(Request::GetImage(GetImageRequest {
+            format,
+            drawable,
+            x,
+            y,
+            width,
+            height,
+            plane_mask,
         }))
     }
 }

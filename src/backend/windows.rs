@@ -912,9 +912,11 @@ impl Backend for WindowsBackend {
         height: u16,
         _plane_mask: u32,
         format: u8,
-    ) -> BackendResult<Vec<u8>> {
+    ) -> BackendResult<(u8, u32, Vec<u8>)> {
         unsafe {
             let hdc = self.get_dc(drawable)?;
+            let depth = 24u8;
+            let visual = 0x21u32; // TrueColor visual
 
             match format {
                 2 => {
@@ -983,7 +985,7 @@ impl Backend for WindowsBackend {
                         return Err("GetDIBits failed".into());
                     }
 
-                    Ok(buffer)
+                    Ok((depth, visual, buffer))
                 }
                 0 | 1 => {
                     // Bitmap or XYPixmap formats

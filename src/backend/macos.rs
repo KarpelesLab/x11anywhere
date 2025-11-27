@@ -966,9 +966,11 @@ impl Backend for MacOSBackend {
         height: u16,
         _plane_mask: u32,
         _format: u8,
-    ) -> BackendResult<Vec<u8>> {
+    ) -> BackendResult<(u8, u32, Vec<u8>)> {
         unsafe {
             let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let depth = 24u8;
+            let visual = 0x21u32; // TrueColor visual
 
             // Allocate buffer for 32bpp RGBA data
             let buffer_size = (width as usize) * (height as usize) * 4;
@@ -989,7 +991,7 @@ impl Backend for MacOSBackend {
             if result != 0 {
                 Err("Failed to get image".into())
             } else {
-                Ok(buffer)
+                Ok((depth, visual, buffer))
             }
         }
     }

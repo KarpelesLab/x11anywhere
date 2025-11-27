@@ -147,6 +147,8 @@ fn handle_client(
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
             60 => handle_free_gc(&mut stream, &header, &request_data, &server)?,
             61 => handle_clear_area(&mut stream, &header, &request_data, &server)?,
+            62 => handle_copy_area(&mut stream, &header, &request_data, &server)?,
+            73 => handle_get_image(&mut stream, &header, &request_data, &server)?,
             78 => handle_create_colormap(&mut stream, &header, &request_data, &server)?,
             79 => handle_free_colormap(&mut stream, &header, &request_data, &server)?,
             84 => handle_alloc_color(&mut stream, &header, &request_data, &server)?,
@@ -1180,6 +1182,134 @@ fn handle_poly_fill_arc(
     let mut server = server.lock().unwrap();
     let resolved_drawable = server.resolve_drawable(drawable);
     server.fill_arcs(resolved_drawable, crate::protocol::GContext::new(gc), &arcs)?;
+
+    Ok(())
+}
+
+fn handle_copy_area(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse CopyArea request:
+    // src-drawable(4), dst-drawable(4), gc(4), src-x(2), src-y(2), dst-x(2), dst-y(2), width(2), height(2)
+    if data.len() < 24 {
+        log::warn!("CopyArea request too short");
+        return Ok(());
+    }
+
+    let src_drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let dst_drawable = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let gc = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+    let src_x = i16::from_le_bytes([data[12], data[13]]);
+    let src_y = i16::from_le_bytes([data[14], data[15]]);
+    let dst_x = i16::from_le_bytes([data[16], data[17]]);
+    let dst_y = i16::from_le_bytes([data[18], data[19]]);
+    let width = u16::from_le_bytes([data[20], data[21]]);
+    let height = u16::from_le_bytes([data[22], data[23]]);
+
+    log::debug!(
+        "CopyArea: src=0x{:x}, dst=0x{:x}, gc=0x{:x}, ({},{}) -> ({},{}), {}x{}",
+        src_drawable,
+        dst_drawable,
+        gc,
+        src_x,
+        src_y,
+        dst_x,
+        dst_y,
+        width,
+        height
+    );
+
+    let mut server = server.lock().unwrap();
+    let resolved_src = server.resolve_drawable(src_drawable);
+    let resolved_dst = server.resolve_drawable(dst_drawable);
+    server.copy_area(
+        resolved_src,
+        resolved_dst,
+        crate::protocol::GContext::new(gc),
+        src_x,
+        src_y,
+        dst_x,
+        dst_y,
+        width,
+        height,
+    )?;
+
+    Ok(())
+}
+
+fn handle_get_image(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GetImage request:
+    // drawable(4), x(2), y(2), width(2), height(2), plane-mask(4)
+    if data.len() < 16 {
+        log::warn!("GetImage request too short");
+        return Ok(());
+    }
+
+    let format = header[1]; // 1=XYPixmap, 2=ZPixmap
+    let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let x = i16::from_le_bytes([data[4], data[5]]);
+    let y = i16::from_le_bytes([data[6], data[7]]);
+    let width = u16::from_le_bytes([data[8], data[9]]);
+    let height = u16::from_le_bytes([data[10], data[11]]);
+    let plane_mask = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+
+    log::debug!(
+        "GetImage: drawable=0x{:x}, ({},{}) {}x{}, format={}, plane_mask=0x{:x}",
+        drawable,
+        x,
+        y,
+        width,
+        height,
+        format,
+        plane_mask
+    );
+
+    let mut server_guard = server.lock().unwrap();
+    let resolved_drawable = server_guard.resolve_drawable(drawable);
+    let sequence = header[2] as u16 | ((header[3] as u16) << 8);
+
+    // Get image data from the server
+    let (depth, visual, image_data) =
+        server_guard.get_image(resolved_drawable, x, y, width, height, plane_mask, format)?;
+
+    drop(server_guard);
+
+    // Build GetImage reply
+    // Reply format:
+    // 1 byte: reply type (1)
+    // 1 byte: depth
+    // 2 bytes: sequence number
+    // 4 bytes: reply length (in 4-byte units, data length / 4)
+    // 4 bytes: visual
+    // 20 bytes: padding
+    // n bytes: data (padded to 4-byte boundary)
+
+    let data_len = image_data.len();
+    let padded_len = (data_len + 3) & !3;
+    let reply_len = (padded_len / 4) as u32;
+
+    let mut reply = Vec::with_capacity(32 + padded_len);
+    reply.push(1); // Reply type
+    reply.push(depth);
+    reply.extend_from_slice(&sequence.to_le_bytes());
+    reply.extend_from_slice(&reply_len.to_le_bytes());
+    reply.extend_from_slice(&visual.to_le_bytes());
+    reply.extend_from_slice(&[0u8; 20]); // Padding
+    reply.extend_from_slice(&image_data);
+    // Add padding to 4-byte boundary
+    while reply.len() < 32 + padded_len {
+        reply.push(0);
+    }
+
+    stream.write_all(&reply)?;
 
     Ok(())
 }

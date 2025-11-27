@@ -232,10 +232,10 @@ impl Backend for NullBackend {
         height: u16,
         _plane_mask: u32,
         _format: u8,
-    ) -> BackendResult<Vec<u8>> {
-        // Return a blank image (black)
+    ) -> BackendResult<(u8, u32, Vec<u8>)> {
+        // Return a blank image (black) with depth 24 and visual 0x21
         let size = (width as usize) * (height as usize) * 4; // RGBA
-        Ok(vec![0u8; size])
+        Ok((24, 0x21, vec![0u8; size]))
     }
 
     fn poll_events(&mut self) -> BackendResult<Vec<BackendEvent>> {
