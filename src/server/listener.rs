@@ -109,6 +109,7 @@ fn handle_client(
             2 => handle_change_window_attributes(&mut stream, &header, &request_data, &server)?,
             3 => handle_get_window_attributes(&mut stream, &header, &request_data, &server)?,
             4 => handle_destroy_window(&mut stream, &header, &request_data, &server)?,
+            7 => handle_reparent_window(&mut stream, &header, &request_data, &server)?,
             8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
             9 => handle_map_subwindows(&mut stream, &header, &request_data, &server)?,
             10 => handle_unmap_window(&mut stream, &header, &request_data, &server)?,
@@ -575,6 +576,42 @@ fn handle_destroy_window(
 
     let mut server = server.lock().unwrap();
     server.destroy_window(crate::protocol::Window::new(window))?;
+
+    Ok(())
+}
+
+fn handle_reparent_window(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ReparentWindow request: window(4), parent(4), x(2), y(2)
+    if data.len() < 12 {
+        log::warn!("ReparentWindow request too short");
+        return Ok(());
+    }
+
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let parent = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let x = i16::from_le_bytes([data[8], data[9]]);
+    let y = i16::from_le_bytes([data[10], data[11]]);
+
+    log::debug!(
+        "ReparentWindow: window=0x{:x}, parent=0x{:x}, x={}, y={}",
+        window,
+        parent,
+        x,
+        y
+    );
+
+    let mut server = server.lock().unwrap();
+    server.reparent_window(
+        crate::protocol::Window::new(window),
+        crate::protocol::Window::new(parent),
+        x,
+        y,
+    )?;
 
     Ok(())
 }

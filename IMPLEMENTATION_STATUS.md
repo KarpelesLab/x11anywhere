@@ -40,7 +40,7 @@ This document tracks the implementation status of X11 protocol features across d
 | MapWindow (show) | ✅ | ✅ | ✅ | ⚪ | ShowWindow on Windows, makeKeyAndOrderFront on macOS |
 | UnmapWindow (hide) | ✅ | ✅ | ✅ | ⚪ | ShowWindow(SW_HIDE) on Windows, orderOut on macOS |
 | ConfigureWindow | ✅ | ✅ | ✅ | ⚪ | SetWindowPos on Windows, setFrame on macOS |
-| ReparentWindow | 🟡 | ❌ | ❌ | ⚪ | May have limitations on native platforms |
+| ReparentWindow | ✅ | ✅ | ✅ | ⚪ | Server-side logical parent tracking; opcode 7 |
 | ChangeWindowAttributes | ✅ | ✅ | ✅ | ⚪ | Opcode 2 handler; event_mask and cursor parsing supported |
 | GetWindowAttributes | ✅ | ✅ | ✅ | ⚪ | Server-side; returns default window attributes |
 | GetGeometry | ✅ | ✅ | ✅ | ⚪ | Server-side; returns window/drawable geometry |

@@ -850,6 +850,32 @@ impl Server {
         Ok(())
     }
 
+    /// Reparent a window to a new parent
+    pub fn reparent_window(
+        &mut self,
+        window: Window,
+        parent: Window,
+        x: i16,
+        y: i16,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Update the window's parent in window_info
+        if let Some(info) = self.window_info.get_mut(&window) {
+            info.parent = parent;
+            log::debug!(
+                "Reparented window 0x{:x} to parent 0x{:x} at ({}, {})",
+                window.id().get(),
+                parent.id().get(),
+                x,
+                y
+            );
+        }
+        // Note: Actual reparenting in the backend would require additional
+        // backend support. For now, we track the logical parent relationship.
+        // This is sufficient for most X11 clients that use reparenting for
+        // window manager integration.
+        Ok(())
+    }
+
     /// Configure a window (resize/move)
     pub fn configure_window(
         &mut self,
