@@ -47,6 +47,9 @@ This document tracks the implementation status of X11 protocol features across d
 | QueryTree | ✅ | ✅ | ✅ | ⚪ | Server-side; returns window hierarchy |
 | RaiseWindow | ✅ | ✅ | ✅ | ⚪ | SetWindowPos(HWND_TOP) on Windows, orderFront on macOS |
 | LowerWindow | ✅ | ✅ | ✅ | ⚪ | SetWindowPos(HWND_BOTTOM) on Windows, orderBack on macOS |
+| DestroySubwindows | ✅ | ✅ | ✅ | ⚪ | Opcode 5; destroys all child windows |
+| UnmapSubwindows | ✅ | ✅ | ✅ | ⚪ | Opcode 11; unmaps all child windows |
+| SendEvent | ✅ | ✅ | ✅ | ⚪ | Opcode 25; parsed/logged (no actual delivery yet) |
 
 ### Drawing Operations
 

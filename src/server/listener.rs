@@ -109,10 +109,12 @@ fn handle_client(
             2 => handle_change_window_attributes(&mut stream, &header, &request_data, &server)?,
             3 => handle_get_window_attributes(&mut stream, &header, &request_data, &server)?,
             4 => handle_destroy_window(&mut stream, &header, &request_data, &server)?,
+            5 => handle_destroy_subwindows(&mut stream, &header, &request_data, &server)?,
             7 => handle_reparent_window(&mut stream, &header, &request_data, &server)?,
             8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
             9 => handle_map_subwindows(&mut stream, &header, &request_data, &server)?,
             10 => handle_unmap_window(&mut stream, &header, &request_data, &server)?,
+            11 => handle_unmap_subwindows(&mut stream, &header, &request_data, &server)?,
             12 => handle_configure_window(&mut stream, &header, &request_data, &server)?,
             14 => handle_get_geometry(&mut stream, &header, &request_data, &server)?,
             15 => handle_query_tree(&mut stream, &header, &request_data, &server)?,
@@ -124,6 +126,7 @@ fn handle_client(
             21 => handle_list_properties(&mut stream, &header, &request_data, &server)?,
             22 => handle_set_selection_owner(&mut stream, &header, &request_data, &server)?,
             23 => handle_get_selection_owner(&mut stream, &header, &request_data, &server)?,
+            25 => handle_send_event(&mut stream, &header, &request_data, &server)?,
             26 => handle_grab_pointer(&mut stream, &header, &request_data, &server)?,
             27 => handle_ungrab_pointer(&mut stream, &header, &request_data, &server)?,
             28 => handle_grab_server(&mut stream, &header, &request_data, &server)?,
@@ -612,6 +615,78 @@ fn handle_reparent_window(
         x,
         y,
     )?;
+
+    Ok(())
+}
+
+fn handle_destroy_subwindows(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse DestroySubwindows request: window(4)
+    if data.len() < 4 {
+        log::warn!("DestroySubwindows request too short");
+        return Ok(());
+    }
+
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("DestroySubwindows: window=0x{:x}", window);
+
+    // Find all child windows
+    let children: Vec<_> = {
+        let server_guard = server.lock().unwrap();
+        let parent = crate::protocol::Window::new(window);
+        server_guard
+            .window_info
+            .iter()
+            .filter(|(_, info)| info.parent == parent)
+            .map(|(w, _)| *w)
+            .collect()
+    };
+
+    // Destroy each child
+    for child in children {
+        let mut server_guard = server.lock().unwrap();
+        let _ = server_guard.destroy_window(child);
+    }
+
+    Ok(())
+}
+
+fn handle_unmap_subwindows(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse UnmapSubwindows request: window(4)
+    if data.len() < 4 {
+        log::warn!("UnmapSubwindows request too short");
+        return Ok(());
+    }
+
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("UnmapSubwindows: window=0x{:x}", window);
+
+    // Find all child windows
+    let children: Vec<_> = {
+        let server_guard = server.lock().unwrap();
+        let parent = crate::protocol::Window::new(window);
+        server_guard
+            .window_info
+            .iter()
+            .filter(|(_, info)| info.parent == parent)
+            .map(|(w, _)| *w)
+            .collect()
+    };
+
+    // Unmap each child
+    for child in children {
+        let mut server_guard = server.lock().unwrap();
+        let _ = server_guard.unmap_window(child);
+    }
 
     Ok(())
 }
@@ -2599,6 +2674,38 @@ fn handle_get_selection_owner(
     reply[8..12].copy_from_slice(&owner.id().get().to_le_bytes());
 
     stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_send_event(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse SendEvent request: propagate(1 in header), destination(4), event-mask(4), event(32)
+    if data.len() < 40 {
+        log::warn!("SendEvent request too short");
+        return Ok(());
+    }
+
+    let propagate = header[1] != 0;
+    let destination = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let event_mask = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let event_code = data[8];
+
+    log::debug!(
+        "SendEvent: propagate={}, destination=0x{:x}, event_mask=0x{:x}, event_code={}",
+        propagate,
+        destination,
+        event_mask,
+        event_code
+    );
+
+    // For now, we just acknowledge the request without actually sending the event
+    // A full implementation would forward the event to the destination window's client
+    // This is commonly used for clipboard/selection protocols (SelectionNotify, etc.)
 
     Ok(())
 }
