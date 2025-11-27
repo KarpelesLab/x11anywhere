@@ -295,12 +295,63 @@ jobs:
         run: |
           if [ -x /opt/X11/bin/xeyes ]; then
             echo "Starting xeyes..."
-            # Use localhost:50 to force TCP connection (Unix socket not implemented)
             DISPLAY=localhost:50 /opt/X11/bin/xeyes -geometry 200x150+300+50 &
             XEYES_PID=$!
             sleep 2
             screencapture -x xorg_apps_output/macos/xeyes.png
             kill $XEYES_PID 2>/dev/null || true
+          fi
+        continue-on-error: true
+
+      - name: Test xlogo (if available)
+        run: |
+          if [ -x /opt/X11/bin/xlogo ]; then
+            echo "Starting xlogo..."
+            DISPLAY=localhost:50 /opt/X11/bin/xlogo -geometry 200x200+550+50 &
+            XLOGO_PID=$!
+            sleep 2
+            screencapture -x xorg_apps_output/macos/xlogo.png
+            kill $XLOGO_PID 2>/dev/null || true
+          fi
+        continue-on-error: true
+
+      - name: Test xcalc (if available)
+        run: |
+          if [ -x /opt/X11/bin/xcalc ]; then
+            echo "Starting xcalc..."
+            DISPLAY=localhost:50 /opt/X11/bin/xcalc -geometry 250x300+50+300 &
+            XCALC_PID=$!
+            sleep 2
+            screencapture -x xorg_apps_output/macos/xcalc.png
+            kill $XCALC_PID 2>/dev/null || true
+          fi
+        continue-on-error: true
+
+      - name: Test xterm (if available)
+        run: |
+          if [ -x /opt/X11/bin/xterm ]; then
+            echo "Starting xterm..."
+            DISPLAY=localhost:50 /opt/X11/bin/xterm -geometry 80x24+350+300 -e "echo 'Hello from xterm!'; sleep 5" &
+            XTERM_PID=$!
+            sleep 2
+            screencapture -x xorg_apps_output/macos/xterm.png
+            kill $XTERM_PID 2>/dev/null || true
+          fi
+        continue-on-error: true
+
+      - name: Test multiple apps together (if available)
+        run: |
+          if [ -x /opt/X11/bin/xclock ] && [ -x /opt/X11/bin/xeyes ] && [ -x /opt/X11/bin/xlogo ]; then
+            echo "Starting multiple apps..."
+            DISPLAY=localhost:50 /opt/X11/bin/xclock -geometry 150x150+50+50 &
+            PID1=$!
+            DISPLAY=localhost:50 /opt/X11/bin/xeyes -geometry 150x100+250+50 &
+            PID2=$!
+            DISPLAY=localhost:50 /opt/X11/bin/xlogo -geometry 150x150+450+50 &
+            PID3=$!
+            sleep 3
+            screencapture -x xorg_apps_output/macos/multiple_apps.png
+            kill $PID1 $PID2 $PID3 2>/dev/null || true
           fi
         continue-on-error: true
 
@@ -337,6 +388,7 @@ jobs:
             xeyes
             xlogo
             xclock
+            xcalc
             xterm
             libX11-devel
 
@@ -460,38 +512,103 @@ jobs:
           powershell.exe -Command "Test-NetConnection -ComputerName 127.0.0.1 -Port 6050" 2>&1 || echo "PowerShell test failed"
         continue-on-error: true
 
-      - name: Test xeyes
-        shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
+      - name: Define screenshot function
+        shell: pwsh
         run: |
-          export DISPLAY=127.0.0.1:50
-          echo "DISPLAY=$DISPLAY"
-          echo "Starting xeyes..."
-          /usr/bin/xeyes -geometry 150x100+50+50 &
-          XEYES_PID=$!
-          sleep 3
-          echo "xeyes running with PID $XEYES_PID"
-        continue-on-error: true
+          # Create a helper script for screenshots
+          @'
+          param([string]$OutputPath)
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+          $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+          $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
+          $bitmap.Save($OutputPath)
+          $graphics.Dispose()
+          $bitmap.Dispose()
+          '@ | Out-File -FilePath "C:\temp\take_screenshot.ps1" -Encoding UTF8
 
-      - name: Test xlogo
-        shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
-        run: |
-          export DISPLAY=127.0.0.1:50
-          echo "Starting xlogo..."
-          /usr/bin/xlogo -geometry 150x150+250+50 &
-          XLOGO_PID=$!
-          sleep 3
-          echo "xlogo running with PID $XLOGO_PID"
-        continue-on-error: true
-
-      - name: Test xclock
+      - name: Test xclock with screenshot
         shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
           export DISPLAY=127.0.0.1:50
           echo "Starting xclock..."
-          /usr/bin/xclock -geometry 150x150+450+50 &
+          /usr/bin/xclock -geometry 200x200+50+50 &
           XCLOCK_PID=$!
           sleep 3
           echo "xclock running with PID $XCLOCK_PID"
+          # Take screenshot via PowerShell
+          powershell.exe -File "C:\\temp\\take_screenshot.ps1" -OutputPath "$(cygpath -w $(pwd))/xorg_apps_output/windows/xclock.png"
+          kill $XCLOCK_PID 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Test xeyes with screenshot
+        shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
+        run: |
+          export DISPLAY=127.0.0.1:50
+          echo "Starting xeyes..."
+          /usr/bin/xeyes -geometry 200x150+300+50 &
+          XEYES_PID=$!
+          sleep 3
+          echo "xeyes running with PID $XEYES_PID"
+          powershell.exe -File "C:\\temp\\take_screenshot.ps1" -OutputPath "$(cygpath -w $(pwd))/xorg_apps_output/windows/xeyes.png"
+          kill $XEYES_PID 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Test xlogo with screenshot
+        shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
+        run: |
+          export DISPLAY=127.0.0.1:50
+          echo "Starting xlogo..."
+          /usr/bin/xlogo -geometry 200x200+550+50 &
+          XLOGO_PID=$!
+          sleep 3
+          echo "xlogo running with PID $XLOGO_PID"
+          powershell.exe -File "C:\\temp\\take_screenshot.ps1" -OutputPath "$(cygpath -w $(pwd))/xorg_apps_output/windows/xlogo.png"
+          kill $XLOGO_PID 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Test xcalc with screenshot
+        shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
+        run: |
+          export DISPLAY=127.0.0.1:50
+          echo "Starting xcalc..."
+          /usr/bin/xcalc -geometry 250x300+50+300 &
+          XCALC_PID=$!
+          sleep 3
+          echo "xcalc running with PID $XCALC_PID"
+          powershell.exe -File "C:\\temp\\take_screenshot.ps1" -OutputPath "$(cygpath -w $(pwd))/xorg_apps_output/windows/xcalc.png"
+          kill $XCALC_PID 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Test xterm with screenshot
+        shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
+        run: |
+          export DISPLAY=127.0.0.1:50
+          echo "Starting xterm..."
+          /usr/bin/xterm -geometry 80x24+350+300 -e "echo 'Hello from xterm!'; sleep 5" &
+          XTERM_PID=$!
+          sleep 3
+          echo "xterm running with PID $XTERM_PID"
+          powershell.exe -File "C:\\temp\\take_screenshot.ps1" -OutputPath "$(cygpath -w $(pwd))/xorg_apps_output/windows/xterm.png"
+          kill $XTERM_PID 2>/dev/null || true
+        continue-on-error: true
+
+      - name: Test multiple apps with screenshot
+        shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
+        run: |
+          export DISPLAY=127.0.0.1:50
+          echo "Starting multiple apps..."
+          /usr/bin/xclock -geometry 150x150+50+50 &
+          PID1=$!
+          /usr/bin/xeyes -geometry 150x100+250+50 &
+          PID2=$!
+          /usr/bin/xlogo -geometry 150x150+450+50 &
+          PID3=$!
+          sleep 3
+          powershell.exe -File "C:\\temp\\take_screenshot.ps1" -OutputPath "$(cygpath -w $(pwd))/xorg_apps_output/windows/multiple_apps.png"
+          kill $PID1 $PID2 $PID3 2>/dev/null || true
         continue-on-error: true
 
       - name: Copy server logs
@@ -506,21 +623,6 @@ jobs:
           }
         continue-on-error: true
 
-      - name: Capture desktop screenshot
-        shell: pwsh
-        run: |
-          Start-Sleep -Seconds 2
-          Add-Type -AssemblyName System.Windows.Forms
-          Add-Type -AssemblyName System.Drawing
-          $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-          $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
-          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
-          $bitmap.Save("xorg_apps_output\windows\xorg_apps.png")
-          $graphics.Dispose()
-          $bitmap.Dispose()
-          Write-Host "Desktop screenshot saved"
-
       - name: Cleanup
         if: always()
         shell: pwsh
@@ -529,6 +631,8 @@ jobs:
           Get-Process xclock -ErrorAction SilentlyContinue | Stop-Process -Force
           Get-Process xeyes -ErrorAction SilentlyContinue | Stop-Process -Force
           Get-Process xlogo -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process xcalc -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process xterm -ErrorAction SilentlyContinue | Stop-Process -Force
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
