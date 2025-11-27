@@ -24,15 +24,20 @@ pub struct X11Backend {
     window_map: Arc<Mutex<HashMap<usize, u32>>>,
     pixmap_map: Arc<Mutex<HashMap<usize, u32>>>,
     gc_map: Arc<Mutex<HashMap<usize, u32>>>,
+    cursor_map: Arc<Mutex<HashMap<usize, u32>>>,
 
     // For generating our own resource IDs
     next_resource_id: usize,
     next_gc_id: usize,
+    next_cursor_id: usize,
     resource_id_base: u32,
     resource_id_mask: u32,
 
     // Default font for text rendering
     default_font_id: Option<u32>,
+
+    // Cursor font for creating standard cursors
+    cursor_font_id: Option<u32>,
 
     debug: bool,
 }
@@ -47,11 +52,14 @@ impl X11Backend {
             window_map: Arc::new(Mutex::new(HashMap::new())),
             pixmap_map: Arc::new(Mutex::new(HashMap::new())),
             gc_map: Arc::new(Mutex::new(HashMap::new())),
+            cursor_map: Arc::new(Mutex::new(HashMap::new())),
             next_resource_id: 1,
             next_gc_id: 1,
+            next_cursor_id: 1,
             resource_id_base: 0,
             resource_id_mask: 0,
             default_font_id: None,
+            cursor_font_id: None,
             debug: true,
         }
     }
@@ -2136,6 +2144,161 @@ impl Backend for X11Backend {
             encoding,
         }))
     }
+
+    fn create_standard_cursor(
+        &mut self,
+        cursor_shape: StandardCursor,
+    ) -> BackendResult<BackendCursor> {
+        if self.connection.is_none() {
+            return Ok(BackendCursor::NONE);
+        }
+
+        // Ensure cursor font is opened
+        self.ensure_cursor_font_opened()?;
+
+        let source_font_id = match self.cursor_font_id {
+            Some(id) => id,
+            None => return Err("Cursor font not available".into()),
+        };
+
+        // Get the glyph index for this cursor shape
+        let source_char = cursor_shape as u16;
+        let mask_char = source_char + 1; // Mask is typically the next glyph
+
+        // Allocate a cursor ID on the upstream server
+        let server_cursor_id = self.allocate_server_resource_id();
+
+        // CreateGlyphCursor (opcode 94)
+        // Format: opcode(1), unused(1), length(2), cid(4), source_font(4), mask_font(4),
+        //         source_char(2), mask_char(2), fore_red(2), fore_green(2), fore_blue(2),
+        //         back_red(2), back_green(2), back_blue(2)
+        let mut req = Vec::new();
+        req.push(94); // Opcode: CreateGlyphCursor
+        req.push(0); // Unused
+        req.extend_from_slice(&8u16.to_le_bytes()); // Length: 8 words (32 bytes)
+        req.extend_from_slice(&server_cursor_id.to_le_bytes());
+        req.extend_from_slice(&source_font_id.to_le_bytes());
+        req.extend_from_slice(&source_font_id.to_le_bytes()); // Mask font (same as source)
+        req.extend_from_slice(&source_char.to_le_bytes());
+        req.extend_from_slice(&mask_char.to_le_bytes());
+        // Foreground color: black
+        req.extend_from_slice(&0u16.to_le_bytes()); // fore_red
+        req.extend_from_slice(&0u16.to_le_bytes()); // fore_green
+        req.extend_from_slice(&0u16.to_le_bytes()); // fore_blue
+        // Background color: white
+        req.extend_from_slice(&0xFFFFu16.to_le_bytes()); // back_red
+        req.extend_from_slice(&0xFFFFu16.to_le_bytes()); // back_green
+        req.extend_from_slice(&0xFFFFu16.to_le_bytes()); // back_blue
+
+        self.send_request(&req)?;
+        self.flush()?;
+
+        // Assign our cursor ID
+        let our_cursor_id = self.next_cursor_id;
+        self.next_cursor_id += 1;
+
+        // Store the mapping
+        let mut cursor_map = self.cursor_map.lock().unwrap();
+        cursor_map.insert(our_cursor_id, server_cursor_id);
+
+        if self.debug {
+            log::debug!(
+                "Created cursor: our_id={}, server_id=0x{:x}, shape={:?}",
+                our_cursor_id,
+                server_cursor_id,
+                cursor_shape
+            );
+        }
+
+        Ok(BackendCursor(our_cursor_id))
+    }
+
+    fn free_cursor(&mut self, cursor: BackendCursor) -> BackendResult<()> {
+        if cursor == BackendCursor::NONE {
+            return Ok(());
+        }
+
+        let server_cursor_id = {
+            let mut cursor_map = self.cursor_map.lock().unwrap();
+            cursor_map.remove(&cursor.0)
+        };
+
+        if let Some(server_id) = server_cursor_id {
+            if self.connection.is_some() {
+                // FreeCursor (opcode 95)
+                let mut req = Vec::new();
+                req.push(95); // Opcode: FreeCursor
+                req.push(0); // Unused
+                req.extend_from_slice(&2u16.to_le_bytes()); // Length: 2 words
+                req.extend_from_slice(&server_id.to_le_bytes());
+
+                self.send_request(&req)?;
+            }
+
+            if self.debug {
+                log::debug!(
+                    "Freed cursor: our_id={}, server_id=0x{:x}",
+                    cursor.0,
+                    server_id
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    fn set_window_cursor(
+        &mut self,
+        window: BackendWindow,
+        cursor: BackendCursor,
+    ) -> BackendResult<()> {
+        if self.connection.is_none() {
+            return Ok(());
+        }
+
+        let server_window_id = {
+            let window_map = self.window_map.lock().unwrap();
+            match window_map.get(&window.0) {
+                Some(&id) => id,
+                None => return Err("Invalid window handle".into()),
+            }
+        };
+
+        let server_cursor_id = if cursor == BackendCursor::NONE {
+            0 // None cursor
+        } else {
+            let cursor_map = self.cursor_map.lock().unwrap();
+            match cursor_map.get(&cursor.0) {
+                Some(&id) => id,
+                None => return Err("Invalid cursor handle".into()),
+            }
+        };
+
+        // ChangeWindowAttributes (opcode 2) with CWCursor
+        // Format: opcode(1), unused(1), length(2), window(4), value_mask(4), values...
+        // CWCursor mask = 0x4000
+        let mut req = Vec::new();
+        req.push(2); // Opcode: ChangeWindowAttributes
+        req.push(0); // Unused
+        req.extend_from_slice(&4u16.to_le_bytes()); // Length: 4 words (16 bytes)
+        req.extend_from_slice(&server_window_id.to_le_bytes());
+        req.extend_from_slice(&0x4000u32.to_le_bytes()); // CWCursor
+        req.extend_from_slice(&server_cursor_id.to_le_bytes());
+
+        self.send_request(&req)?;
+        self.flush()?;
+
+        if self.debug {
+            log::debug!(
+                "Set window cursor: window_id={}, server_window=0x{:x}, cursor_id=0x{:x}",
+                window.0,
+                server_window_id,
+                server_cursor_id
+            );
+        }
+
+        Ok(())
+    }
 }
 
 impl X11Backend {
@@ -2158,6 +2321,47 @@ impl X11Backend {
 
         if self.debug {
             log::debug!("Closed upstream font 0x{:x}", font_id);
+        }
+
+        Ok(())
+    }
+
+    /// Ensure the cursor font is opened on the upstream X server
+    fn ensure_cursor_font_opened(&mut self) -> BackendResult<()> {
+        if self.cursor_font_id.is_some() {
+            return Ok(());
+        }
+
+        if self.connection.is_none() {
+            return Err("Not connected to X server".into());
+        }
+
+        // Allocate a font ID for the cursor font
+        let font_id = self.allocate_server_resource_id();
+
+        // OpenFont (opcode 45) for "cursor" font
+        let font_name = b"cursor";
+        let name_len = font_name.len();
+        let name_pad = (4 - (name_len % 4)) % 4;
+
+        let mut req = Vec::new();
+        req.push(45); // Opcode: OpenFont
+        req.push(0); // Padding
+        let length = 3 + (name_len + name_pad) / 4;
+        req.extend_from_slice(&(length as u16).to_le_bytes());
+        req.extend_from_slice(&font_id.to_le_bytes());
+        req.extend_from_slice(&(name_len as u16).to_le_bytes());
+        req.extend_from_slice(&[0, 0]); // padding
+        req.extend_from_slice(font_name);
+        req.extend(std::iter::repeat_n(0u8, name_pad));
+
+        self.send_request(&req)?;
+        self.flush()?;
+
+        self.cursor_font_id = Some(font_id);
+
+        if self.debug {
+            log::debug!("Opened cursor font with id 0x{:x}", font_id);
         }
 
         Ok(())

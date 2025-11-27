@@ -172,7 +172,7 @@ This document tracks the implementation status of X11 protocol features across d
 | CreateCursor | ✅ | ✅ | ✅ | ⚪ | Opcode 93 handler; stub (custom cursors TBD) |
 | CreateGlyphCursor | ✅ | ✅ | ✅ | ⚪ | Opcode 94 handler; stub (glyph mapping TBD) |
 | FreeCursor | ✅ | ✅ | ✅ | ⚪ | Opcode 95 handler; no-op for system cursors |
-| DefineCursor | 🟡 | ✅ | ✅ | ⚪ | SetCursor on Windows, NSCursor.set on macOS |
+| DefineCursor | ✅ | ✅ | ✅ | ⚪ | X11: ChangeWindowAttributes with CWCursor; SetCursor on Windows; NSCursor.set on macOS |
 
 ### Extensions
 
@@ -235,6 +235,7 @@ This document tracks the implementation status of X11 protocol features across d
   - ✅ QueryFont (opcode 47) - queries upstream X server for real font metrics
   - ✅ RaiseWindow / LowerWindow / SetWindowTitle
   - ✅ Event polling and delivery (Expose, Configure, Key/Button/Motion, Focus, Map/Unmap, etc.)
+  - ✅ Cursor support (CreateGlyphCursor, FreeCursor, ChangeWindowAttributes for DefineCursor)
 - **Limitations**:
   - Some advanced extensions not implemented
   - Limited error handling
