@@ -251,4 +251,49 @@ impl Backend for NullBackend {
         std::thread::sleep(std::time::Duration::from_millis(100));
         Err("No events available".into())
     }
+
+    fn list_system_fonts(&self) -> BackendResult<Vec<BackendFontInfo>> {
+        // Return a minimal set of test fonts for the null backend
+        Ok(vec![
+            BackendFontInfo {
+                xlfd_name: "-misc-fixed-medium-r-normal--13-120-75-75-c-80-iso8859-1".to_string(),
+                family: "fixed".to_string(),
+                weight: "medium".to_string(),
+                slant: "r".to_string(),
+                pixel_size: 13,
+                point_size: 120,
+                char_width: 80,
+                ascent: 10,
+                descent: 3,
+                registry: "iso8859".to_string(),
+                encoding: "1".to_string(),
+            },
+            BackendFontInfo {
+                xlfd_name: "-misc-fixed-bold-r-normal--13-120-75-75-c-80-iso8859-1".to_string(),
+                family: "fixed".to_string(),
+                weight: "bold".to_string(),
+                slant: "r".to_string(),
+                pixel_size: 13,
+                point_size: 120,
+                char_width: 80,
+                ascent: 10,
+                descent: 3,
+                registry: "iso8859".to_string(),
+                encoding: "1".to_string(),
+            },
+            BackendFontInfo {
+                xlfd_name: "-*-helvetica-medium-r-normal--12-120-75-75-p-67-iso8859-1".to_string(),
+                family: "helvetica".to_string(),
+                weight: "medium".to_string(),
+                slant: "r".to_string(),
+                pixel_size: 12,
+                point_size: 120,
+                char_width: 0, // proportional
+                ascent: 9,
+                descent: 3,
+                registry: "iso8859".to_string(),
+                encoding: "1".to_string(),
+            },
+        ])
+    }
 }

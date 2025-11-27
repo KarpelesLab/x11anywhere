@@ -1129,6 +1129,81 @@ impl Backend for MacOSBackend {
             Err("Failed to get event".into())
         }
     }
+
+    fn list_system_fonts(&self) -> BackendResult<Vec<BackendFontInfo>> {
+        // TODO: Implement font enumeration via CoreText FFI
+        // This would require adding Swift FFI functions to enumerate system fonts
+        // For now, return some common macOS system fonts as a placeholder
+        log::debug!("macOS backend: list_system_fonts called (returning placeholder fonts)");
+
+        Ok(vec![
+            BackendFontInfo {
+                xlfd_name: "-*-helvetica-medium-r-normal--12-120-75-75-p-0-iso8859-1".to_string(),
+                family: "Helvetica".to_string(),
+                weight: "medium".to_string(),
+                slant: "r".to_string(),
+                pixel_size: 12,
+                point_size: 120,
+                char_width: 0,
+                ascent: 9,
+                descent: 3,
+                registry: "iso8859".to_string(),
+                encoding: "1".to_string(),
+            },
+            BackendFontInfo {
+                xlfd_name: "-*-helvetica-bold-r-normal--12-120-75-75-p-0-iso8859-1".to_string(),
+                family: "Helvetica".to_string(),
+                weight: "bold".to_string(),
+                slant: "r".to_string(),
+                pixel_size: 12,
+                point_size: 120,
+                char_width: 0,
+                ascent: 9,
+                descent: 3,
+                registry: "iso8859".to_string(),
+                encoding: "1".to_string(),
+            },
+            BackendFontInfo {
+                xlfd_name: "-*-times-medium-r-normal--12-120-75-75-p-0-iso8859-1".to_string(),
+                family: "Times".to_string(),
+                weight: "medium".to_string(),
+                slant: "r".to_string(),
+                pixel_size: 12,
+                point_size: 120,
+                char_width: 0,
+                ascent: 9,
+                descent: 3,
+                registry: "iso8859".to_string(),
+                encoding: "1".to_string(),
+            },
+            BackendFontInfo {
+                xlfd_name: "-*-courier-medium-r-normal--12-120-75-75-m-70-iso8859-1".to_string(),
+                family: "Courier".to_string(),
+                weight: "medium".to_string(),
+                slant: "r".to_string(),
+                pixel_size: 12,
+                point_size: 120,
+                char_width: 70,
+                ascent: 9,
+                descent: 3,
+                registry: "iso8859".to_string(),
+                encoding: "1".to_string(),
+            },
+            BackendFontInfo {
+                xlfd_name: "-*-monaco-medium-r-normal--12-120-75-75-m-70-iso8859-1".to_string(),
+                family: "Monaco".to_string(),
+                weight: "medium".to_string(),
+                slant: "r".to_string(),
+                pixel_size: 12,
+                point_size: 120,
+                char_width: 70,
+                ascent: 9,
+                descent: 3,
+                registry: "iso8859".to_string(),
+                encoding: "1".to_string(),
+            },
+        ])
+    }
 }
 
 impl MacOSBackend {

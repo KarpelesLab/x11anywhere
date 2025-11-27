@@ -1796,6 +1796,26 @@ impl Backend for X11Backend {
         // For now, return an error
         Err("wait_for_event not implemented for X11 backend".into())
     }
+
+    fn list_system_fonts(&self) -> BackendResult<Vec<BackendFontInfo>> {
+        // We need a mutable reference for send_request_with_reply
+        // Since list_system_fonts takes &self, we'll create a new connection
+        // This is a bit inefficient but keeps the API clean
+
+        // For now, return an empty list if not connected
+        // A full implementation would query the X server with ListFonts
+        if self.connection.is_none() {
+            return Ok(Vec::new());
+        }
+
+        // Create a temporary mutable copy to send the request
+        // Note: This is a workaround - ideally we'd have interior mutability
+        log::debug!("X11 backend: list_system_fonts called (returning empty - would need ListFonts request)");
+
+        // Return empty for now - full implementation would use ListFonts opcode 49
+        // to query "-*-*-*-*-*-*-*-*-*-*-*-*-*-*" pattern
+        Ok(Vec::new())
+    }
 }
 
 impl X11Backend {
@@ -1803,6 +1823,62 @@ impl X11Backend {
     /// This is useful for debugging - we can return this to clients
     pub fn setup_info(&self) -> Option<&SetupSuccess> {
         self.setup_info.as_ref()
+    }
+
+    /// Parse an XLFD font name into BackendFontInfo
+    fn parse_xlfd(xlfd: &str) -> Option<BackendFontInfo> {
+        // XLFD format:
+        // -foundry-family-weight-slant-setwidth-addstyle-pixel-point-resx-resy-spacing-avgwidth-registry-encoding
+        let parts: Vec<&str> = xlfd.split('-').collect();
+        if parts.len() < 15 {
+            return None;
+        }
+
+        // parts[0] is empty (string starts with -)
+        // parts[1] = foundry
+        // parts[2] = family
+        // parts[3] = weight
+        // parts[4] = slant
+        // parts[5] = setwidth
+        // parts[6] = addstyle
+        // parts[7] = pixel size
+        // parts[8] = point size (decipoints)
+        // parts[9] = resx
+        // parts[10] = resy
+        // parts[11] = spacing
+        // parts[12] = avgwidth
+        // parts[13] = registry
+        // parts[14] = encoding
+
+        let family = parts[2].to_string();
+        let weight = parts[3].to_string();
+        let slant = parts[4].to_string();
+
+        let pixel_size = parts[7].parse().unwrap_or(0);
+        let point_size = parts[8].parse().unwrap_or(0);
+        let char_width = parts[12].parse().unwrap_or(0);
+
+        let registry = parts[13].to_string();
+        let encoding = parts[14].to_string();
+
+        // For ascent/descent, we'd need to query font properties
+        // Use reasonable defaults based on pixel size
+        let ascent = if pixel_size > 0 { pixel_size as i16 * 3 / 4 } else { 10 };
+        let descent = if pixel_size > 0 { pixel_size as i16 / 4 } else { 3 };
+
+        Some(BackendFontInfo {
+            xlfd_name: xlfd.to_string(),
+            family,
+            weight,
+            slant,
+            pixel_size,
+            point_size,
+            char_width,
+            ascent,
+            descent,
+            registry,
+            encoding,
+        })
     }
 
     /// Get a cloned connection to the real X server for direct passthrough
