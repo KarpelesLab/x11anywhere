@@ -1873,7 +1873,41 @@ impl Backend for X11Backend {
     }
 
     fn poll_events(&mut self) -> BackendResult<Vec<BackendEvent>> {
-        Ok(Vec::new())
+        // Collect raw event buffers first to avoid borrow issues
+        let mut raw_events: Vec<[u8; 32]> = Vec::new();
+
+        if let Some(ref mut conn) = self.connection {
+            // Set non-blocking temporarily
+            conn.set_nonblocking(true)
+                .map_err(|e| format!("Failed to set non-blocking: {}", e))?;
+
+            loop {
+                let mut buf = [0u8; 32];
+                match conn.read_exact(&mut buf) {
+                    Ok(()) => {
+                        raw_events.push(buf);
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        break; // No more events
+                    }
+                    Err(_) => {
+                        break; // Error, stop reading
+                    }
+                }
+            }
+
+            // Restore blocking mode
+            conn.set_nonblocking(false)
+                .map_err(|e| format!("Failed to restore blocking: {}", e))?;
+        }
+
+        // Now parse the events (no longer holding mutable borrow)
+        let events = raw_events
+            .iter()
+            .filter_map(|buf| self.parse_x11_event(buf))
+            .collect();
+
+        Ok(events)
     }
 
     fn flush(&mut self) -> BackendResult<()> {
@@ -1884,9 +1918,16 @@ impl Backend for X11Backend {
     }
 
     fn wait_for_event(&mut self) -> BackendResult<BackendEvent> {
-        // This would need to read events from the X server
-        // For now, return an error
-        Err("wait_for_event not implemented for X11 backend".into())
+        if let Some(ref mut conn) = self.connection {
+            let mut buf = [0u8; 32];
+            conn.read_exact(&mut buf)
+                .map_err(|e| format!("Failed to read event: {}", e))?;
+
+            if let Some(event) = self.parse_x11_event(&buf) {
+                return Ok(event);
+            }
+        }
+        Err("No event available".into())
     }
 
     fn list_system_fonts(&mut self) -> BackendResult<Vec<BackendFontInfo>> {
@@ -2038,6 +2079,186 @@ impl X11Backend {
                 .try_clone()
                 .map_err(|e| format!("Failed to clone connection: {}", e).into()),
             None => Err("Backend not initialized".into()),
+        }
+    }
+
+    /// Look up our BackendWindow ID from a server window ID
+    fn server_wid_to_backend(&self, server_wid: u32) -> Option<BackendWindow> {
+        let window_map = self.window_map.lock().unwrap();
+        for (&our_id, &srv_id) in window_map.iter() {
+            if srv_id == server_wid {
+                return Some(BackendWindow(our_id));
+            }
+        }
+        None
+    }
+
+    /// Parse an X11 event from 32 bytes into a BackendEvent
+    fn parse_x11_event(&self, buf: &[u8; 32]) -> Option<BackendEvent> {
+        let event_code = buf[0] & 0x7F; // Mask off the "sent-event" bit
+
+        // Extract window ID (usually at bytes 4-7 for most events)
+        let window_id = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+        let window = self.server_wid_to_backend(window_id)?;
+
+        match event_code {
+            2 => {
+                // KeyPress
+                let keycode = buf[1];
+                let time = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+                let event_x = i16::from_le_bytes([buf[24], buf[25]]);
+                let event_y = i16::from_le_bytes([buf[26], buf[27]]);
+                let state = u16::from_le_bytes([buf[28], buf[29]]);
+                Some(BackendEvent::KeyPress {
+                    window,
+                    keycode,
+                    state,
+                    time,
+                    x: event_x,
+                    y: event_y,
+                })
+            }
+            3 => {
+                // KeyRelease
+                let keycode = buf[1];
+                let time = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+                let event_x = i16::from_le_bytes([buf[24], buf[25]]);
+                let event_y = i16::from_le_bytes([buf[26], buf[27]]);
+                let state = u16::from_le_bytes([buf[28], buf[29]]);
+                Some(BackendEvent::KeyRelease {
+                    window,
+                    keycode,
+                    state,
+                    time,
+                    x: event_x,
+                    y: event_y,
+                })
+            }
+            4 => {
+                // ButtonPress
+                let button = buf[1];
+                let time = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+                let event_x = i16::from_le_bytes([buf[24], buf[25]]);
+                let event_y = i16::from_le_bytes([buf[26], buf[27]]);
+                let state = u16::from_le_bytes([buf[28], buf[29]]);
+                Some(BackendEvent::ButtonPress {
+                    window,
+                    button,
+                    state,
+                    time,
+                    x: event_x,
+                    y: event_y,
+                })
+            }
+            5 => {
+                // ButtonRelease
+                let button = buf[1];
+                let time = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+                let event_x = i16::from_le_bytes([buf[24], buf[25]]);
+                let event_y = i16::from_le_bytes([buf[26], buf[27]]);
+                let state = u16::from_le_bytes([buf[28], buf[29]]);
+                Some(BackendEvent::ButtonRelease {
+                    window,
+                    button,
+                    state,
+                    time,
+                    x: event_x,
+                    y: event_y,
+                })
+            }
+            6 => {
+                // MotionNotify
+                let time = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+                let event_x = i16::from_le_bytes([buf[24], buf[25]]);
+                let event_y = i16::from_le_bytes([buf[26], buf[27]]);
+                let state = u16::from_le_bytes([buf[28], buf[29]]);
+                Some(BackendEvent::MotionNotify {
+                    window,
+                    state,
+                    time,
+                    x: event_x,
+                    y: event_y,
+                })
+            }
+            7 => {
+                // EnterNotify
+                let time = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+                let event_x = i16::from_le_bytes([buf[24], buf[25]]);
+                let event_y = i16::from_le_bytes([buf[26], buf[27]]);
+                Some(BackendEvent::EnterNotify {
+                    window,
+                    x: event_x,
+                    y: event_y,
+                    time,
+                })
+            }
+            8 => {
+                // LeaveNotify
+                let time = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+                let event_x = i16::from_le_bytes([buf[24], buf[25]]);
+                let event_y = i16::from_le_bytes([buf[26], buf[27]]);
+                Some(BackendEvent::LeaveNotify {
+                    window,
+                    x: event_x,
+                    y: event_y,
+                    time,
+                })
+            }
+            9 => {
+                // FocusIn
+                Some(BackendEvent::FocusIn { window })
+            }
+            10 => {
+                // FocusOut
+                Some(BackendEvent::FocusOut { window })
+            }
+            12 => {
+                // Expose
+                let x = u16::from_le_bytes([buf[8], buf[9]]);
+                let y = u16::from_le_bytes([buf[10], buf[11]]);
+                let width = u16::from_le_bytes([buf[12], buf[13]]);
+                let height = u16::from_le_bytes([buf[14], buf[15]]);
+                Some(BackendEvent::Expose {
+                    window,
+                    x,
+                    y,
+                    width,
+                    height,
+                })
+            }
+            17 => {
+                // DestroyNotify
+                Some(BackendEvent::DestroyNotify { window })
+            }
+            18 => {
+                // UnmapNotify
+                Some(BackendEvent::UnmapNotify { window })
+            }
+            19 => {
+                // MapNotify
+                Some(BackendEvent::MapNotify { window })
+            }
+            22 => {
+                // ConfigureNotify
+                let x = i16::from_le_bytes([buf[8], buf[9]]);
+                let y = i16::from_le_bytes([buf[10], buf[11]]);
+                let width = u16::from_le_bytes([buf[12], buf[13]]);
+                let height = u16::from_le_bytes([buf[14], buf[15]]);
+                Some(BackendEvent::Configure {
+                    window,
+                    x,
+                    y,
+                    width,
+                    height,
+                })
+            }
+            _ => {
+                // Unknown or unsupported event
+                if self.debug {
+                    log::debug!("Ignoring X11 event code {}", event_code);
+                }
+                None
+            }
         }
     }
 }
