@@ -112,20 +112,20 @@ This document tracks the implementation status of X11 protocol features across d
 
 | Feature | X11 | Windows | macOS | Wayland | Notes |
 |---------|-----|---------|-------|---------|-------|
-| Expose | 🟡 | ✅ | ✅ | ⚪ | WM_PAINT on Windows; NSView drawRect on macOS |
-| ConfigureNotify | 🟡 | ✅ | ✅ | ⚪ | WM_SIZE on Windows; NSWindow resize on macOS |
-| MapNotify | 🟡 | ✅ | ✅ | ⚪ | Generated when map_window() is called |
-| UnmapNotify | 🟡 | ✅ | ✅ | ⚪ | Generated when unmap_window() is called |
-| DestroyNotify | 🟡 | ✅ | ✅ | ⚪ | WM_CLOSE on Windows; NSWindow close on macOS |
-| KeyPress | 🟡 | ✅ | ✅ | ⚪ | WM_KEYDOWN on Windows; NSEvent keyDown on macOS |
-| KeyRelease | 🟡 | ✅ | ✅ | ⚪ | WM_KEYUP on Windows; NSEvent keyUp on macOS |
-| ButtonPress | 🟡 | ✅ | ✅ | ⚪ | WM_LBUTTONDOWN/etc on Windows; NSEvent mouseDown on macOS |
-| ButtonRelease | 🟡 | ✅ | ✅ | ⚪ | WM_LBUTTONUP/etc on Windows; NSEvent mouseUp on macOS |
-| MotionNotify | 🟡 | ✅ | ✅ | ⚪ | WM_MOUSEMOVE on Windows; NSEvent mouseMoved on macOS |
-| EnterNotify | 🟡 | ✅ | ✅ | ⚪ | TrackMouseEvent on Windows; mouseEntered on macOS with NSTrackingArea |
-| LeaveNotify | 🟡 | ✅ | ✅ | ⚪ | WM_MOUSELEAVE on Windows; mouseExited on macOS with NSTrackingArea |
-| FocusIn | 🟡 | ✅ | ✅ | ⚪ | WM_SETFOCUS on Windows; NSWindow becomeKey on macOS |
-| FocusOut | 🟡 | ✅ | ✅ | ⚪ | WM_KILLFOCUS on Windows; NSWindow resignKey on macOS |
+| Expose | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_PAINT on Windows; NSView drawRect on macOS |
+| ConfigureNotify | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_SIZE on Windows; NSWindow resize on macOS |
+| MapNotify | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; Generated when map_window() is called |
+| UnmapNotify | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; Generated when unmap_window() is called |
+| DestroyNotify | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_CLOSE on Windows; NSWindow close on macOS |
+| KeyPress | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_KEYDOWN on Windows; NSEvent keyDown on macOS |
+| KeyRelease | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_KEYUP on Windows; NSEvent keyUp on macOS |
+| ButtonPress | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_LBUTTONDOWN/etc on Windows; NSEvent mouseDown on macOS |
+| ButtonRelease | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_LBUTTONUP/etc on Windows; NSEvent mouseUp on macOS |
+| MotionNotify | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_MOUSEMOVE on Windows; NSEvent mouseMoved on macOS |
+| EnterNotify | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; TrackMouseEvent on Windows; mouseEntered on macOS |
+| LeaveNotify | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_MOUSELEAVE on Windows; mouseExited on macOS |
+| FocusIn | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_SETFOCUS on Windows; NSWindow becomeKey on macOS |
+| FocusOut | ✅ | ✅ | ✅ | ⚪ | X11: forwarded from upstream; WM_KILLFOCUS on Windows; NSWindow resignKey on macOS |
 
 ### Input
 
