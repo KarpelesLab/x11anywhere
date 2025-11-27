@@ -110,12 +110,14 @@ fn handle_client(
             3 => handle_get_window_attributes(&mut stream, &header, &request_data, &server)?,
             4 => handle_destroy_window(&mut stream, &header, &request_data, &server)?,
             5 => handle_destroy_subwindows(&mut stream, &header, &request_data, &server)?,
+            6 => handle_change_save_set(&mut stream, &header, &request_data, &server)?,
             7 => handle_reparent_window(&mut stream, &header, &request_data, &server)?,
             8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
             9 => handle_map_subwindows(&mut stream, &header, &request_data, &server)?,
             10 => handle_unmap_window(&mut stream, &header, &request_data, &server)?,
             11 => handle_unmap_subwindows(&mut stream, &header, &request_data, &server)?,
             12 => handle_configure_window(&mut stream, &header, &request_data, &server)?,
+            13 => handle_circulate_window(&mut stream, &header, &request_data, &server)?,
             14 => handle_get_geometry(&mut stream, &header, &request_data, &server)?,
             15 => handle_query_tree(&mut stream, &header, &request_data, &server)?,
             16 => handle_intern_atom(&mut stream, &header, &request_data, &server)?,
@@ -688,6 +690,66 @@ fn handle_unmap_subwindows(
         let _ = server_guard.unmap_window(child);
     }
 
+    Ok(())
+}
+
+fn handle_change_save_set(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ChangeSaveSet request: mode(1 in header), window(4)
+    if data.len() < 4 {
+        log::warn!("ChangeSaveSet request too short");
+        return Ok(());
+    }
+
+    let mode = header[1]; // 0=Insert, 1=Delete
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+
+    log::debug!(
+        "ChangeSaveSet: mode={} ({}), window=0x{:x}",
+        mode,
+        if mode == 0 { "Insert" } else { "Delete" },
+        window
+    );
+
+    // Save-set is used by window managers to ensure client windows
+    // are preserved if the WM crashes. For this implementation,
+    // we just acknowledge the request.
+    Ok(())
+}
+
+fn handle_circulate_window(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse CirculateWindow request: direction(1 in header), window(4)
+    if data.len() < 4 {
+        log::warn!("CirculateWindow request too short");
+        return Ok(());
+    }
+
+    let direction = header[1]; // 0=RaiseLowest, 1=LowerHighest
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+
+    log::debug!(
+        "CirculateWindow: direction={} ({}), window=0x{:x}",
+        direction,
+        if direction == 0 {
+            "RaiseLowest"
+        } else {
+            "LowerHighest"
+        },
+        window
+    );
+
+    // Circulate changes the stacking order of children
+    // This is primarily used by window managers. For this implementation,
+    // we acknowledge the request but don't modify stacking order.
     Ok(())
 }
 

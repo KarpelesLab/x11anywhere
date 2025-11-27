@@ -48,7 +48,9 @@ This document tracks the implementation status of X11 protocol features across d
 | RaiseWindow | ✅ | ✅ | ✅ | ⚪ | SetWindowPos(HWND_TOP) on Windows, orderFront on macOS |
 | LowerWindow | ✅ | ✅ | ✅ | ⚪ | SetWindowPos(HWND_BOTTOM) on Windows, orderBack on macOS |
 | DestroySubwindows | ✅ | ✅ | ✅ | ⚪ | Opcode 5; destroys all child windows |
+| ChangeSaveSet | ✅ | ✅ | ✅ | ⚪ | Opcode 6; parsed/logged (WM save-set) |
 | UnmapSubwindows | ✅ | ✅ | ✅ | ⚪ | Opcode 11; unmaps all child windows |
+| CirculateWindow | ✅ | ✅ | ✅ | ⚪ | Opcode 13; parsed/logged (stacking order) |
 | SendEvent | ✅ | ✅ | ✅ | ⚪ | Opcode 25; parsed/logged (no actual delivery yet) |
 
 ### Drawing Operations
