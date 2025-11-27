@@ -252,7 +252,7 @@ impl Backend for NullBackend {
         Err("No events available".into())
     }
 
-    fn list_system_fonts(&self) -> BackendResult<Vec<BackendFontInfo>> {
+    fn list_system_fonts(&mut self) -> BackendResult<Vec<BackendFontInfo>> {
         // Return a minimal set of test fonts for the null backend
         Ok(vec![
             BackendFontInfo {

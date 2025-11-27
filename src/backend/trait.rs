@@ -772,7 +772,7 @@ pub trait Backend: Send {
 
     /// List available system fonts
     /// Returns fonts that can be used for text rendering
-    fn list_system_fonts(&self) -> BackendResult<Vec<BackendFontInfo>> {
+    fn list_system_fonts(&mut self) -> BackendResult<Vec<BackendFontInfo>> {
         // Default implementation returns empty list
         // Backends should override this to enumerate actual system fonts
         Ok(Vec::new())

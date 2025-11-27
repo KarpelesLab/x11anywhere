@@ -1132,7 +1132,7 @@ impl Backend for MacOSBackend {
         }
     }
 
-    fn list_system_fonts(&self) -> BackendResult<Vec<BackendFontInfo>> {
+    fn list_system_fonts(&mut self) -> BackendResult<Vec<BackendFontInfo>> {
         // TODO: Implement font enumeration via CoreText FFI
         // This would require adding Swift FFI functions to enumerate system fonts
         // For now, return some common macOS system fonts as a placeholder

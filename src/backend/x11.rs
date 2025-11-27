@@ -1889,24 +1889,73 @@ impl Backend for X11Backend {
         Err("wait_for_event not implemented for X11 backend".into())
     }
 
-    fn list_system_fonts(&self) -> BackendResult<Vec<BackendFontInfo>> {
-        // We need a mutable reference for send_request_with_reply
-        // Since list_system_fonts takes &self, we'll create a new connection
-        // This is a bit inefficient but keeps the API clean
-
-        // For now, return an empty list if not connected
-        // A full implementation would query the X server with ListFonts
+    fn list_system_fonts(&mut self) -> BackendResult<Vec<BackendFontInfo>> {
         if self.connection.is_none() {
             return Ok(Vec::new());
         }
 
-        // Create a temporary mutable copy to send the request
-        // Note: This is a workaround - ideally we'd have interior mutability
-        log::debug!("X11 backend: list_system_fonts called (returning empty - would need ListFonts request)");
+        // Build ListFonts request (opcode 49)
+        // Format: opcode(1), unused(1), length(2), max_names(2), pattern_length(2), pattern(...)
+        let pattern = "-*-*-*-*-*-*-*-*-*-*-*-*-*-*";
+        let pattern_bytes = pattern.as_bytes();
+        let padded_len = (pattern_bytes.len() + 3) & !3;
+        let total_len = (8 + padded_len) / 4;
 
-        // Return empty for now - full implementation would use ListFonts opcode 49
-        // to query "-*-*-*-*-*-*-*-*-*-*-*-*-*-*" pattern
-        Ok(Vec::new())
+        let mut req = Vec::new();
+        req.push(49); // Opcode: ListFonts
+        req.push(0); // Unused
+        req.extend_from_slice(&(total_len as u16).to_le_bytes()); // Length
+        req.extend_from_slice(&1000u16.to_le_bytes()); // max-names: up to 1000 fonts
+        req.extend_from_slice(&(pattern_bytes.len() as u16).to_le_bytes()); // pattern length
+        req.extend_from_slice(pattern_bytes);
+        // Pad to 4-byte boundary
+        while req.len() < 8 + padded_len {
+            req.push(0);
+        }
+
+        let reply = self.send_request_with_reply(&req)?;
+
+        // Parse ListFonts reply
+        // Format: reply(1), unused(1), sequence(2), length(4), num_fonts(2), unused(22), names...
+        if reply.len() < 32 {
+            return Err("Invalid ListFonts reply".into());
+        }
+
+        let num_fonts = u16::from_le_bytes([reply[8], reply[9]]) as usize;
+
+        if self.debug {
+            log::debug!("X11 server returned {} fonts", num_fonts);
+        }
+
+        let mut fonts = Vec::new();
+        let mut offset = 32; // Start after header
+
+        for _ in 0..num_fonts {
+            if offset >= reply.len() {
+                break;
+            }
+
+            // Each name is: length(1), name(length)
+            let name_len = reply[offset] as usize;
+            offset += 1;
+
+            if offset + name_len > reply.len() {
+                break;
+            }
+
+            if let Ok(font_name) = std::str::from_utf8(&reply[offset..offset + name_len]) {
+                if let Some(font_info) = Self::parse_xlfd(font_name) {
+                    fonts.push(font_info);
+                }
+            }
+            offset += name_len;
+        }
+
+        if self.debug {
+            log::debug!("Parsed {} valid XLFD fonts from X server", fonts.len());
+        }
+
+        Ok(fonts)
     }
 }
 

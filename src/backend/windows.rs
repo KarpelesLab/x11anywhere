@@ -1444,7 +1444,7 @@ impl Backend for WindowsBackend {
         }
     }
 
-    fn list_system_fonts(&self) -> BackendResult<Vec<BackendFontInfo>> {
+    fn list_system_fonts(&mut self) -> BackendResult<Vec<BackendFontInfo>> {
         let mut fonts: Vec<BackendFontInfo> = Vec::new();
 
         unsafe {
