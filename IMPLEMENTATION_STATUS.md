@@ -231,9 +231,10 @@ This document tracks the implementation status of X11 protocol features across d
   - ✅ ImageText8 (opcode 76)
   - ✅ OpenFont (opcode 45)
   - ✅ CloseFont (opcode 46)
+  - ✅ ListFonts (opcode 49) - queries upstream X server
+  - ✅ RaiseWindow / LowerWindow / SetWindowTitle
 - **Not Yet Implemented**:
-  - ❌ QueryFont
-  - ❌ ListFonts
+  - ❌ QueryFont (detailed font metrics)
   - ❌ Event delivery (MapNotify, UnmapNotify, etc.)
 - **Limitations**:
   - Some advanced extensions not implemented
