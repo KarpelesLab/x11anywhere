@@ -3855,7 +3855,7 @@ fn handle_get_keyboard_mapping(
     for i in 0..count as usize {
         let keycode = first_keycode as usize + i;
         // Simple mapping: keycode -> keysym (for printable ASCII)
-        let keysym = if keycode >= 0x20 && keycode < 0x7f {
+        let keysym = if (0x20..0x7f).contains(&keycode) {
             keycode as u32
         } else {
             0 // NoSymbol
@@ -3912,7 +3912,7 @@ fn handle_get_pointer_mapping(
 
     // Return default pointer mapping (1:1 for 5 buttons)
     let n_buttons = 5u8;
-    let map_length = ((n_buttons as usize + 3) / 4) as u32; // pad to 4-byte boundary
+    let map_length = (n_buttons as usize).div_ceil(4) as u32; // pad to 4-byte boundary
 
     // Reply: reply(1), n_elts(1), sequence(2), length(4), pad(24), map(n)
     let mut reply = vec![0u8; 32 + (map_length as usize) * 4];
