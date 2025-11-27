@@ -777,6 +777,14 @@ pub trait Backend: Send {
         // Backends should override this to enumerate actual system fonts
         Ok(Vec::new())
     }
+
+    /// Query font metrics for a specific font by name
+    /// Returns detailed font metrics if the font is available
+    fn query_font_metrics(&mut self, _font_name: &str) -> BackendResult<Option<BackendFontInfo>> {
+        // Default implementation returns None
+        // Backends can override to query real font metrics from the system
+        Ok(None)
+    }
 }
 
 /// Helper function to interpolate X coordinate along a line at a given Y

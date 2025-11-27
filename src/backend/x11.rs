@@ -1998,6 +1998,144 @@ impl Backend for X11Backend {
 
         Ok(fonts)
     }
+
+    fn query_font_metrics(&mut self, font_name: &str) -> BackendResult<Option<BackendFontInfo>> {
+        if self.connection.is_none() {
+            return Ok(None);
+        }
+
+        // Allocate a temporary font ID for querying
+        let font_id = self.allocate_server_resource_id();
+
+        // Step 1: Open the font on the upstream X server (opcode 45)
+        let name_bytes = font_name.as_bytes();
+        let name_len = name_bytes.len();
+        let name_pad = (4 - (name_len % 4)) % 4;
+
+        let mut req = Vec::new();
+        req.push(45); // Opcode: OpenFont
+        req.push(0); // Padding
+        let length = 3 + (name_len + name_pad) / 4;
+        req.extend_from_slice(&(length as u16).to_le_bytes());
+        req.extend_from_slice(&font_id.to_le_bytes());
+        req.extend_from_slice(&(name_len as u16).to_le_bytes());
+        req.extend_from_slice(&[0, 0]); // padding
+        req.extend_from_slice(name_bytes);
+        req.extend(std::iter::repeat_n(0u8, name_pad));
+
+        self.send_request(&req)?;
+        self.flush()?;
+
+        // Step 2: Query the font (opcode 47)
+        let mut query_req = Vec::new();
+        query_req.push(47); // Opcode: QueryFont
+        query_req.push(0); // Padding
+        query_req.extend_from_slice(&2u16.to_le_bytes()); // Length: 2 words
+        query_req.extend_from_slice(&font_id.to_le_bytes());
+
+        let reply = match self.send_request_with_reply(&query_req) {
+            Ok(r) => r,
+            Err(e) => {
+                if self.debug {
+                    log::debug!("QueryFont failed for '{}': {}", font_name, e);
+                }
+                // Try to close the font even if query failed
+                let _ = self.close_upstream_font(font_id);
+                return Ok(None);
+            }
+        };
+
+        // Parse QueryFont reply
+        // Format (first 60 bytes):
+        // reply(1), unused(1), sequence(2), length(4)
+        // min_bounds: left_side_bearing(2), right_side_bearing(2), character_width(2), ascent(2), descent(2), attributes(2) = 12 bytes
+        // unused(4)
+        // max_bounds: same 12 bytes
+        // unused(4)
+        // min_char_or_byte2(2), max_char_or_byte2(2), default_char(2)
+        // n_properties(2), draw_direction(1), min_byte1(1), max_byte1(1), all_chars_exist(1)
+        // font_ascent(2), font_descent(2), n_char_infos(4)
+        // Then: properties(8*n) and char_infos(12*n)
+
+        if reply.len() < 60 {
+            if self.debug {
+                log::debug!("QueryFont reply too short: {} bytes", reply.len());
+            }
+            let _ = self.close_upstream_font(font_id);
+            return Ok(None);
+        }
+
+        // Extract metrics from reply
+        // min_bounds starts at offset 8
+        let min_char_width = i16::from_le_bytes([reply[12], reply[13]]);
+        // max_bounds starts at offset 24
+        let max_char_width = i16::from_le_bytes([reply[28], reply[29]]);
+        // font_ascent at offset 52
+        let font_ascent = i16::from_le_bytes([reply[52], reply[53]]);
+        // font_descent at offset 54
+        let font_descent = i16::from_le_bytes([reply[54], reply[55]]);
+        // min_char_or_byte2 at offset 40
+        let min_char = u16::from_le_bytes([reply[40], reply[41]]);
+        // max_char_or_byte2 at offset 42
+        let max_char = u16::from_le_bytes([reply[42], reply[43]]);
+
+        // Step 3: Close the font (opcode 46)
+        let _ = self.close_upstream_font(font_id);
+
+        // Calculate average character width
+        let avg_char_width = ((min_char_width as i32 + max_char_width as i32) / 2) as u16;
+
+        // Try to parse XLFD name for additional info
+        let (family, weight, slant, pixel_size, point_size, registry, encoding) =
+            if let Some(parsed) = Self::parse_xlfd(font_name) {
+                (
+                    parsed.family,
+                    parsed.weight,
+                    parsed.slant,
+                    parsed.pixel_size,
+                    parsed.point_size,
+                    parsed.registry,
+                    parsed.encoding,
+                )
+            } else {
+                // Extract family from simple font name
+                (
+                    font_name.to_string(),
+                    "medium".to_string(),
+                    "r".to_string(),
+                    (font_ascent + font_descent) as u16,
+                    ((font_ascent + font_descent) as u16) * 10,
+                    "iso8859".to_string(),
+                    "1".to_string(),
+                )
+            };
+
+        if self.debug {
+            log::debug!(
+                "QueryFont '{}': ascent={}, descent={}, char_width={}, min_char={}, max_char={}",
+                font_name,
+                font_ascent,
+                font_descent,
+                avg_char_width,
+                min_char,
+                max_char
+            );
+        }
+
+        Ok(Some(BackendFontInfo {
+            xlfd_name: font_name.to_string(),
+            family,
+            weight,
+            slant,
+            pixel_size,
+            point_size,
+            char_width: avg_char_width,
+            ascent: font_ascent,
+            descent: font_descent,
+            registry,
+            encoding,
+        }))
+    }
 }
 
 impl X11Backend {
@@ -2005,6 +2143,24 @@ impl X11Backend {
     /// This is useful for debugging - we can return this to clients
     pub fn setup_info(&self) -> Option<&SetupSuccess> {
         self.setup_info.as_ref()
+    }
+
+    /// Close a font on the upstream X server (opcode 46)
+    fn close_upstream_font(&mut self, font_id: u32) -> BackendResult<()> {
+        let mut req = Vec::new();
+        req.push(46); // Opcode: CloseFont
+        req.push(0); // Padding
+        req.extend_from_slice(&2u16.to_le_bytes()); // Length: 2 words
+        req.extend_from_slice(&font_id.to_le_bytes());
+
+        self.send_request(&req)?;
+        self.flush()?;
+
+        if self.debug {
+            log::debug!("Closed upstream font 0x{:x}", font_id);
+        }
+
+        Ok(())
     }
 
     /// Parse an XLFD font name into BackendFontInfo

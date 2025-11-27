@@ -232,10 +232,9 @@ This document tracks the implementation status of X11 protocol features across d
   - ✅ OpenFont (opcode 45)
   - ✅ CloseFont (opcode 46)
   - ✅ ListFonts (opcode 49) - queries upstream X server
+  - ✅ QueryFont (opcode 47) - queries upstream X server for real font metrics
   - ✅ RaiseWindow / LowerWindow / SetWindowTitle
   - ✅ Event polling and delivery (Expose, Configure, Key/Button/Motion, Focus, Map/Unmap, etc.)
-- **Not Yet Implemented**:
-  - ❌ QueryFont (detailed font metrics from upstream X server)
 - **Limitations**:
   - Some advanced extensions not implemented
   - Limited error handling

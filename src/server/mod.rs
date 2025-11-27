@@ -1210,7 +1210,29 @@ impl Server {
     /// Open a font
     pub fn open_font(&mut self, font_id: u32, font_name: &str) {
         log::debug!("Opening font: id=0x{:x}, name={}", font_id, font_name);
-        self.fonts.insert(font_id, FontInfo::new(font_name));
+
+        // Try to get real font metrics from the backend
+        let font_info = if let Ok(Some(metrics)) = self.backend.query_font_metrics(font_name) {
+            log::debug!(
+                "Got font metrics from backend: ascent={}, descent={}, char_width={}",
+                metrics.ascent,
+                metrics.descent,
+                metrics.char_width
+            );
+            FontInfo {
+                name: font_name.to_string(),
+                ascent: metrics.ascent,
+                descent: metrics.descent,
+                char_width: metrics.char_width as i16,
+                min_char: 0,
+                max_char: 255,
+            }
+        } else {
+            // Fall back to default metrics
+            FontInfo::new(font_name)
+        };
+
+        self.fonts.insert(font_id, font_info);
     }
 
     /// Close a font
