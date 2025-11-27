@@ -233,14 +233,13 @@ This document tracks the implementation status of X11 protocol features across d
   - ✅ CloseFont (opcode 46)
   - ✅ ListFonts (opcode 49) - queries upstream X server
   - ✅ RaiseWindow / LowerWindow / SetWindowTitle
+  - ✅ Event polling and delivery (Expose, Configure, Key/Button/Motion, Focus, Map/Unmap, etc.)
 - **Not Yet Implemented**:
-  - ❌ QueryFont (detailed font metrics)
-  - ❌ Event delivery (MapNotify, UnmapNotify, etc.)
+  - ❌ QueryFont (detailed font metrics from upstream X server)
 - **Limitations**:
   - Some advanced extensions not implemented
   - Limited error handling
-  - Event delivery to clients not yet implemented
-- **Next Steps**: Implement event delivery infrastructure
+- **Next Steps**: Improve extension support, performance optimization
 
 ### Windows Backend
 - **Status**: ✅ **Fully implemented** (visual tests passing)
