@@ -1470,6 +1470,7 @@ impl Server {
     }
 
     /// Render trapezoids using the RENDER extension
+    #[allow(clippy::too_many_arguments)]
     pub fn render_trapezoids(
         &mut self,
         _op: u8,
