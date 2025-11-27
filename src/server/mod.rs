@@ -938,6 +938,67 @@ impl Server {
         Ok(())
     }
 
+    /// Copy GC attributes from one GC to another
+    pub fn copy_gc(
+        &mut self,
+        src_gc: GContext,
+        dst_gc: GContext,
+        value_mask: u32,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Get the source GC values
+        let src_values = if let Some(src) = self.gcs.get(&src_gc) {
+            src.clone()
+        } else {
+            log::warn!("CopyGC: source GC 0x{:x} not found", src_gc.id().get());
+            return Ok(());
+        };
+
+        // Apply masked values to destination GC
+        if let Some(dst) = self.gcs.get_mut(&dst_gc) {
+            // Copy attributes based on value_mask
+            // Bit 0: function
+            // Bit 1: plane-mask
+            // Bit 2: foreground
+            if value_mask & (1 << 2) != 0 {
+                dst.foreground = src_values.foreground;
+            }
+            // Bit 3: background
+            if value_mask & (1 << 3) != 0 {
+                dst.background = src_values.background;
+            }
+            // Bit 4: line-width
+            if value_mask & (1 << 4) != 0 {
+                dst.line_width = src_values.line_width;
+            }
+            // Bit 5: line-style
+            if value_mask & (1 << 5) != 0 {
+                dst.line_style = src_values.line_style;
+            }
+            // Bit 6: cap-style
+            if value_mask & (1 << 6) != 0 {
+                dst.cap_style = src_values.cap_style;
+            }
+            // Bit 7: join-style
+            if value_mask & (1 << 7) != 0 {
+                dst.join_style = src_values.join_style;
+            }
+            // Bit 8: fill-style
+            if value_mask & (1 << 8) != 0 {
+                dst.fill_style = src_values.fill_style;
+            }
+            // Note: font (bit 14) is tracked separately in the server, not in BackendGC
+            log::debug!(
+                "CopyGC: copied attributes from 0x{:x} to 0x{:x} (mask=0x{:x})",
+                src_gc.id().get(),
+                dst_gc.id().get(),
+                value_mask
+            );
+        } else {
+            log::warn!("CopyGC: destination GC 0x{:x} not found", dst_gc.id().get());
+        }
+        Ok(())
+    }
+
     /// Fill rectangles
     pub fn fill_rectangles(
         &mut self,

@@ -128,6 +128,7 @@ fn handle_client(
             21 => handle_list_properties(&mut stream, &header, &request_data, &server)?,
             22 => handle_set_selection_owner(&mut stream, &header, &request_data, &server)?,
             23 => handle_get_selection_owner(&mut stream, &header, &request_data, &server)?,
+            24 => handle_convert_selection(&mut stream, &header, &request_data, &server)?,
             25 => handle_send_event(&mut stream, &header, &request_data, &server)?,
             26 => handle_grab_pointer(&mut stream, &header, &request_data, &server)?,
             27 => handle_ungrab_pointer(&mut stream, &header, &request_data, &server)?,
@@ -137,6 +138,9 @@ fn handle_client(
             32 => handle_ungrab_button(&mut stream, &header, &request_data, &server)?,
             33 => handle_grab_keyboard(&mut stream, &header, &request_data, &server)?,
             34 => handle_ungrab_keyboard(&mut stream, &header, &request_data, &server)?,
+            35 => handle_allow_events(&mut stream, &header, &request_data, &server)?,
+            36 => handle_grab_key(&mut stream, &header, &request_data, &server)?,
+            37 => handle_ungrab_key(&mut stream, &header, &request_data, &server)?,
             38 => handle_query_pointer(&mut stream, &header, &request_data, &server)?,
             40 => handle_translate_coordinates(&mut stream, &header, &request_data, &server)?,
             41 => handle_warp_pointer(&mut stream, &header, &request_data, &server)?,
@@ -152,6 +156,7 @@ fn handle_client(
             54 => handle_free_pixmap(&mut stream, &header, &request_data, &server)?,
             55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
+            57 => handle_copy_gc(&mut stream, &header, &request_data, &server)?,
             60 => handle_free_gc(&mut stream, &header, &request_data, &server)?,
             61 => handle_clear_area(&mut stream, &header, &request_data, &server)?,
             62 => handle_copy_area(&mut stream, &header, &request_data, &server)?,
@@ -952,6 +957,39 @@ fn handle_change_gc(
 
     let mut server = server.lock().unwrap();
     server.change_gc(crate::protocol::GContext::new(gc), foreground, background)?;
+
+    Ok(())
+}
+
+fn handle_copy_gc(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse CopyGC request: src_gc(4), dst_gc(4), value_mask(4)
+    if data.len() < 12 {
+        log::warn!("CopyGC request too short");
+        return Ok(());
+    }
+
+    let src_gc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let dst_gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let value_mask = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+
+    log::debug!(
+        "CopyGC: src_gc=0x{:x}, dst_gc=0x{:x}, value_mask=0x{:x}",
+        src_gc,
+        dst_gc,
+        value_mask
+    );
+
+    let mut server = server.lock().unwrap();
+    server.copy_gc(
+        crate::protocol::GContext::new(src_gc),
+        crate::protocol::GContext::new(dst_gc),
+        value_mask,
+    )?;
 
     Ok(())
 }
@@ -2740,6 +2778,40 @@ fn handle_get_selection_owner(
     Ok(())
 }
 
+fn handle_convert_selection(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ConvertSelection request: requestor(4), selection(4), target(4), property(4), time(4)
+    if data.len() < 20 {
+        log::warn!("ConvertSelection request too short");
+        return Ok(());
+    }
+
+    let requestor = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let selection = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let target = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+    let property = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+    let time = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+
+    log::debug!(
+        "ConvertSelection: requestor=0x{:x}, selection=0x{:x}, target=0x{:x}, property=0x{:x}, time={}",
+        requestor,
+        selection,
+        target,
+        property,
+        time
+    );
+
+    // ConvertSelection has no reply - the selection owner should send a SelectionNotify event
+    // For now, we just log the request without sending events
+    // A full implementation would notify the selection owner and have it respond
+
+    Ok(())
+}
+
 fn handle_send_event(
     _stream: &mut TcpStream,
     header: &[u8],
@@ -3223,6 +3295,98 @@ fn handle_ungrab_keyboard(
     log::debug!("UngrabKeyboard: time={}", time);
 
     // No reply for UngrabKeyboard
+    Ok(())
+}
+
+fn handle_allow_events(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse AllowEvents request: mode(1 in header), time(4)
+    let mode = header[1];
+    let time = if data.len() >= 4 {
+        u32::from_le_bytes([data[0], data[1], data[2], data[3]])
+    } else {
+        0
+    };
+
+    let mode_str = match mode {
+        0 => "AsyncPointer",
+        1 => "SyncPointer",
+        2 => "ReplayPointer",
+        3 => "AsyncKeyboard",
+        4 => "SyncKeyboard",
+        5 => "ReplayKeyboard",
+        6 => "AsyncBoth",
+        7 => "SyncBoth",
+        _ => "Unknown",
+    };
+
+    log::debug!("AllowEvents: mode={} ({}), time={}", mode, mode_str, time);
+
+    // No reply for AllowEvents
+    // This releases frozen events from grab operations
+    Ok(())
+}
+
+fn handle_grab_key(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse GrabKey request: owner_events(1 in header), grab_window(4), modifiers(2), key(1), pointer_mode(1), keyboard_mode(1)
+    if data.len() < 8 {
+        log::warn!("GrabKey request too short");
+        return Ok(());
+    }
+
+    let owner_events = header[1] != 0;
+    let grab_window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let modifiers = u16::from_le_bytes([data[4], data[5]]);
+    let key = data[6];
+    let pointer_mode = data[7];
+    let keyboard_mode = if data.len() > 8 { data[8] } else { 0 };
+
+    log::debug!(
+        "GrabKey: owner_events={}, grab_window=0x{:x}, modifiers=0x{:x}, key={}, pointer_mode={}, keyboard_mode={}",
+        owner_events,
+        grab_window,
+        modifiers,
+        key,
+        pointer_mode,
+        keyboard_mode
+    );
+
+    // No reply for GrabKey
+    // A full implementation would register this key grab
+    Ok(())
+}
+
+fn handle_ungrab_key(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse UngrabKey request: key(1 in header), grab_window(4), modifiers(2)
+    if data.len() < 6 {
+        log::warn!("UngrabKey request too short");
+        return Ok(());
+    }
+
+    let grab_window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let modifiers = u16::from_le_bytes([data[4], data[5]]);
+
+    log::debug!(
+        "UngrabKey: grab_window=0x{:x}, modifiers=0x{:x}",
+        grab_window,
+        modifiers
+    );
+
+    // No reply for UngrabKey
     Ok(())
 }
 

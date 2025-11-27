@@ -78,7 +78,8 @@ This document tracks the implementation status of X11 protocol features across d
 |---------|-----|---------|-------|---------|-------|
 | CreateGC | ✅ | ✅ | ✅ | ⚪ | Opcode 55 handler; GC tracked in BackendGC struct |
 | ChangeGC | ✅ | ✅ | ✅ | ⚪ | Opcode 56 handler; GC state tracked; applied during drawing |
-| FreeGC | ✅ | ✅ | ✅ | ⚪ | Opcode 57 handler; GC cleanup |
+| CopyGC | ✅ | ✅ | ✅ | ⚪ | Opcode 57 handler; copies GC attributes based on mask |
+| FreeGC | ✅ | ✅ | ✅ | ⚪ | Opcode 60 handler; GC cleanup |
 | SetForeground | ✅ | ✅ | ✅ | ⚪ | Applied via create_pen/create_brush; CGColor on macOS; X11 via ChangeGC |
 | SetBackground | ✅ | ✅ | ✅ | ⚪ | Applied during drawing operations; X11 via ChangeGC |
 | SetLineWidth | ✅ | ✅ | ✅ | ⚪ | CreatePen with width on Windows; line_width on macOS; X11 via ChangeGC |
@@ -144,6 +145,9 @@ This document tracks the implementation status of X11 protocol features across d
 | UngrabButton | ✅ | ✅ | ✅ | ⚪ | Opcode 32 handler |
 | GrabKeyboard | ✅ | ✅ | ✅ | ⚪ | Opcode 33 handler; returns Success |
 | UngrabKeyboard | ✅ | ✅ | ✅ | ⚪ | Opcode 34 handler |
+| AllowEvents | ✅ | ✅ | ✅ | ⚪ | Opcode 35 handler; releases frozen events (stub) |
+| GrabKey | ✅ | ✅ | ✅ | ⚪ | Opcode 36 handler; passive key grab (stub) |
+| UngrabKey | ✅ | ✅ | ✅ | ⚪ | Opcode 37 handler |
 | QueryPointer | ✅ | ✅ | ✅ | ⚪ | Opcode 38 handler; returns (0,0) for now |
 | TranslateCoords | ✅ | ✅ | ✅ | ⚪ | Opcode 40 handler; returns input coords |
 | WarpPointer | ✅ | ✅ | ✅ | ⚪ | Opcode 41 handler; stub (no actual warp) |
@@ -168,7 +172,7 @@ This document tracks the implementation status of X11 protocol features across d
 |---------|-----|---------|-------|---------|-------|
 | SetSelectionOwner | ✅ | ✅ | ✅ | ⚪ | Server-side selection tracking; opcode 22 handler |
 | GetSelectionOwner | ✅ | ✅ | ✅ | ⚪ | Server-side selection tracking; opcode 23 handler |
-| ConvertSelection | 🟡 | 🟡 | 🟡 | ⚪ | Parsed; needs full conversion protocol |
+| ConvertSelection | ✅ | ✅ | ✅ | ⚪ | Opcode 24 handler; parsed/logged (no SelectionNotify yet) |
 
 ### Cursors
 
