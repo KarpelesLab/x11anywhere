@@ -134,6 +134,7 @@ fn handle_client(
             27 => handle_ungrab_pointer(&mut stream, &header, &request_data, &server)?,
             28 => handle_grab_server(&mut stream, &header, &request_data, &server)?,
             29 => handle_ungrab_server(&mut stream, &header, &request_data, &server)?,
+            30 => handle_change_active_pointer_grab(&mut stream, &header, &request_data, &server)?,
             31 => handle_grab_button(&mut stream, &header, &request_data, &server)?,
             32 => handle_ungrab_button(&mut stream, &header, &request_data, &server)?,
             33 => handle_grab_keyboard(&mut stream, &header, &request_data, &server)?,
@@ -154,34 +155,62 @@ fn handle_client(
             48 => handle_query_text_extents(&mut stream, &header, &request_data, &server)?,
             49 => handle_list_fonts(&mut stream, &header, &request_data, &server)?,
             50 => handle_list_fonts_with_info(&mut stream, &header, &request_data, &server)?,
+            51 => handle_set_font_path(&mut stream, &header, &request_data, &server)?,
+            52 => handle_get_font_path(&mut stream, &header, &request_data, &server)?,
             53 => handle_create_pixmap(&mut stream, &header, &request_data, &server)?,
             54 => handle_free_pixmap(&mut stream, &header, &request_data, &server)?,
             55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
             57 => handle_copy_gc(&mut stream, &header, &request_data, &server)?,
+            58 => handle_set_dashes(&mut stream, &header, &request_data, &server)?,
+            59 => handle_set_clip_rectangles(&mut stream, &header, &request_data, &server)?,
             60 => handle_free_gc(&mut stream, &header, &request_data, &server)?,
             61 => handle_clear_area(&mut stream, &header, &request_data, &server)?,
             62 => handle_copy_area(&mut stream, &header, &request_data, &server)?,
+            63 => handle_copy_plane(&mut stream, &header, &request_data, &server)?,
             73 => handle_get_image(&mut stream, &header, &request_data, &server)?,
             78 => handle_create_colormap(&mut stream, &header, &request_data, &server)?,
             79 => handle_free_colormap(&mut stream, &header, &request_data, &server)?,
+            80 => handle_copy_colormap_and_free(&mut stream, &header, &request_data, &server)?,
+            81 => handle_install_colormap(&mut stream, &header, &request_data, &server)?,
+            82 => handle_uninstall_colormap(&mut stream, &header, &request_data, &server)?,
+            83 => handle_list_installed_colormaps(&mut stream, &header, &request_data, &server)?,
             84 => handle_alloc_color(&mut stream, &header, &request_data, &server)?,
             85 => handle_alloc_named_color(&mut stream, &header, &request_data, &server)?,
+            86 => handle_alloc_color_cells(&mut stream, &header, &request_data, &server)?,
+            87 => handle_alloc_color_planes(&mut stream, &header, &request_data, &server)?,
             88 => handle_free_colors(&mut stream, &header, &request_data, &server)?,
+            89 => handle_store_colors(&mut stream, &header, &request_data, &server)?,
+            90 => handle_store_named_color(&mut stream, &header, &request_data, &server)?,
             91 => handle_query_colors(&mut stream, &header, &request_data, &server)?,
+            92 => handle_lookup_color(&mut stream, &header, &request_data, &server)?,
             93 => handle_create_cursor(&mut stream, &header, &request_data, &server)?,
             94 => handle_create_glyph_cursor(&mut stream, &header, &request_data, &server)?,
             95 => handle_free_cursor(&mut stream, &header, &request_data, &server)?,
+            96 => handle_recolor_cursor(&mut stream, &header, &request_data, &server)?,
             97 => handle_query_best_size(&mut stream, &header, &request_data, &server)?,
             98 => handle_query_extension(&mut stream, &header, &request_data, &server)?,
             99 => handle_list_extensions(&mut stream, &header, &request_data, &server)?,
             104 => handle_bell(&mut stream, &header, &request_data, &server)?,
             100 => handle_change_keyboard_mapping(&mut stream, &header, &request_data, &server)?,
             101 => handle_get_keyboard_mapping(&mut stream, &header, &request_data, &server)?,
+            102 => handle_change_keyboard_control(&mut stream, &header, &request_data, &server)?,
+            103 => handle_get_keyboard_control(&mut stream, &header, &request_data, &server)?,
+            105 => handle_change_pointer_control(&mut stream, &header, &request_data, &server)?,
+            106 => handle_get_pointer_control(&mut stream, &header, &request_data, &server)?,
             107 => handle_set_screen_saver(&mut stream, &header, &request_data, &server)?,
             108 => handle_get_screen_saver(&mut stream, &header, &request_data, &server)?,
+            109 => handle_change_hosts(&mut stream, &header, &request_data, &server)?,
+            110 => handle_list_hosts(&mut stream, &header, &request_data, &server)?,
+            111 => handle_set_access_control(&mut stream, &header, &request_data, &server)?,
+            112 => handle_set_close_down_mode(&mut stream, &header, &request_data, &server)?,
+            113 => handle_kill_client(&mut stream, &header, &request_data, &server)?,
+            114 => handle_rotate_properties(&mut stream, &header, &request_data, &server)?,
+            115 => handle_force_screen_saver(&mut stream, &header, &request_data, &server)?,
             116 => handle_set_pointer_mapping(&mut stream, &header, &request_data, &server)?,
             117 => handle_get_pointer_mapping(&mut stream, &header, &request_data, &server)?,
+            118 => handle_set_modifier_mapping(&mut stream, &header, &request_data, &server)?,
+            119 => handle_get_modifier_mapping(&mut stream, &header, &request_data, &server)?,
             127 => handle_no_operation(&mut stream, &header, &request_data, &server)?,
             64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
             65 => handle_poly_line(&mut stream, &header, &request_data, &server)?,
@@ -3995,5 +4024,562 @@ fn handle_get_screen_saver(
 
     stream.write_all(&reply)?;
 
+    Ok(())
+}
+
+fn handle_change_active_pointer_grab(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 10 {
+        log::warn!("ChangeActivePointerGrab request too short");
+        return Ok(());
+    }
+    let cursor = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let time = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let event_mask = u16::from_le_bytes([data[8], data[9]]);
+    log::debug!(
+        "ChangeActivePointerGrab: cursor=0x{:x}, time={}, event_mask=0x{:x}",
+        cursor,
+        time,
+        event_mask
+    );
+    Ok(())
+}
+
+fn handle_set_font_path(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 4 {
+        log::warn!("SetFontPath request too short");
+        return Ok(());
+    }
+    let n_paths = u16::from_le_bytes([data[0], data[1]]);
+    log::debug!("SetFontPath: n_paths={}", n_paths);
+    Ok(())
+}
+
+fn handle_get_font_path(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("GetFontPath");
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    let mut reply = vec![0u8; 32];
+    reply[0] = 1;
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    stream.write_all(&reply)?;
+    Ok(())
+}
+
+fn handle_set_dashes(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 8 {
+        log::warn!("SetDashes request too short");
+        return Ok(());
+    }
+    let gc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let dash_offset = u16::from_le_bytes([data[4], data[5]]);
+    let n_dashes = u16::from_le_bytes([data[6], data[7]]);
+    log::debug!(
+        "SetDashes: gc=0x{:x}, dash_offset={}, n_dashes={}",
+        gc,
+        dash_offset,
+        n_dashes
+    );
+    Ok(())
+}
+
+fn handle_set_clip_rectangles(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 8 {
+        log::warn!("SetClipRectangles request too short");
+        return Ok(());
+    }
+    let ordering = header[1];
+    let gc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let clip_x = i16::from_le_bytes([data[4], data[5]]);
+    let clip_y = i16::from_le_bytes([data[6], data[7]]);
+    let n_rects = (data.len() - 8) / 8;
+    log::debug!(
+        "SetClipRectangles: ordering={}, gc=0x{:x}, origin=({},{}), n_rects={}",
+        ordering,
+        gc,
+        clip_x,
+        clip_y,
+        n_rects
+    );
+    Ok(())
+}
+
+fn handle_copy_plane(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 24 {
+        log::warn!("CopyPlane request too short");
+        return Ok(());
+    }
+    let src = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let dst = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    let gc = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+    let bit_plane = u32::from_le_bytes([data[20], data[21], data[22], data[23]]);
+    log::debug!(
+        "CopyPlane: src=0x{:x}, dst=0x{:x}, gc=0x{:x}, bit_plane=0x{:x}",
+        src,
+        dst,
+        gc,
+        bit_plane
+    );
+    Ok(())
+}
+
+fn handle_copy_colormap_and_free(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 8 {
+        return Ok(());
+    }
+    let mid = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let src = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    log::debug!("CopyColormapAndFree: mid=0x{:x}, src=0x{:x}", mid, src);
+    Ok(())
+}
+
+fn handle_install_colormap(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 4 {
+        return Ok(());
+    }
+    let cmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("InstallColormap: cmap=0x{:x}", cmap);
+    Ok(())
+}
+
+fn handle_uninstall_colormap(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 4 {
+        return Ok(());
+    }
+    let cmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("UninstallColormap: cmap=0x{:x}", cmap);
+    Ok(())
+}
+
+fn handle_list_installed_colormaps(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 4 {
+        return Ok(());
+    }
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("ListInstalledColormaps: window=0x{:x}", window);
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    // Default colormap is always 0x20 (matches connection setup)
+    let default_cmap = 0x20u32;
+    let mut reply = vec![0u8; 36];
+    reply[0] = 1;
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&1u32.to_le_bytes());
+    reply[8..10].copy_from_slice(&1u16.to_le_bytes());
+    reply[32..36].copy_from_slice(&default_cmap.to_le_bytes());
+    stream.write_all(&reply)?;
+    Ok(())
+}
+
+fn handle_alloc_color_cells(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 8 {
+        return Ok(());
+    }
+    let cmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!(
+        "AllocColorCells: cmap=0x{:x} (TrueColor - returning Alloc error)",
+        cmap
+    );
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    let mut error = vec![0u8; 32];
+    error[0] = 0;
+    error[1] = 11;
+    error[2..4].copy_from_slice(&sequence.to_le_bytes());
+    stream.write_all(&error)?;
+    Ok(())
+}
+
+fn handle_alloc_color_planes(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 12 {
+        return Ok(());
+    }
+    let cmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!(
+        "AllocColorPlanes: cmap=0x{:x} (TrueColor - returning Alloc error)",
+        cmap
+    );
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    let mut error = vec![0u8; 32];
+    error[0] = 0;
+    error[1] = 11;
+    error[2..4].copy_from_slice(&sequence.to_le_bytes());
+    stream.write_all(&error)?;
+    Ok(())
+}
+
+fn handle_store_colors(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 4 {
+        return Ok(());
+    }
+    let cmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("StoreColors: cmap=0x{:x} (TrueColor no-op)", cmap);
+    Ok(())
+}
+
+fn handle_store_named_color(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 10 {
+        return Ok(());
+    }
+    let cmap = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("StoreNamedColor: cmap=0x{:x} (TrueColor no-op)", cmap);
+    Ok(())
+}
+
+fn handle_lookup_color(
+    stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 8 {
+        return Ok(());
+    }
+    let name_len = u16::from_le_bytes([data[4], data[5]]) as usize;
+    let name = if data.len() >= 8 + name_len {
+        String::from_utf8_lossy(&data[8..8 + name_len]).to_lowercase()
+    } else {
+        return Ok(());
+    };
+    log::debug!("LookupColor: name={}", name);
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    let (r, g, b): (u16, u16, u16) = match name.as_str() {
+        "black" => (0, 0, 0),
+        "white" => (65535, 65535, 65535),
+        "red" => (65535, 0, 0),
+        "green" => (0, 65535, 0),
+        "blue" => (0, 0, 65535),
+        "yellow" => (65535, 65535, 0),
+        "cyan" | "aqua" => (0, 65535, 65535),
+        "magenta" | "fuchsia" => (65535, 0, 65535),
+        "gray" | "grey" => (32896, 32896, 32896),
+        _ => {
+            let mut error = vec![0u8; 32];
+            error[0] = 0;
+            error[1] = 15;
+            error[2..4].copy_from_slice(&sequence.to_le_bytes());
+            stream.write_all(&error)?;
+            return Ok(());
+        }
+    };
+    let mut reply = vec![0u8; 32];
+    reply[0] = 1;
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[8..10].copy_from_slice(&r.to_le_bytes());
+    reply[10..12].copy_from_slice(&g.to_le_bytes());
+    reply[12..14].copy_from_slice(&b.to_le_bytes());
+    reply[14..16].copy_from_slice(&r.to_le_bytes());
+    reply[16..18].copy_from_slice(&g.to_le_bytes());
+    reply[18..20].copy_from_slice(&b.to_le_bytes());
+    stream.write_all(&reply)?;
+    Ok(())
+}
+
+fn handle_recolor_cursor(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 16 {
+        return Ok(());
+    }
+    let cursor = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("RecolorCursor: cursor=0x{:x}", cursor);
+    Ok(())
+}
+
+fn handle_change_keyboard_control(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 4 {
+        return Ok(());
+    }
+    let value_mask = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("ChangeKeyboardControl: value_mask=0x{:x}", value_mask);
+    Ok(())
+}
+
+fn handle_get_keyboard_control(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("GetKeyboardControl");
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    let mut reply = vec![0u8; 52];
+    reply[0] = 1;
+    reply[1] = 1;
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&5u32.to_le_bytes());
+    reply[12] = 50;
+    reply[13] = 50;
+    reply[14..16].copy_from_slice(&400u16.to_le_bytes());
+    reply[16..18].copy_from_slice(&100u16.to_le_bytes());
+    for i in 0..32 {
+        reply[20 + i] = 0xFF;
+    }
+    stream.write_all(&reply)?;
+    Ok(())
+}
+
+fn handle_change_pointer_control(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 8 {
+        return Ok(());
+    }
+    let accel_num = i16::from_le_bytes([data[0], data[1]]);
+    let accel_denom = i16::from_le_bytes([data[2], data[3]]);
+    let threshold = i16::from_le_bytes([data[4], data[5]]);
+    log::debug!(
+        "ChangePointerControl: accel={}/{}, threshold={}",
+        accel_num,
+        accel_denom,
+        threshold
+    );
+    Ok(())
+}
+
+fn handle_get_pointer_control(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("GetPointerControl");
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    let mut reply = vec![0u8; 32];
+    reply[0] = 1;
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[8..10].copy_from_slice(&2u16.to_le_bytes());
+    reply[10..12].copy_from_slice(&1u16.to_le_bytes());
+    reply[12..14].copy_from_slice(&4u16.to_le_bytes());
+    stream.write_all(&reply)?;
+    Ok(())
+}
+
+fn handle_change_hosts(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 4 {
+        return Ok(());
+    }
+    let mode = header[1];
+    let family = data[0];
+    log::debug!("ChangeHosts: mode={}, family={}", mode, family);
+    Ok(())
+}
+
+fn handle_list_hosts(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("ListHosts");
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    let mut reply = vec![0u8; 32];
+    reply[0] = 1;
+    reply[1] = 0;
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    stream.write_all(&reply)?;
+    Ok(())
+}
+
+fn handle_set_access_control(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mode = header[1];
+    log::debug!("SetAccessControl: mode={}", mode);
+    Ok(())
+}
+
+fn handle_set_close_down_mode(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mode = header[1];
+    log::debug!("SetCloseDownMode: mode={}", mode);
+    Ok(())
+}
+
+fn handle_kill_client(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 4 {
+        return Ok(());
+    }
+    let resource = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    log::debug!("KillClient: resource=0x{:x}", resource);
+    Ok(())
+}
+
+fn handle_rotate_properties(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if data.len() < 8 {
+        return Ok(());
+    }
+    let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let n_props = u16::from_le_bytes([data[4], data[5]]);
+    let delta = i16::from_le_bytes([data[6], data[7]]);
+    log::debug!(
+        "RotateProperties: window=0x{:x}, n={}, delta={}",
+        window,
+        n_props,
+        delta
+    );
+    Ok(())
+}
+
+fn handle_force_screen_saver(
+    _stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mode = header[1];
+    log::debug!("ForceScreenSaver: mode={}", mode);
+    Ok(())
+}
+
+fn handle_set_modifier_mapping(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let keycodes_per_mod = header[1];
+    log::debug!(
+        "SetModifierMapping: keycodes_per_modifier={}",
+        keycodes_per_mod
+    );
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    let mut reply = vec![0u8; 32];
+    reply[0] = 1;
+    reply[1] = 0;
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    stream.write_all(&reply)?;
+    Ok(())
+}
+
+fn handle_get_modifier_mapping(
+    stream: &mut TcpStream,
+    header: &[u8],
+    _data: &[u8],
+    _server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("GetModifierMapping");
+    let sequence = u16::from_le_bytes([header[2], header[3]]);
+    let mut reply = vec![0u8; 48];
+    reply[0] = 1;
+    reply[1] = 2;
+    reply[2..4].copy_from_slice(&sequence.to_le_bytes());
+    reply[4..8].copy_from_slice(&4u32.to_le_bytes());
+    reply[32] = 50;
+    reply[33] = 62;
+    reply[34] = 66;
+    reply[35] = 0;
+    reply[36] = 37;
+    reply[37] = 105;
+    reply[38] = 64;
+    reply[39] = 108;
+    reply[40] = 77;
+    reply[41] = 0;
+    reply[42] = 0;
+    reply[43] = 0;
+    reply[44] = 133;
+    reply[45] = 134;
+    reply[46] = 0;
+    reply[47] = 0;
+    stream.write_all(&reply)?;
     Ok(())
 }
