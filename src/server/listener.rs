@@ -106,6 +106,7 @@ fn handle_client(
         // Handle X11 protocol requests
         match opcode {
             1 => handle_create_window(&mut stream, &header, &request_data, &server)?,
+            2 => handle_change_window_attributes(&mut stream, &header, &request_data, &server)?,
             3 => handle_get_window_attributes(&mut stream, &header, &request_data, &server)?,
             4 => handle_destroy_window(&mut stream, &header, &request_data, &server)?,
             8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
@@ -1715,6 +1716,121 @@ fn handle_list_extensions(
     let reply = encoder.encode_list_extensions_reply(sequence, &extension_names);
 
     stream.write_all(&reply)?;
+
+    Ok(())
+}
+
+fn handle_change_window_attributes(
+    _stream: &mut TcpStream,
+    _header: &[u8],
+    data: &[u8],
+    server: &Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Parse ChangeWindowAttributes request
+    // Format: window(4), value-mask(4), value-list(...)
+    if data.len() < 8 {
+        log::warn!("ChangeWindowAttributes request too short");
+        return Ok(());
+    }
+
+    let window_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    let value_mask = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+
+    log::debug!(
+        "ChangeWindowAttributes: window=0x{:x}, value_mask=0x{:x}",
+        window_id,
+        value_mask
+    );
+
+    // Parse value list - values appear in bit order
+    // Window attribute bits:
+    // 0: background-pixmap, 1: background-pixel, 2: border-pixmap, 3: border-pixel,
+    // 4: bit-gravity, 5: win-gravity, 6: backing-store, 7: backing-planes,
+    // 8: backing-pixel, 9: override-redirect, 10: save-under, 11: event-mask,
+    // 12: do-not-propagate-mask, 13: colormap, 14: cursor
+    let mut event_mask = None;
+    let mut cursor = None;
+    let mut offset = 8;
+
+    // Helper to read u32 and advance offset
+    let read_u32 = |data: &[u8], off: &mut usize| -> Option<u32> {
+        if *off + 4 <= data.len() {
+            let val = u32::from_le_bytes([data[*off], data[*off + 1], data[*off + 2], data[*off + 3]]);
+            *off += 4;
+            Some(val)
+        } else {
+            None
+        }
+    };
+
+    // Bit 0: background-pixmap
+    if value_mask & 0x00000001 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 1: background-pixel
+    if value_mask & 0x00000002 != 0 {
+        read_u32(data, &mut offset); // Skip (could be used for background)
+    }
+    // Bit 2: border-pixmap
+    if value_mask & 0x00000004 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 3: border-pixel
+    if value_mask & 0x00000008 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 4: bit-gravity
+    if value_mask & 0x00000010 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 5: win-gravity
+    if value_mask & 0x00000020 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 6: backing-store
+    if value_mask & 0x00000040 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 7: backing-planes
+    if value_mask & 0x00000080 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 8: backing-pixel
+    if value_mask & 0x00000100 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 9: override-redirect
+    if value_mask & 0x00000200 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 10: save-under
+    if value_mask & 0x00000400 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 11: event-mask
+    if value_mask & 0x00000800 != 0 {
+        event_mask = read_u32(data, &mut offset);
+    }
+    // Bit 12: do-not-propagate-mask
+    if value_mask & 0x00001000 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 13: colormap
+    if value_mask & 0x00002000 != 0 {
+        read_u32(data, &mut offset); // Skip
+    }
+    // Bit 14: cursor
+    if value_mask & 0x00004000 != 0 {
+        cursor = read_u32(data, &mut offset);
+    }
+
+    let window = crate::protocol::Window::new(window_id);
+
+    // Apply the changes
+    {
+        let mut server = server.lock().unwrap();
+        server.change_window_attributes(window, event_mask, cursor)?;
+    }
 
     Ok(())
 }

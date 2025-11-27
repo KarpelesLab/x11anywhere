@@ -784,6 +784,46 @@ impl Server {
         self.window_info.get(&window)
     }
 
+    /// Change window attributes (event_mask, cursor, etc.)
+    pub fn change_window_attributes(
+        &mut self,
+        window: Window,
+        event_mask: Option<u32>,
+        cursor: Option<u32>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Update event mask if specified
+        if let Some(mask) = event_mask {
+            if let Some(info) = self.window_info.get_mut(&window) {
+                info.event_mask = mask;
+                log::debug!(
+                    "Changed window 0x{:x} event_mask to 0x{:x}",
+                    window.id().get(),
+                    mask
+                );
+            }
+        }
+
+        // Update cursor if specified
+        // TODO: Implement cursor mapping when cursor support is fully added to Server
+        if let Some(cursor_id) = cursor {
+            if cursor_id == 0 {
+                // cursor_id 0 means use parent's cursor (or default)
+                log::debug!(
+                    "Window 0x{:x} cursor reset to default (cursor_id=0)",
+                    window.id().get()
+                );
+            } else {
+                log::debug!(
+                    "Window 0x{:x} cursor change requested to 0x{:x} (not yet implemented)",
+                    window.id().get(),
+                    cursor_id
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     /// Get all child windows of a parent window
     pub fn get_children(&self, parent: Window) -> Vec<Window> {
         self.window_info
