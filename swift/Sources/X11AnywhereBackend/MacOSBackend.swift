@@ -785,6 +785,17 @@ public func macos_backend_fill_polygon(_ handle: BackendHandle, isWindow: Int32,
         // First point - move to
         let x0 = CGFloat(points[0])
         let y0 = CGFloat(points[1])
+
+        // Log the polygon points
+        var pointsStr = "(\(Int(x0)),\(Int(y0)))"
+        for i in 1..<Int(pointCount) {
+            let x = CGFloat(points[i * 2])
+            let y = CGFloat(points[i * 2 + 1])
+            pointsStr += " (\(Int(x)),\(Int(y)))"
+        }
+        NSLog("fill_polygon: drawing path: \(pointsStr)")
+
+        ctx.beginPath()
         ctx.move(to: CGPoint(x: x0, y: y0))
 
         // Remaining points - add lines
@@ -796,6 +807,18 @@ public func macos_backend_fill_polygon(_ handle: BackendHandle, isWindow: Int32,
 
         ctx.closePath()
         ctx.fillPath()
+
+        // Check if something was drawn by looking at a pixel
+        if let img = ctx.makeImage(), let dp = img.dataProvider, let data = dp.data {
+            let ptr = CFDataGetBytePtr(data)
+            let pixelIndex = (Int(y0) * ctx.width + Int(x0)) * 4
+            if pixelIndex >= 0 && pixelIndex < CFDataGetLength(data) - 3 {
+                let pr = ptr![pixelIndex]
+                let pg = ptr![pixelIndex + 1]
+                let pb = ptr![pixelIndex + 2]
+                NSLog("fill_polygon: pixel at (\(Int(x0)),\(Int(y0))) after fill: RGB(\(pr),\(pg),\(pb))")
+            }
+        }
     }
 
     if isWindow != 0 {
