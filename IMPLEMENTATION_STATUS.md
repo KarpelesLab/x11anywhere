@@ -242,17 +242,59 @@ This document tracks the implementation status of X11 protocol features across d
 | Extension | Status | Version | Notes |
 |-----------|--------|---------|-------|
 | BIG-REQUESTS | ✅ Implemented | - | Enable returns max 4MB request size |
-| XKEYBOARD (XKB) | 🟡 Registered | - | Advanced keyboard; registered but requests not handled |
-| RENDER | 🟡 Partial | 0.11 | QueryVersion supported; other requests logged only |
-| XFIXES | 🟡 Partial | 5.0 | QueryVersion supported; other requests logged only |
-| DAMAGE | 🟡 Partial | 1.1 | QueryVersion, Create, Destroy, Subtract supported (no-op) |
-| COMPOSITE | 🟡 Partial | 0.4 | QueryVersion, Redirect/Unredirect, NameWindowPixmap, GetOverlayWindow supported |
-| SHAPE | 🟡 Partial | 1.1 | QueryVersion supported; other requests logged only |
-| SYNC | 🟡 Partial | 3.1 | Initialize supported; other requests logged only |
-| RANDR | 🟡 Partial | 1.5 | QueryVersion supported; other requests logged only |
-| MIT-SHM | 🟡 Partial | 1.2 | QueryVersion supported; actual shared memory not implemented |
-| Xinerama | ❌ Not Implemented | - | Multi-monitor support |
-| GLX | ❌ Not Implemented | - | OpenGL integration |
+| COMPOSITE | 🟡 Partial | 0.4 | QueryVersion, Redirect/Unredirect, NameWindowPixmap, GetOverlayWindow |
+| DAMAGE | 🟡 Partial | 1.1 | QueryVersion, Create, Destroy, Subtract (no-op tracking) |
+| DPMS | ❌ Not Implemented | - | Display Power Management Signaling |
+| DRI2 | ❌ Not Implemented | - | Direct Rendering Infrastructure 2 |
+| DRI3 | ❌ Not Implemented | - | Direct Rendering Infrastructure 3 |
+| GLX | ❌ Not Implemented | - | OpenGL for X11 |
+| MIT-SHM | 🟡 Stub | 1.2 | QueryVersion only; no actual shared memory |
+| Present | ❌ Not Implemented | - | Vsynced presentation |
+| RANDR | 🟡 Stub | 1.5 | QueryVersion only |
+| Record | ❌ Not Implemented | - | Input recording/playback |
+| RENDER | 🟡 Partial | 0.11 | QueryVersion, QueryPictFormats, QueryFilters, Pictures, SolidFill, Trapezoids |
+| Resource (XRes) | ❌ Not Implemented | - | Resource usage tracking |
+| Screensaver | ❌ Not Implemented | - | Screen saver control |
+| SHAPE | 🟡 Stub | 1.1 | QueryVersion only |
+| SYNC | 🟡 Stub | 3.1 | Initialize only |
+| XEvIE | ❌ Not Implemented | - | Event Interception Extension (deprecated) |
+| XF86-DRI | ❌ Not Implemented | - | XFree86 Direct Rendering |
+| XF86-VidMode | ❌ Not Implemented | - | XFree86 Video Mode |
+| XFIXES | 🟡 Stub | 5.0 | QueryVersion only |
+| Xinerama | ❌ Not Implemented | - | Multi-monitor logical screen |
+| XInput | ❌ Not Implemented | - | Extended input devices (XI2) |
+| XKB | 🟡 Stub | 1.0 | UseExtension only |
+| XPrint | ❌ Not Implemented | - | X Print Service (deprecated) |
+| XSELinux | ❌ Not Implemented | - | SELinux security labeling |
+| XTest | ❌ Not Implemented | - | Input event synthesis |
+| Xv | ❌ Not Implemented | - | Video extension |
+| XvMC | ❌ Not Implemented | - | Video Motion Compensation |
+
+### Extension Implementation Priority
+
+**High Priority** (commonly required by modern applications):
+- [ ] RENDER - Full implementation (alpha blending, gradients, glyphs)
+- [ ] XFIXES - Cursor visibility, region operations
+- [ ] XInput - XI2 for modern input handling
+- [ ] RANDR - Screen configuration queries
+- [ ] SYNC - Synchronization fences
+
+**Medium Priority** (useful for specific use cases):
+- [ ] MIT-SHM - Shared memory for faster image transfers
+- [ ] COMPOSITE - Off-screen rendering for compositing WMs
+- [ ] DAMAGE - Efficient damage tracking
+- [ ] XTest - Input injection for testing/automation
+- [ ] Xinerama - Multi-monitor support
+
+**Low Priority** (specialized or deprecated):
+- [ ] GLX/DRI2/DRI3/Present - Hardware-accelerated rendering
+- [ ] Xv/XvMC - Video playback acceleration
+- [ ] DPMS - Power management
+- [ ] Screensaver - Screen saver control
+- [ ] XF86-VidMode - Legacy video mode switching
+- [ ] Record - Input recording
+- [ ] XSELinux - SELinux integration
+- [ ] XEvIE/XPrint - Deprecated extensions
 
 ---
 
