@@ -1176,6 +1176,24 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
 
     NSLog("copy_area: drew image at (\(dstX),\(dstY))")
 
+    // Debug: Check destination buffer after draw
+    if let dstImg = dstCtx.makeImage(), let dp = dstImg.dataProvider, let data = dp.data {
+        let ptr = CFDataGetBytePtr(data)
+        let length = CFDataGetLength(data)
+        var nonWhiteCount = 0
+        var i = 0
+        while i < length - 3 {
+            let r = ptr![i]
+            let g = ptr![i+1]
+            let b = ptr![i+2]
+            if r != 255 || g != 255 || b != 255 {
+                nonWhiteCount += 1
+            }
+            i += 4
+        }
+        NSLog("copy_area: destination after draw has \(nonWhiteCount) non-white pixels")
+    }
+
     // Release destination context
     if dstIsWindow != 0 {
         backend.releaseWindowContext(id: Int(dstDrawableId))
