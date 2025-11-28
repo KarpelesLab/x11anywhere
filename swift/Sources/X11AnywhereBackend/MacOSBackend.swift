@@ -1156,28 +1156,23 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
     }
 
     // Draw the cropped image to the destination
-    // The destination context has a Y-flip CTM, so when we draw the image:
-    // - The image would get flipped by the CTM
-    // - But the image content is already in the correct orientation (top at Y=0)
-    // - So we need to counteract the flip by flipping the image during draw
+    // Both source and destination have Y-flip CTMs, so the CGImage from the source
+    // has content in "bitmap coordinates" where Y=0 is at top.
+    // When we draw to the destination (also Y-flipped), we need to account for how
+    // CGContext.draw() interprets the rect vs how the CTM transforms it.
     //
-    // We do this by:
-    // 1. Save the graphics state
-    // 2. Translate to the destination position
-    // 3. Apply a local Y-flip around the image center
-    // 4. Draw the image
-    // 5. Restore state
-    dstCtx.saveGState()
-
-    // Move to destination and flip locally to counteract the context's CTM flip
-    dstCtx.translateBy(x: CGFloat(dstX), y: CGFloat(dstY) + CGFloat(height))
-    dstCtx.scaleBy(x: 1.0, y: -1.0)
-
-    // Draw the image at origin (the transforms above position it correctly)
-    let drawRect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+    // The CGImage has X11 content stored with Y inverted: X11 Y=0 content is at
+    // CGImage row (height-1), and X11 Y=(height-1) content is at CGImage row 0.
+    //
+    // When drawing to a Y-flipped context at rect (dstX, dstY, w, h):
+    // - CGImage row 0 goes to user Y=dstY, which maps to device Y=(ctxHeight-dstY)
+    // - Since CGImage row 0 has X11 Y=(height-1) content, and we want it at
+    //   X11 Y=dstY in the destination, we need to flip during drawing.
+    //
+    // Actually, both source and dest use the same Y-flip convention, so the
+    // image should be drawn directly without additional flipping.
+    let drawRect = CGRect(x: CGFloat(dstX), y: CGFloat(dstY), width: CGFloat(width), height: CGFloat(height))
     dstCtx.draw(croppedImage, in: drawRect)
-
-    dstCtx.restoreGState()
 
     NSLog("copy_area: drew image at (\(dstX),\(dstY))")
 
