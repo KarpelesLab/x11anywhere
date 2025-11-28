@@ -67,27 +67,16 @@ class X11BackingBuffer {
 
 class X11ContentView: NSView {
     var buffer: X11BackingBuffer?
-    private var imageView: NSImageView?
     private var trackingArea: NSTrackingArea?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        setupImageView()
         setupTrackingArea()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        setupImageView()
         setupTrackingArea()
-    }
-
-    private func setupImageView() {
-        let iv = NSImageView(frame: bounds)
-        iv.imageScaling = .scaleAxesIndependently
-        iv.autoresizingMask = [.width, .height]
-        addSubview(iv)
-        self.imageView = iv
     }
 
     private func setupTrackingArea() {
@@ -113,6 +102,39 @@ class X11ContentView: NSView {
     // Use flipped coordinates to match X11 (origin at top-left)
     override var isFlipped: Bool { return true }
 
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard let buffer = self.buffer, let ctx = buffer.context, let cgImage = ctx.makeImage() else {
+            NSLog("X11ContentView.draw: no CGImage available, buffer=\(self.buffer != nil)")
+            return
+        }
+
+        guard let currentContext = NSGraphicsContext.current?.cgContext else {
+            NSLog("X11ContentView.draw: no current graphics context")
+            return
+        }
+
+        // The backing buffer CGContext has a Y-flip transform applied, so the CGImage
+        // already has Y=0 at top (X11 convention). Since isFlipped=true, NSView also
+        // has Y=0 at top. However, CGContext.draw() interprets the image with Y=0 at bottom.
+        // We need to flip the context to draw correctly.
+
+        currentContext.saveGState()
+
+        // Reset to identity and apply proper transform for drawing
+        // The view's context already has a transform for the flipped coordinate system.
+        // We need to flip again to correctly interpret the CGImage.
+        let height = CGFloat(buffer.height)
+        currentContext.translateBy(x: 0, y: height)
+        currentContext.scaleBy(x: 1, y: -1)
+
+        let drawRect = CGRect(x: 0, y: 0, width: CGFloat(buffer.width), height: height)
+        currentContext.draw(cgImage, in: drawRect)
+
+        currentContext.restoreGState()
+    }
+
     func updateContents() {
         guard let buffer = self.buffer, let ctx = buffer.context, let cgImage = ctx.makeImage() else {
             NSLog("X11ContentView.updateContents: no CGImage available, buffer=\(self.buffer != nil)")
@@ -121,9 +143,8 @@ class X11ContentView: NSView {
 
         NSLog("X11ContentView.updateContents: setting image \(cgImage.width)x\(cgImage.height), bpc=\(cgImage.bitsPerComponent), bpp=\(cgImage.bitsPerPixel)")
 
-        // Create NSImage and set on image view
-        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: buffer.width, height: buffer.height))
-        imageView?.image = nsImage
+        // Mark view as needing redraw
+        self.setNeedsDisplay(self.bounds)
     }
 }
 
