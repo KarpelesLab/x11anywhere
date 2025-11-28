@@ -1156,23 +1156,37 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
     }
 
     // Draw the cropped image to the destination
-    // Both source and destination have Y-flip CTMs, so the CGImage from the source
-    // has content in "bitmap coordinates" where Y=0 is at top.
-    // When we draw to the destination (also Y-flipped), we need to account for how
-    // CGContext.draw() interprets the rect vs how the CTM transforms it.
+    // Both source and destination contexts have Y-flip CTMs applied.
+    // The CGImage from makeImage() contains raw bitmap data where Y=0 is at the top.
     //
-    // The CGImage has X11 content stored with Y inverted: X11 Y=0 content is at
-    // CGImage row (height-1), and X11 Y=(height-1) content is at CGImage row 0.
+    // Problem: CGContext.draw() applies the context's CTM to the image drawing,
+    // which causes the image to be vertically flipped when drawn to a Y-flipped context.
     //
-    // When drawing to a Y-flipped context at rect (dstX, dstY, w, h):
-    // - CGImage row 0 goes to user Y=dstY, which maps to device Y=(ctxHeight-dstY)
-    // - Since CGImage row 0 has X11 Y=(height-1) content, and we want it at
-    //   X11 Y=dstY in the destination, we need to flip during drawing.
-    //
-    // Actually, both source and dest use the same Y-flip convention, so the
-    // image should be drawn directly without additional flipping.
+    // Solution: Temporarily reset the CTM to identity for image drawing, then restore.
+    // We draw directly to device coordinates, which bypasses the Y-flip issue.
+
+    // Get destination context dimensions for coordinate calculation
+    let dstHeight: Int
+    if dstIsWindow != 0 {
+        dstHeight = backend.windowBuffers[Int(dstDrawableId)]?.height ?? 0
+    } else {
+        dstHeight = backend.pixmapSizes[Int(dstDrawableId)]?.1 ?? 0
+    }
+
+    dstCtx.saveGState()
+
+    // Reset to identity transform (device coordinates)
+    // The current CTM is: translate(0, height) then scale(1, -1)
+    // To undo: scale(1, -1) then translate(0, -height)
+    dstCtx.scaleBy(x: 1.0, y: -1.0)
+    dstCtx.translateBy(x: 0, y: CGFloat(-dstHeight))
+
+    // Now we're in device coordinates where Y=0 is at the TOP of the bitmap
+    // The CGImage also has Y=0 at top, so we can draw directly
     let drawRect = CGRect(x: CGFloat(dstX), y: CGFloat(dstY), width: CGFloat(width), height: CGFloat(height))
     dstCtx.draw(croppedImage, in: drawRect)
+
+    dstCtx.restoreGState()
 
     NSLog("copy_area: drew image at (\(dstX),\(dstY))")
 
