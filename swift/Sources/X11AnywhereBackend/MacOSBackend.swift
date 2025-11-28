@@ -1190,11 +1190,12 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
 
     NSLog("copy_area: drew image at (\(dstX),\(dstY))")
 
-    // Debug: Check destination buffer after draw
+    // Debug: Check destination buffer after draw - show first non-white pixel position
     if let dstImg = dstCtx.makeImage(), let dp = dstImg.dataProvider, let data = dp.data {
         let ptr = CFDataGetBytePtr(data)
         let length = CFDataGetLength(data)
         var nonWhiteCount = 0
+        var firstNonWhite: (Int, Int, UInt8, UInt8, UInt8)? = nil
         var i = 0
         while i < length - 3 {
             let r = ptr![i]
@@ -1202,10 +1203,20 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
             let b = ptr![i+2]
             if r != 255 || g != 255 || b != 255 {
                 nonWhiteCount += 1
+                if firstNonWhite == nil {
+                    let pixelIdx = i / 4
+                    let px = pixelIdx % dstImg.width
+                    let py = pixelIdx / dstImg.width
+                    firstNonWhite = (px, py, r, g, b)
+                }
             }
             i += 4
         }
-        NSLog("copy_area: destination after draw has \(nonWhiteCount) non-white pixels")
+        if let (px, py, r, g, b) = firstNonWhite {
+            NSLog("copy_area: destination dstId=\(dstDrawableId) after draw has \(nonWhiteCount) non-white pixels, first at (\(px),\(py)) RGB(\(r),\(g),\(b))")
+        } else {
+            NSLog("copy_area: destination dstId=\(dstDrawableId) after draw has 0 non-white pixels!")
+        }
     }
 
     // Release destination context
