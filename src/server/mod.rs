@@ -1587,7 +1587,14 @@ impl Server {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let backend_id = self.backend.create_pixmap(width, height, depth)?;
         self.pixmaps.insert(pixmap_id, backend_id);
-        self.pixmap_info.insert(pixmap_id, PixmapInfo { width, height, depth });
+        self.pixmap_info.insert(
+            pixmap_id,
+            PixmapInfo {
+                width,
+                height,
+                depth,
+            },
+        );
         log::debug!(
             "Created pixmap 0x{:x} -> backend {} ({}x{}, depth={})",
             pixmap_id,

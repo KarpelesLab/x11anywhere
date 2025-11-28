@@ -2210,14 +2210,20 @@ fn handle_get_geometry(
         // Return actual window geometry
         log::info!(
             "GetGeometry: drawable=0x{:x} -> found in window_info: {}x{} at ({},{})",
-            drawable_id, info.width, info.height, info.x, info.y
+            drawable_id,
+            info.width,
+            info.height,
+            info.x,
+            info.y
         );
         (info.x, info.y, info.width, info.height)
     } else if let Some(pixmap_info) = server.get_pixmap_info(drawable_id) {
         // Pixmap - return its dimensions (position is always 0,0)
         log::info!(
             "GetGeometry: drawable=0x{:x} -> found in pixmap_info: {}x{}",
-            drawable_id, pixmap_info.width, pixmap_info.height
+            drawable_id,
+            pixmap_info.width,
+            pixmap_info.height
         );
         (0i16, 0i16, pixmap_info.width, pixmap_info.height)
     } else if drawable_id == server.root_window().id().get() {
@@ -2225,7 +2231,9 @@ fn handle_get_geometry(
         let screen_info = server.get_screen_info();
         log::info!(
             "GetGeometry: drawable=0x{:x} -> root window: {}x{}",
-            drawable_id, screen_info.width, screen_info.height
+            drawable_id,
+            screen_info.width,
+            screen_info.height
         );
         (0i16, 0i16, screen_info.width, screen_info.height)
     } else {
