@@ -808,15 +808,42 @@ public func macos_backend_fill_polygon(_ handle: BackendHandle, isWindow: Int32,
         ctx.closePath()
         ctx.fillPath()
 
-        // Check if something was drawn by looking at a pixel
+        // Check if something was drawn - scan for any non-white pixels
         if let img = ctx.makeImage(), let dp = img.dataProvider, let data = dp.data {
             let ptr = CFDataGetBytePtr(data)
-            let pixelIndex = (Int(y0) * ctx.width + Int(x0)) * 4
-            if pixelIndex >= 0 && pixelIndex < CFDataGetLength(data) - 3 {
-                let pr = ptr![pixelIndex]
-                let pg = ptr![pixelIndex + 1]
-                let pb = ptr![pixelIndex + 2]
-                NSLog("fill_polygon: pixel at (\(Int(x0)),\(Int(y0))) after fill: RGB(\(pr),\(pg),\(pb))")
+            let length = CFDataGetLength(data)
+            var nonWhiteCount = 0
+            var firstNonWhite: (Int, Int, UInt8, UInt8, UInt8)? = nil
+            // Scan all pixels for non-white
+            var i = 0
+            while i < length - 3 {
+                let pr = ptr![i]
+                let pg = ptr![i + 1]
+                let pb = ptr![i + 2]
+                if pr != 255 || pg != 255 || pb != 255 {
+                    nonWhiteCount += 1
+                    if firstNonWhite == nil {
+                        let pixelIdx = i / 4
+                        let px = pixelIdx % ctx.width
+                        let py = pixelIdx / ctx.width
+                        firstNonWhite = (px, py, pr, pg, pb)
+                    }
+                }
+                i += 4
+            }
+            if let (px, py, pr, pg, pb) = firstNonWhite {
+                NSLog("fill_polygon: drawableId=\(drawableId) has \(nonWhiteCount) non-white pixels, first at (\(px),\(py)) RGB(\(pr),\(pg),\(pb))")
+            } else {
+                NSLog("fill_polygon: drawableId=\(drawableId) has 0 non-white pixels after fill!")
+            }
+
+            // Save debug PNG for the first few fill operations on this drawable
+            let debugPath = "/tmp/x11anywhere_pixmap_\(drawableId)_fill.png"
+            let url = URL(fileURLWithPath: debugPath)
+            if let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(destination, img, nil)
+                CGImageDestinationFinalize(destination)
+                NSLog("fill_polygon: saved debug image to \(debugPath)")
             }
         }
     }
@@ -1057,23 +1084,42 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
 
     NSLog("copy_area: fullImage size = \(fullImage.width)x\(fullImage.height), srcHeight=\(srcHeight)")
 
-    // Debug: Check for non-white pixels in the source image
+    // Debug: Check for non-white pixels in the source image - full scan
     if let dataProvider = fullImage.dataProvider, let data = dataProvider.data {
         let ptr = CFDataGetBytePtr(data)
         let length = CFDataGetLength(data)
         var nonWhiteCount = 0
-        // Sample some pixels (every 1000th byte group of 4 = RGBA)
+        var firstNonWhite: (Int, Int, UInt8, UInt8, UInt8)? = nil
+        // Full scan of all pixels
         var i = 0
-        while i < min(length, 80000) {
+        while i < length - 3 {
             let r = ptr![i]
             let g = ptr![i+1]
             let b = ptr![i+2]
             if r != 255 || g != 255 || b != 255 {
                 nonWhiteCount += 1
+                if firstNonWhite == nil {
+                    let pixelIdx = i / 4
+                    let px = pixelIdx % fullImage.width
+                    let py = pixelIdx / fullImage.width
+                    firstNonWhite = (px, py, r, g, b)
+                }
             }
-            i += 4000 // Sample every 1000th pixel (4 bytes each)
+            i += 4
         }
-        NSLog("copy_area: source image non-white pixel samples: \(nonWhiteCount) (sampled \(min(length, 80000)/4000) pixels)")
+        if let (px, py, r, g, b) = firstNonWhite {
+            NSLog("copy_area: srcDrawableId=\(srcDrawableId) has \(nonWhiteCount) non-white pixels, first at (\(px),\(py)) RGB(\(r),\(g),\(b))")
+        } else {
+            NSLog("copy_area: srcDrawableId=\(srcDrawableId) has 0 non-white pixels!")
+            // Save debug PNG to see what the pixmap looks like
+            let debugPath = "/tmp/x11anywhere_pixmap_\(srcDrawableId)_copy.png"
+            let url = URL(fileURLWithPath: debugPath)
+            if let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) {
+                CGImageDestinationAddImage(destination, fullImage, nil)
+                CGImageDestinationFinalize(destination)
+                NSLog("copy_area: saved debug image to \(debugPath)")
+            }
+        }
     }
 
     // Crop to the source rectangle
