@@ -274,6 +274,33 @@ class MacOSBackendImpl {
                 let rect = NSRect(x: CGFloat(x), y: CGFloat(flippedY),
                                 width: CGFloat(width), height: CGFloat(height))
                 window.setFrame(rect, display: true)
+
+                // Resize the backing buffer if size changed
+                if let oldBuffer = self.windowBuffers[id],
+                   (oldBuffer.width != width || oldBuffer.height != height) {
+                    NSLog("configureWindow: resizing buffer from \(oldBuffer.width)x\(oldBuffer.height) to \(width)x\(height)")
+
+                    // Create new buffer with new size
+                    let newBuffer = X11BackingBuffer(width: width, height: height)
+
+                    // Copy old content to new buffer if possible
+                    if let oldContext = oldBuffer.context, let newContext = newBuffer.context,
+                       let oldImage = oldContext.makeImage() {
+                        // Draw old content at origin (it will be clipped if new size is smaller)
+                        newContext.draw(oldImage, in: CGRect(x: 0, y: 0,
+                                                             width: oldBuffer.width,
+                                                             height: oldBuffer.height))
+                    }
+
+                    self.windowBuffers[id] = newBuffer
+
+                    // Update content view with new buffer
+                    if let contentView = self.windowContentViews[id] {
+                        contentView.buffer = newBuffer
+                        contentView.frame = NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+                        contentView.updateContents()
+                    }
+                }
             }
         }
     }

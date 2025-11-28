@@ -310,6 +310,19 @@ impl Backend for WindowsBackend {
             let style = WS_OVERLAPPEDWINDOW;
             let ex_style = WS_EX_APPWINDOW;
 
+            // Calculate the actual window size needed to achieve the desired client area size
+            // X11 window dimensions are for the client area, but Windows CreateWindowExW
+            // uses the total window size including title bar and borders
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: params.width as i32,
+                bottom: params.height as i32,
+            };
+            AdjustWindowRectEx(&mut rect, style, 0, ex_style);
+            let window_width = rect.right - rect.left;
+            let window_height = rect.bottom - rect.top;
+
             // Create the window
             let hwnd = CreateWindowExW(
                 ex_style,
@@ -318,8 +331,8 @@ impl Backend for WindowsBackend {
                 style,
                 params.x as i32,
                 params.y as i32,
-                params.width as i32,
-                params.height as i32,
+                window_width,
+                window_height,
                 0,
                 0,
                 self.hinstance,
@@ -399,18 +412,39 @@ impl Backend for WindowsBackend {
             let hwnd = self.get_hwnd(window)?;
 
             // Get current window rect if we need to preserve some values
-            let mut rect: RECT = mem::zeroed();
-            GetWindowRect(hwnd, &mut rect);
+            let mut window_rect: RECT = mem::zeroed();
+            GetWindowRect(hwnd, &mut window_rect);
 
-            let x = config.x.unwrap_or(rect.left as i16) as i32;
-            let y = config.y.unwrap_or(rect.top as i16) as i32;
-            let width = config.width.unwrap_or((rect.right - rect.left) as u16) as i32;
-            let height = config.height.unwrap_or((rect.bottom - rect.top) as u16) as i32;
+            // Get current client rect to calculate current client area size
+            let mut client_rect: RECT = mem::zeroed();
+            GetClientRect(hwnd, &mut client_rect);
+            let current_client_width = (client_rect.right - client_rect.left) as u16;
+            let current_client_height = (client_rect.bottom - client_rect.top) as u16;
+
+            let x = config.x.unwrap_or(window_rect.left as i16) as i32;
+            let y = config.y.unwrap_or(window_rect.top as i16) as i32;
+
+            // Calculate new window size accounting for frame
+            let new_client_width = config.width.unwrap_or(current_client_width);
+            let new_client_height = config.height.unwrap_or(current_client_height);
+
+            // Adjust for window frame to get total window size
+            let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+            let mut adjust_rect = RECT {
+                left: 0,
+                top: 0,
+                right: new_client_width as i32,
+                bottom: new_client_height as i32,
+            };
+            AdjustWindowRectEx(&mut adjust_rect, style, 0, ex_style);
+            let width = adjust_rect.right - adjust_rect.left;
+            let height = adjust_rect.bottom - adjust_rect.top;
 
             let flags = SWP_NOZORDER | SWP_NOACTIVATE;
             SetWindowPos(hwnd, 0, x, y, width, height, flags);
 
-            // Update stored dimensions
+            // Update stored dimensions (client area dimensions)
             if let Some(data) = self.windows.get_mut(&window.0) {
                 if let Some(w) = config.width {
                     data.width = w;
