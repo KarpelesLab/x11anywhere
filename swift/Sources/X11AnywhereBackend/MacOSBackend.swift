@@ -280,18 +280,10 @@ class MacOSBackendImpl {
                    (oldBuffer.width != width || oldBuffer.height != height) {
                     NSLog("configureWindow: resizing buffer from \(oldBuffer.width)x\(oldBuffer.height) to \(width)x\(height)")
 
-                    // Create new buffer with new size
+                    // Create new buffer with new size (starts with white background)
+                    // Don't copy old content - X11 semantics require client to redraw
+                    // after receiving ConfigureNotify/Expose events
                     let newBuffer = X11BackingBuffer(width: width, height: height)
-
-                    // Copy old content to new buffer if possible
-                    if let oldContext = oldBuffer.context, let newContext = newBuffer.context,
-                       let oldImage = oldContext.makeImage() {
-                        // Draw old content at origin (it will be clipped if new size is smaller)
-                        newContext.draw(oldImage, in: CGRect(x: 0, y: 0,
-                                                             width: oldBuffer.width,
-                                                             height: oldBuffer.height))
-                    }
-
                     self.windowBuffers[id] = newBuffer
 
                     // Update content view with new buffer

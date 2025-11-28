@@ -497,6 +497,9 @@ impl Backend for MacOSBackend {
                 let width = config.width.unwrap_or(data.width);
                 let height = config.height.unwrap_or(data.height);
 
+                // Check if size changed - we need to generate events
+                let size_changed = width != data.width || height != data.height;
+
                 macos_backend_configure_window(
                     self.handle,
                     data.swift_id,
@@ -510,6 +513,27 @@ impl Backend for MacOSBackend {
                 data.y = y;
                 data.width = width;
                 data.height = height;
+
+                // Generate Configure event to notify client of new geometry
+                self.event_queue.push(BackendEvent::Configure {
+                    window,
+                    x,
+                    y,
+                    width,
+                    height,
+                });
+
+                // Generate Expose event for the entire window to trigger redraw
+                // This is especially important when size changed and buffer was recreated
+                if size_changed {
+                    self.event_queue.push(BackendEvent::Expose {
+                        window,
+                        x: 0,
+                        y: 0,
+                        width,
+                        height,
+                    });
+                }
             }
             Ok(())
         }
