@@ -2205,16 +2205,19 @@ fn handle_get_geometry(
 
     let server = server.lock().unwrap();
 
-    // Get window dimensions if it's a window we know about
-    let (x, y, width, height) = if let Some(_backend_window) = server
-        .windows
-        .get(&crate::protocol::types::Window::new(drawable_id))
-    {
-        // Try to get actual dimensions from backend - for now return defaults
-        (0i16, 0i16, 800u16, 600u16)
+    // Get window dimensions from window_info
+    let window = crate::protocol::types::Window::new(drawable_id);
+    let (x, y, width, height) = if let Some(info) = server.get_window_info(window) {
+        // Return actual window geometry
+        (info.x, info.y, info.width, info.height)
+    } else if drawable_id == server.root_window().id().get() {
+        // Root window - return screen dimensions
+        let screen_info = server.get_screen_info();
+        (0i16, 0i16, screen_info.width, screen_info.height)
     } else {
-        // Could be root window or unknown - return defaults
-        (0i16, 0i16, 1920u16, 1080u16)
+        // Unknown drawable - this shouldn't happen but return sensible defaults
+        log::warn!("GetGeometry: unknown drawable 0x{:x}", drawable_id);
+        (0i16, 0i16, 1u16, 1u16)
     };
 
     let encoder =

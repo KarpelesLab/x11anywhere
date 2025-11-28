@@ -895,6 +895,22 @@ impl Server {
                 stack_mode: None,
             };
             self.backend.configure_window(backend_window, config)?;
+
+            // Update window_info with new geometry
+            if let Some(info) = self.window_info.get_mut(&window) {
+                if let Some(new_x) = x {
+                    info.x = new_x;
+                }
+                if let Some(new_y) = y {
+                    info.y = new_y;
+                }
+                if let Some(new_width) = width {
+                    info.width = new_width;
+                }
+                if let Some(new_height) = height {
+                    info.height = new_height;
+                }
+            }
         }
         Ok(())
     }
