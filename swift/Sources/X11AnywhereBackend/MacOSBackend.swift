@@ -1034,6 +1034,25 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
 
     NSLog("copy_area: fullImage size = \(fullImage.width)x\(fullImage.height), srcHeight=\(srcHeight)")
 
+    // Debug: Check for non-white pixels in the source image
+    if let dataProvider = fullImage.dataProvider, let data = dataProvider.data {
+        let ptr = CFDataGetBytePtr(data)
+        let length = CFDataGetLength(data)
+        var nonWhiteCount = 0
+        // Sample some pixels (every 1000th byte group of 4 = RGBA)
+        var i = 0
+        while i < min(length, 80000) {
+            let r = ptr![i]
+            let g = ptr![i+1]
+            let b = ptr![i+2]
+            if r != 255 || g != 255 || b != 255 {
+                nonWhiteCount += 1
+            }
+            i += 4000 // Sample every 1000th pixel (4 bytes each)
+        }
+        NSLog("copy_area: source image non-white pixel samples: \(nonWhiteCount) (sampled \(min(length, 80000)/4000) pixels)")
+    }
+
     // Crop to the source rectangle
     // CGImage.cropping uses pixel coordinates where Y=0 is at the TOP of the image
     // (matching how the content was stored after Y-flip drawing)
