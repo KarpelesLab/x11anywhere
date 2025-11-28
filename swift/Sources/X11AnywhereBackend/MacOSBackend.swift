@@ -1165,21 +1165,15 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
     // Solution: Temporarily reset the CTM to identity for image drawing, then restore.
     // We draw directly to device coordinates, which bypasses the Y-flip issue.
 
-    // Get destination context dimensions for coordinate calculation
-    let dstHeight: Int
-    if dstIsWindow != 0 {
-        dstHeight = backend.windowBuffers[Int(dstDrawableId)]?.height ?? 0
-    } else {
-        dstHeight = backend.pixmapSizes[Int(dstDrawableId)]?.1 ?? 0
-    }
-
     dstCtx.saveGState()
 
-    // Reset to identity transform (device coordinates)
-    // The current CTM is: translate(0, height) then scale(1, -1)
-    // To undo: scale(1, -1) then translate(0, -height)
-    dstCtx.scaleBy(x: 1.0, y: -1.0)
-    dstCtx.translateBy(x: 0, y: CGFloat(-dstHeight))
+    // Reset to identity transform by applying the inverse of the current CTM
+    // This allows us to draw directly in bitmap coordinates
+    let ctm = dstCtx.ctm
+    dstCtx.concatenate(ctm.inverted())
+
+    // Log the CTM for debugging
+    NSLog("copy_area: CTM before reset: a=\(ctm.a), b=\(ctm.b), c=\(ctm.c), d=\(ctm.d), tx=\(ctm.tx), ty=\(ctm.ty)")
 
     // Now we're in device coordinates where Y=0 is at the TOP of the bitmap
     // The CGImage also has Y=0 at top, so we can draw directly
