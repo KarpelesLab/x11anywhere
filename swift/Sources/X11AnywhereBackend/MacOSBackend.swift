@@ -765,6 +765,8 @@ public func macos_backend_fill_polygon(_ handle: BackendHandle, isWindow: Int32,
                                        r: Float, g: Float, b: Float) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
 
+    NSLog("fill_polygon: isWindow=\(isWindow), drawableId=\(drawableId), pointCount=\(pointCount), color=(\(r),\(g),\(b))")
+
     let context: CGContext?
     if isWindow != 0 {
         context = backend.getWindowContext(id: Int(drawableId))
@@ -772,7 +774,10 @@ public func macos_backend_fill_polygon(_ handle: BackendHandle, isWindow: Int32,
         context = backend.getPixmapContext(id: Int(drawableId))
     }
 
-    guard let ctx = context else { return BackendResult.error.rawValue }
+    guard let ctx = context else {
+        NSLog("fill_polygon: ERROR - context not found")
+        return BackendResult.error.rawValue
+    }
 
     ctx.setFillColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
 

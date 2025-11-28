@@ -268,7 +268,7 @@ jobs:
 
       - name: Start x11anywhere server
         run: |
-          RUST_LOG=info ./target/release/x11anywhere -display 50 -tcp > /tmp/x11anywhere_logs/server.log 2>&1 &
+          RUST_LOG=debug ./target/release/x11anywhere -display 50 -tcp > /tmp/x11anywhere_logs/server.log 2>&1 &
           echo "X11ANYWHERE_PID=$!" >> $GITHUB_ENV
           sleep 5
           echo "x11anywhere server started"
