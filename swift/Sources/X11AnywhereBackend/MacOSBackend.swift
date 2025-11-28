@@ -134,6 +134,7 @@ class MacOSBackendImpl {
     var windowContentViews: [Int: X11ContentView] = [:]
     var windowBuffers: [Int: X11BackingBuffer] = [:]
     var contexts: [Int: CGContext] = [:]
+    var pixmapSizes: [Int: (Int, Int)] = [:]  // Pixmap dimensions for coordinate conversion
     var cursors: [Int: NSCursor] = [:]
     var windowCursors: [Int: NSCursor] = [:]  // Per-window cursor
     var nextId: Int = 1
@@ -352,7 +353,7 @@ class MacOSBackendImpl {
         self.nextId += 1
 
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
 
         if let context = CGContext(data: nil,
                                    width: width,
@@ -361,7 +362,17 @@ class MacOSBackendImpl {
                                    bytesPerRow: width * 4,
                                    space: colorSpace,
                                    bitmapInfo: bitmapInfo) {
+            // Apply the same coordinate transformation as windows:
+            // Flip Y-axis so X11 coordinates (Y=0 at top) work correctly
+            context.translateBy(x: 0, y: CGFloat(height))
+            context.scaleBy(x: 1.0, y: -1.0)
+
+            // Fill with white background (same as windows)
+            context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
             self.contexts[id] = context
+            self.pixmapSizes[id] = (width, height)
             return id
         }
         return 0
@@ -373,6 +384,7 @@ class MacOSBackendImpl {
 
     func freePixmap(id: Int) {
         self.contexts.removeValue(forKey: id)
+        self.pixmapSizes.removeValue(forKey: id)
     }
 }
 
@@ -887,8 +899,15 @@ public func macos_backend_put_image(_ handle: BackendHandle, isWindow: Int32, dr
         }
 
         // Draw the image
-        let rect = CGRect(x: CGFloat(dst_x), y: CGFloat(dst_y), width: CGFloat(width), height: CGFloat(height))
-        ctx.draw(cgImage, in: rect)
+        // The context has a Y-flip CTM, but the incoming X11 image data has Y=0 at top.
+        // When drawn normally, the CTM would flip the image upside down.
+        // We counteract this by applying a local flip during drawing.
+        ctx.saveGState()
+        ctx.translateBy(x: CGFloat(dst_x), y: CGFloat(dst_y) + CGFloat(height))
+        ctx.scaleBy(x: 1.0, y: -1.0)
+        let drawRect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+        ctx.draw(cgImage, in: drawRect)
+        ctx.restoreGState()
         NSLog("put_image: drew image at \(dst_x),\(dst_y)")
     } else if format == 0 {
         // Bitmap format (1-bit) - often used for shape masks
@@ -957,6 +976,11 @@ public func macos_backend_get_image(_ handle: BackendHandle, isWindow: Int32, dr
     }
 
     // Draw the cropped image into the bitmap context (this copies the pixels to our buffer)
+    // The cropped image is from a Y-flipped context (Y=0 at top = X11 orientation)
+    // The bitmap context has default CGContext orientation (Y=0 at bottom)
+    // We need to flip during draw to preserve X11 orientation in the output buffer
+    bitmapContext.translateBy(x: 0, y: CGFloat(height))
+    bitmapContext.scaleBy(x: 1.0, y: -1.0)
     bitmapContext.draw(croppedImage, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
 
     if isWindow != 0 {
@@ -974,35 +998,51 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
                                     dstX: Int32, dstY: Int32) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
 
-    // Get source context
+    NSLog("copy_area: src(isWindow=\(srcIsWindow), id=\(srcDrawableId)) -> dst(isWindow=\(dstIsWindow), id=\(dstDrawableId)), srcRect=(\(srcX),\(srcY),\(width),\(height)), dstPos=(\(dstX),\(dstY))")
+
+    // Get source context and its dimensions
     let srcContext: CGContext?
+    var srcHeight: Int = 0
     if srcIsWindow != 0 {
         srcContext = backend.getWindowContext(id: Int(srcDrawableId))
+        srcHeight = backend.windowBuffers[Int(srcDrawableId)]?.height ?? 0
     } else {
         srcContext = backend.getPixmapContext(id: Int(srcDrawableId))
+        srcHeight = backend.pixmapSizes[Int(srcDrawableId)]?.1 ?? 0
     }
 
     guard let srcCtx = srcContext else {
+        NSLog("copy_area: ERROR - source context not found")
         return BackendResult.error.rawValue
     }
 
     // Create a CGImage from the source context
+    // The CGImage is in raw bitmap coordinates (Y=0 at top-left of the bitmap)
+    // Since we drew with Y-flip CTM, the bitmap stores content with Y=0 at what X11 considers the top
     guard let fullImage = srcCtx.makeImage() else {
+        NSLog("copy_area: ERROR - makeImage failed")
         if srcIsWindow != 0 {
             backend.releaseWindowContext(id: Int(srcDrawableId))
         }
         return BackendResult.error.rawValue
     }
 
+    NSLog("copy_area: fullImage size = \(fullImage.width)x\(fullImage.height), srcHeight=\(srcHeight)")
+
     // Crop to the source rectangle
+    // CGImage.cropping uses pixel coordinates where Y=0 is at the TOP of the image
+    // (matching how the content was stored after Y-flip drawing)
     let cropRect = CGRect(x: CGFloat(srcX), y: CGFloat(srcY),
                           width: CGFloat(width), height: CGFloat(height))
     guard let croppedImage = fullImage.cropping(to: cropRect) else {
+        NSLog("copy_area: ERROR - cropping failed for rect \(cropRect)")
         if srcIsWindow != 0 {
             backend.releaseWindowContext(id: Int(srcDrawableId))
         }
         return BackendResult.error.rawValue
     }
+
+    NSLog("copy_area: cropped to \(croppedImage.width)x\(croppedImage.height)")
 
     // Release source context
     if srcIsWindow != 0 {
@@ -1018,13 +1058,35 @@ public func macos_backend_copy_area(_ handle: BackendHandle,
     }
 
     guard let dstCtx = dstContext else {
+        NSLog("copy_area: ERROR - destination context not found")
         return BackendResult.error.rawValue
     }
 
     // Draw the cropped image to the destination
-    let dstRect = CGRect(x: CGFloat(dstX), y: CGFloat(dstY),
-                         width: CGFloat(width), height: CGFloat(height))
-    dstCtx.draw(croppedImage, in: dstRect)
+    // The destination context has a Y-flip CTM, so when we draw the image:
+    // - The image would get flipped by the CTM
+    // - But the image content is already in the correct orientation (top at Y=0)
+    // - So we need to counteract the flip by flipping the image during draw
+    //
+    // We do this by:
+    // 1. Save the graphics state
+    // 2. Translate to the destination position
+    // 3. Apply a local Y-flip around the image center
+    // 4. Draw the image
+    // 5. Restore state
+    dstCtx.saveGState()
+
+    // Move to destination and flip locally to counteract the context's CTM flip
+    dstCtx.translateBy(x: CGFloat(dstX), y: CGFloat(dstY) + CGFloat(height))
+    dstCtx.scaleBy(x: 1.0, y: -1.0)
+
+    // Draw the image at origin (the transforms above position it correctly)
+    let drawRect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+    dstCtx.draw(croppedImage, in: drawRect)
+
+    dstCtx.restoreGState()
+
+    NSLog("copy_area: drew image at (\(dstX),\(dstY))")
 
     // Release destination context
     if dstIsWindow != 0 {
