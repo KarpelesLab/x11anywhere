@@ -108,6 +108,17 @@ pub struct WindowInfo {
     pub parent: Window,
 }
 
+/// Pixmap metadata for geometry queries
+#[derive(Debug, Clone)]
+pub struct PixmapInfo {
+    /// Pixmap width in pixels
+    pub width: u16,
+    /// Pixmap height in pixels
+    pub height: u16,
+    /// Pixmap depth
+    pub depth: u8,
+}
+
 impl FontInfo {
     /// Create FontInfo with default metrics for a given font name
     pub fn new(name: &str) -> Self {
@@ -140,6 +151,9 @@ pub struct Server {
 
     /// Pixmap mapping: X11 Pixmap ID -> Backend pixmap ID
     pixmaps: HashMap<u32, usize>,
+
+    /// Pixmap dimensions: X11 Pixmap ID -> PixmapInfo
+    pixmap_info: HashMap<u32, PixmapInfo>,
 
     /// RENDER Picture mapping: Picture ID -> Picture info
     pictures: HashMap<u32, Picture>,
@@ -199,6 +213,7 @@ impl Server {
             window_info: HashMap::new(),
             gcs: HashMap::new(),
             pixmaps: HashMap::new(),
+            pixmap_info: HashMap::new(),
             pictures: HashMap::new(),
             solid_fills: HashMap::new(),
             root_window,
@@ -1572,6 +1587,7 @@ impl Server {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let backend_id = self.backend.create_pixmap(width, height, depth)?;
         self.pixmaps.insert(pixmap_id, backend_id);
+        self.pixmap_info.insert(pixmap_id, PixmapInfo { width, height, depth });
         log::debug!(
             "Created pixmap 0x{:x} -> backend {} ({}x{}, depth={})",
             pixmap_id,
@@ -1586,10 +1602,16 @@ impl Server {
     /// Free a pixmap from the backend and unregister its ID
     pub fn free_pixmap(&mut self, pixmap_id: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
         if let Some(backend_id) = self.pixmaps.remove(&pixmap_id) {
+            self.pixmap_info.remove(&pixmap_id);
             self.backend.free_pixmap(backend_id)?;
             log::debug!("Freed pixmap 0x{:x} (backend {})", pixmap_id, backend_id);
         }
         Ok(())
+    }
+
+    /// Get pixmap info (dimensions)
+    pub fn get_pixmap_info(&self, pixmap_id: u32) -> Option<&PixmapInfo> {
+        self.pixmap_info.get(&pixmap_id)
     }
 
     /// Resolve a drawable ID to a Drawable enum

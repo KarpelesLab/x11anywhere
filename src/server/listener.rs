@@ -2198,25 +2198,43 @@ fn handle_get_geometry(
     }
 
     let drawable_id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-    log::debug!("GetGeometry: drawable=0x{:x}", drawable_id);
 
     // Get the sequence number from header
     let sequence = u16::from_le_bytes([header[2], header[3]]);
 
     let server = server.lock().unwrap();
 
-    // Get window dimensions from window_info
+    // Get window dimensions from window_info, or pixmap dimensions from pixmap_info
     let window = crate::protocol::types::Window::new(drawable_id);
     let (x, y, width, height) = if let Some(info) = server.get_window_info(window) {
         // Return actual window geometry
+        log::info!(
+            "GetGeometry: drawable=0x{:x} -> found in window_info: {}x{} at ({},{})",
+            drawable_id, info.width, info.height, info.x, info.y
+        );
         (info.x, info.y, info.width, info.height)
+    } else if let Some(pixmap_info) = server.get_pixmap_info(drawable_id) {
+        // Pixmap - return its dimensions (position is always 0,0)
+        log::info!(
+            "GetGeometry: drawable=0x{:x} -> found in pixmap_info: {}x{}",
+            drawable_id, pixmap_info.width, pixmap_info.height
+        );
+        (0i16, 0i16, pixmap_info.width, pixmap_info.height)
     } else if drawable_id == server.root_window().id().get() {
         // Root window - return screen dimensions
         let screen_info = server.get_screen_info();
+        log::info!(
+            "GetGeometry: drawable=0x{:x} -> root window: {}x{}",
+            drawable_id, screen_info.width, screen_info.height
+        );
         (0i16, 0i16, screen_info.width, screen_info.height)
     } else {
-        // Unknown drawable - this shouldn't happen but return sensible defaults
-        log::warn!("GetGeometry: unknown drawable 0x{:x}", drawable_id);
+        // Unknown drawable - this shouldn't happen
+        log::warn!(
+            "GetGeometry: drawable=0x{:x} -> NOT FOUND in window_info or pixmap_info",
+            drawable_id
+        );
+        // Return 1x1 as a safe fallback - client should handle this
         (0i16, 0i16, 1u16, 1u16)
     };
 
