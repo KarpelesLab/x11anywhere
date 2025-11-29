@@ -256,7 +256,7 @@ This document tracks the implementation status of X11 protocol features across d
 | Resource (XRes) | ❌ Not Implemented | - | Resource usage tracking |
 | Screensaver | ❌ Not Implemented | - | Screen saver control |
 | SHAPE | 🟡 Stub | 1.1 | QueryVersion only |
-| SYNC | 🟡 Stub | 3.1 | Initialize only |
+| SYNC | 🟡 Partial | 3.1 | Initialize, Counters, Alarms, Fences, Priority |
 | XEvIE | ❌ Not Implemented | - | Event Interception Extension (deprecated) |
 | XF86-DRI | ❌ Not Implemented | - | XFree86 Direct Rendering |
 | XF86-VidMode | ❌ Not Implemented | - | XFree86 Video Mode |
@@ -277,7 +277,7 @@ This document tracks the implementation status of X11 protocol features across d
 - [x] XFIXES - Cursor visibility, region operations (partial - stubs for all 32 opcodes)
 - [ ] XInput - XI2 for modern input handling
 - [x] RANDR - Screen configuration queries (partial - resources, outputs, CRTCs, gamma, providers)
-- [ ] SYNC - Synchronization fences
+- [x] SYNC - Synchronization fences (partial - counters, alarms, fences, priority)
 
 **Medium Priority** (useful for specific use cases):
 - [ ] MIT-SHM - Shared memory for faster image transfers

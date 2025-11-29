@@ -112,7 +112,7 @@ fn handle_sync_request(
     stream: &mut TcpStream,
     minor_opcode: u8,
     sequence: u16,
-    _data: &[u8],
+    data: &[u8],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match minor_opcode {
         0 => {
@@ -120,6 +120,183 @@ fn handle_sync_request(
             log::debug!("SYNC: Initialize");
             let reply = encode_sync_initialize_reply(sequence);
             stream.write_all(&reply)?;
+        }
+        1 => {
+            // ListSystemCounters
+            log::debug!("SYNC: ListSystemCounters");
+            let reply = encode_sync_list_system_counters_reply(sequence);
+            stream.write_all(&reply)?;
+        }
+        2 => {
+            // CreateCounter
+            if data.len() >= 12 {
+                let counter = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let initial_hi = i32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let initial_lo = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "SYNC: CreateCounter counter=0x{:x} initial={}:{}",
+                    counter,
+                    initial_hi,
+                    initial_lo
+                );
+            }
+            // No reply
+        }
+        3 => {
+            // SetCounter
+            if data.len() >= 12 {
+                let counter = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let value_hi = i32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let value_lo = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "SYNC: SetCounter counter=0x{:x} value={}:{}",
+                    counter,
+                    value_hi,
+                    value_lo
+                );
+            }
+            // No reply
+        }
+        4 => {
+            // ChangeCounter
+            if data.len() >= 12 {
+                let counter = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let amount_hi = i32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let amount_lo = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "SYNC: ChangeCounter counter=0x{:x} amount={}:{}",
+                    counter,
+                    amount_hi,
+                    amount_lo
+                );
+            }
+            // No reply
+        }
+        5 => {
+            // QueryCounter
+            if data.len() >= 4 {
+                let counter = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: QueryCounter counter=0x{:x}", counter);
+                let reply = encode_sync_query_counter_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        6 => {
+            // DestroyCounter
+            if data.len() >= 4 {
+                let counter = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: DestroyCounter counter=0x{:x}", counter);
+            }
+            // No reply
+        }
+        7 => {
+            // Await (wait on triggers)
+            log::debug!("SYNC: Await (parsed, no wait)");
+            // No reply - would block until conditions met, we just return immediately
+        }
+        8 => {
+            // CreateAlarm
+            if data.len() >= 4 {
+                let alarm = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: CreateAlarm alarm=0x{:x}", alarm);
+            }
+            // No reply
+        }
+        9 => {
+            // ChangeAlarm
+            if data.len() >= 4 {
+                let alarm = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: ChangeAlarm alarm=0x{:x}", alarm);
+            }
+            // No reply
+        }
+        10 => {
+            // QueryAlarm
+            if data.len() >= 4 {
+                let alarm = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: QueryAlarm alarm=0x{:x}", alarm);
+                let reply = encode_sync_query_alarm_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        11 => {
+            // DestroyAlarm
+            if data.len() >= 4 {
+                let alarm = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: DestroyAlarm alarm=0x{:x}", alarm);
+            }
+            // No reply
+        }
+        12 => {
+            // SetPriority
+            if data.len() >= 8 {
+                let id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let priority = i32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!("SYNC: SetPriority id=0x{:x} priority={}", id, priority);
+            }
+            // No reply
+        }
+        13 => {
+            // GetPriority
+            if data.len() >= 4 {
+                let id = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: GetPriority id=0x{:x}", id);
+                let reply = encode_sync_get_priority_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        14 => {
+            // CreateFence
+            if data.len() >= 9 {
+                let drawable = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let fence = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let initially_triggered = data[8] != 0;
+                log::debug!(
+                    "SYNC: CreateFence drawable=0x{:x} fence=0x{:x} triggered={}",
+                    drawable,
+                    fence,
+                    initially_triggered
+                );
+            }
+            // No reply
+        }
+        15 => {
+            // TriggerFence
+            if data.len() >= 4 {
+                let fence = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: TriggerFence fence=0x{:x}", fence);
+            }
+            // No reply
+        }
+        16 => {
+            // ResetFence
+            if data.len() >= 4 {
+                let fence = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: ResetFence fence=0x{:x}", fence);
+            }
+            // No reply
+        }
+        17 => {
+            // DestroyFence
+            if data.len() >= 4 {
+                let fence = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: DestroyFence fence=0x{:x}", fence);
+            }
+            // No reply
+        }
+        18 => {
+            // QueryFence
+            if data.len() >= 4 {
+                let fence = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("SYNC: QueryFence fence=0x{:x}", fence);
+                let reply = encode_sync_query_fence_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        19 => {
+            // AwaitFence
+            log::debug!("SYNC: AwaitFence (parsed, no wait)");
+            // No reply - would block until fences triggered, we just return immediately
         }
         _ => {
             log::debug!("SYNC: Unhandled minor opcode {}", minor_opcode);
@@ -1280,6 +1457,92 @@ fn encode_sync_initialize_reply(sequence: u16) -> Vec<u8> {
     buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
     buffer[8] = 3; // major version
     buffer[9] = 1; // minor version
+    buffer
+}
+
+/// Encode SYNC ListSystemCounters reply
+/// Returns a single system counter "SERVERTIME" for basic compatibility
+fn encode_sync_list_system_counters_reply(sequence: u16) -> Vec<u8> {
+    // System counter info: COUNTER (4) + resolution_hi (4) + resolution_lo (4) + name_len (2) + pad + name
+    let counter_name = b"SERVERTIME";
+    let name_len = counter_name.len() as u16;
+    let name_padded = (name_len as usize).div_ceil(4) * 4;
+
+    // One system counter: 4 + 4 + 4 + 2 + 2 + name_padded = 16 + name_padded
+    let counter_size = 16 + name_padded;
+    let reply_length = counter_size / 4;
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..12].copy_from_slice(&write_u32_le(1)); // num_counters
+
+    // System counter entry
+    buffer.extend(write_u32_le(0x100)); // COUNTER ID
+    buffer.extend(write_u32_le(0)); // resolution_hi
+    buffer.extend(write_u32_le(1000)); // resolution_lo (1ms)
+    buffer.extend(write_u16_le(name_len));
+    buffer.extend([0u8; 2]); // pad
+    buffer.extend_from_slice(counter_name);
+    while !buffer.len().is_multiple_of(4) {
+        buffer.push(0);
+    }
+
+    buffer
+}
+
+/// Encode SYNC QueryCounter reply
+/// Returns a zero counter value
+fn encode_sync_query_counter_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
+    buffer[8..12].copy_from_slice(&write_u32_le(0)); // counter_value_hi
+    buffer[12..16].copy_from_slice(&write_u32_le(0)); // counter_value_lo
+    buffer
+}
+
+/// Encode SYNC QueryAlarm reply
+/// Returns default alarm state
+fn encode_sync_query_alarm_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32 + 8]; // Base + extra
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(2)); // length (8 extra bytes)
+    // trigger counter, value_type, value, test_type
+    buffer[8..12].copy_from_slice(&write_u32_le(0)); // counter (None)
+    buffer[12..16].copy_from_slice(&write_u32_le(0)); // value_type (Absolute)
+    buffer[16..20].copy_from_slice(&write_u32_le(0)); // value_hi
+    buffer[20..24].copy_from_slice(&write_u32_le(0)); // value_lo
+    buffer[24..28].copy_from_slice(&write_u32_le(0)); // test_type (PositiveTransition)
+    buffer[28..32].copy_from_slice(&write_u32_le(0)); // delta_hi
+    // delta_lo, events, state in extra data
+    buffer[32..36].copy_from_slice(&write_u32_le(0)); // delta_lo
+    buffer[36] = 1; // events (true)
+    buffer[37] = 1; // state (Active)
+    buffer[38..40].copy_from_slice(&write_u16_le(0)); // pad
+    buffer
+}
+
+/// Encode SYNC GetPriority reply
+fn encode_sync_get_priority_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
+    buffer[8..12].copy_from_slice(&write_u32_le(0)); // priority (0 = normal)
+    buffer
+}
+
+/// Encode SYNC QueryFence reply
+fn encode_sync_query_fence_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
+    buffer[8] = 1; // triggered (true - fence is always triggered)
     buffer
 }
 
