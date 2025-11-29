@@ -836,7 +836,7 @@ fn handle_randr_request(
     stream: &mut TcpStream,
     minor_opcode: u8,
     sequence: u16,
-    _data: &[u8],
+    data: &[u8],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match minor_opcode {
         0 => {
@@ -844,6 +844,188 @@ fn handle_randr_request(
             log::debug!("RANDR: QueryVersion");
             let reply = encode_randr_query_version_reply(sequence);
             stream.write_all(&reply)?;
+        }
+        2 => {
+            // RRSelectInput
+            if data.len() >= 6 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let enable = u16::from_le_bytes([data[4], data[5]]);
+                log::debug!(
+                    "RANDR: SelectInput window=0x{:x} enable=0x{:x}",
+                    window,
+                    enable
+                );
+            }
+            // No reply
+        }
+        4 => {
+            // RRGetScreenSizeRange
+            if data.len() >= 4 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("RANDR: GetScreenSizeRange window=0x{:x}", window);
+                let reply = encode_randr_get_screen_size_range_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        5 => {
+            // RRSetScreenSize
+            if data.len() >= 12 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let width = u16::from_le_bytes([data[4], data[5]]);
+                let height = u16::from_le_bytes([data[6], data[7]]);
+                let mm_width = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "RANDR: SetScreenSize window=0x{:x} {}x{} ({}mm)",
+                    window,
+                    width,
+                    height,
+                    mm_width
+                );
+            }
+            // No reply
+        }
+        6 => {
+            // RRGetScreenResources
+            if data.len() >= 4 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("RANDR: GetScreenResources window=0x{:x}", window);
+                let reply = encode_randr_get_screen_resources_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        7 => {
+            // RRGetOutputInfo
+            if data.len() >= 8 {
+                let output = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let config_timestamp = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!(
+                    "RANDR: GetOutputInfo output=0x{:x} config_timestamp={}",
+                    output,
+                    config_timestamp
+                );
+                let reply = encode_randr_get_output_info_reply(sequence, output);
+                stream.write_all(&reply)?;
+            }
+        }
+        8 => {
+            // RRListOutputProperties
+            if data.len() >= 4 {
+                let output = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("RANDR: ListOutputProperties output=0x{:x}", output);
+                let reply = encode_randr_list_output_properties_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        9 => {
+            // RRQueryOutputProperty
+            if data.len() >= 8 {
+                let output = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let property = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!(
+                    "RANDR: QueryOutputProperty output=0x{:x} property={}",
+                    output,
+                    property
+                );
+                let reply = encode_randr_query_output_property_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        13 => {
+            // RRGetOutputProperty
+            if data.len() >= 24 {
+                let output = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let property = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!(
+                    "RANDR: GetOutputProperty output=0x{:x} property={}",
+                    output,
+                    property
+                );
+                // Return empty property (type=None)
+                let reply = encode_randr_get_output_property_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        18 => {
+            // RRGetCrtcInfo
+            if data.len() >= 8 {
+                let crtc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let config_timestamp = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!(
+                    "RANDR: GetCrtcInfo crtc=0x{:x} config_timestamp={}",
+                    crtc,
+                    config_timestamp
+                );
+                let reply = encode_randr_get_crtc_info_reply(sequence, crtc);
+                stream.write_all(&reply)?;
+            }
+        }
+        20 => {
+            // RRGetCrtcGammaSize
+            if data.len() >= 4 {
+                let crtc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("RANDR: GetCrtcGammaSize crtc=0x{:x}", crtc);
+                let reply = encode_randr_get_crtc_gamma_size_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        21 => {
+            // RRGetCrtcGamma
+            if data.len() >= 4 {
+                let crtc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("RANDR: GetCrtcGamma crtc=0x{:x}", crtc);
+                let reply = encode_randr_get_crtc_gamma_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        22 => {
+            // RRSetCrtcGamma
+            if data.len() >= 6 {
+                let crtc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let size = u16::from_le_bytes([data[4], data[5]]);
+                log::debug!("RANDR: SetCrtcGamma crtc=0x{:x} size={}", crtc, size);
+            }
+            // No reply
+        }
+        23 => {
+            // RRGetScreenResourcesCurrent (same as GetScreenResources but faster)
+            if data.len() >= 4 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("RANDR: GetScreenResourcesCurrent window=0x{:x}", window);
+                let reply = encode_randr_get_screen_resources_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        29 => {
+            // RRGetOutputPrimary
+            if data.len() >= 4 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("RANDR: GetOutputPrimary window=0x{:x}", window);
+                let reply = encode_randr_get_output_primary_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        30 => {
+            // RRGetProviders
+            if data.len() >= 4 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("RANDR: GetProviders window=0x{:x}", window);
+                let reply = encode_randr_get_providers_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        31 => {
+            // RRGetProviderInfo
+            if data.len() >= 8 {
+                let provider = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let config_timestamp = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!(
+                    "RANDR: GetProviderInfo provider=0x{:x} config_timestamp={}",
+                    provider,
+                    config_timestamp
+                );
+                let reply = encode_randr_get_provider_info_reply(sequence);
+                stream.write_all(&reply)?;
+            }
         }
         _ => {
             log::debug!("RANDR: Unhandled minor opcode {}", minor_opcode);
@@ -1128,6 +1310,406 @@ fn encode_randr_query_version_reply(sequence: u16) -> Vec<u8> {
     buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
     buffer[8..12].copy_from_slice(&write_u32_le(1)); // major version
     buffer[12..16].copy_from_slice(&write_u32_le(5)); // minor version
+    buffer
+}
+
+fn encode_randr_get_screen_size_range_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
+    buffer[8..10].copy_from_slice(&write_u16_le(320)); // min_width
+    buffer[10..12].copy_from_slice(&write_u16_le(200)); // min_height
+    buffer[12..14].copy_from_slice(&write_u16_le(8192)); // max_width
+    buffer[14..16].copy_from_slice(&write_u16_le(8192)); // max_height
+    buffer
+}
+
+/// Encode RANDR GetScreenResources reply
+/// Returns a single CRTC, single output, and a common mode (1920x1080@60)
+fn encode_randr_get_screen_resources_reply(sequence: u16) -> Vec<u8> {
+    let timestamp: u32 = 1;
+    let config_timestamp: u32 = 1;
+
+    // We'll report 1 CRTC, 1 output, 1 mode
+    let crtc_id: u32 = 0x50; // CRTC ID
+    let output_id: u32 = 0x60; // Output ID
+
+    // Mode info: 1920x1080@60Hz
+    let mode_id: u32 = 0x70;
+    let mode_width: u16 = 1920;
+    let mode_height: u16 = 1080;
+    let mode_dot_clock: u32 = 148500000; // 148.5 MHz
+    let mode_hsync_start: u16 = 2008;
+    let mode_hsync_end: u16 = 2052;
+    let mode_htotal: u16 = 2200;
+    let mode_hskew: u16 = 0;
+    let mode_vsync_start: u16 = 1084;
+    let mode_vsync_end: u16 = 1089;
+    let mode_vtotal: u16 = 1125;
+    let mode_name_len: u16 = 12; // "1920x1080_60"
+    let mode_flags: u32 = 0; // No special flags
+
+    // Mode name: "1920x1080_60" (12 bytes, pad to 12)
+    let mode_name = b"1920x1080_60";
+
+    // Calculate sizes
+    let num_crtcs: u16 = 1;
+    let num_outputs: u16 = 1;
+    let num_modes: u16 = 1;
+    let names_len: u16 = 12; // mode name length
+
+    // ModeInfo is 32 bytes
+    // Extra data: CRTCs (4 bytes each) + Outputs (4 bytes each) + ModeInfos (32 bytes each) + names
+    let crtcs_bytes = 4 * num_crtcs as usize;
+    let outputs_bytes = 4 * num_outputs as usize;
+    let modes_bytes = 32 * num_modes as usize;
+    let names_bytes = ((names_len as usize + 3) / 4) * 4; // pad to 4
+    let extra_len = crtcs_bytes + outputs_bytes + modes_bytes + names_bytes;
+    let reply_length = extra_len / 4;
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..12].copy_from_slice(&write_u32_le(timestamp));
+    buffer[12..16].copy_from_slice(&write_u32_le(config_timestamp));
+    buffer[16..18].copy_from_slice(&write_u16_le(num_crtcs));
+    buffer[18..20].copy_from_slice(&write_u16_le(num_outputs));
+    buffer[20..22].copy_from_slice(&write_u16_le(num_modes));
+    buffer[22..24].copy_from_slice(&write_u16_le(names_len));
+    // buffer[24..32] unused
+
+    // Append CRTCs
+    buffer.extend(write_u32_le(crtc_id));
+
+    // Append Outputs
+    buffer.extend(write_u32_le(output_id));
+
+    // Append ModeInfo (32 bytes)
+    buffer.extend(write_u32_le(mode_id));
+    buffer.extend(write_u16_le(mode_width));
+    buffer.extend(write_u16_le(mode_height));
+    buffer.extend(write_u32_le(mode_dot_clock));
+    buffer.extend(write_u16_le(mode_hsync_start));
+    buffer.extend(write_u16_le(mode_hsync_end));
+    buffer.extend(write_u16_le(mode_htotal));
+    buffer.extend(write_u16_le(mode_hskew));
+    buffer.extend(write_u16_le(mode_vsync_start));
+    buffer.extend(write_u16_le(mode_vsync_end));
+    buffer.extend(write_u16_le(mode_vtotal));
+    buffer.extend(write_u16_le(mode_name_len));
+    buffer.extend(write_u32_le(mode_flags));
+
+    // Append mode names (padded)
+    buffer.extend_from_slice(mode_name);
+
+    buffer
+}
+
+/// Encode RANDR GetOutputInfo reply
+fn encode_randr_get_output_info_reply(sequence: u16, _output: u32) -> Vec<u8> {
+    let timestamp: u32 = 1;
+    let crtc_id: u32 = 0x50; // Current CRTC
+    let mm_width: u32 = 527; // ~21 inch at 1920px
+    let mm_height: u32 = 296;
+    let connection: u8 = 0; // Connected
+    let subpixel_order: u8 = 0; // Unknown
+    let num_crtcs: u16 = 1;
+    let num_modes: u16 = 1;
+    let num_preferred: u16 = 1;
+    let num_clones: u16 = 0;
+    let name = b"default";
+    let name_len: u16 = name.len() as u16;
+
+    // Extra data: CRTCs + Modes + Clones + Name
+    let crtcs_bytes = 4 * num_crtcs as usize;
+    let modes_bytes = 4 * num_modes as usize;
+    let clones_bytes = 4 * num_clones as usize;
+    let name_bytes = ((name_len as usize + 3) / 4) * 4;
+    let extra_len = crtcs_bytes + modes_bytes + clones_bytes + name_bytes;
+    let reply_length = extra_len / 4;
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[1] = 0; // status: Success
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..12].copy_from_slice(&write_u32_le(timestamp));
+    buffer[12..16].copy_from_slice(&write_u32_le(crtc_id));
+    buffer[16..20].copy_from_slice(&write_u32_le(mm_width));
+    buffer[20..24].copy_from_slice(&write_u32_le(mm_height));
+    buffer[24] = connection;
+    buffer[25] = subpixel_order;
+    buffer[26..28].copy_from_slice(&write_u16_le(num_crtcs));
+    buffer[28..30].copy_from_slice(&write_u16_le(num_modes));
+    buffer[30..32].copy_from_slice(&write_u16_le(num_preferred));
+
+    // num_clones at offset 32 in extended data (but we put it in reply header area)
+    // Actually the layout is different - let me fix this
+    // The 32-byte header has: ... num_preferred (2) | num_clones (2) | name_len (2) | pad (2)
+    // We need to restructure
+
+    let mut buffer = vec![0u8; 36]; // 32 + 4 for num_clones and name_len
+    buffer[0] = 1; // Reply
+    buffer[1] = 0; // status: Success
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..12].copy_from_slice(&write_u32_le(timestamp));
+    buffer[12..16].copy_from_slice(&write_u32_le(crtc_id));
+    buffer[16..20].copy_from_slice(&write_u32_le(mm_width));
+    buffer[20..24].copy_from_slice(&write_u32_le(mm_height));
+    buffer[24] = connection;
+    buffer[25] = subpixel_order;
+    buffer[26..28].copy_from_slice(&write_u16_le(num_crtcs));
+    buffer[28..30].copy_from_slice(&write_u16_le(num_modes));
+    buffer[30..32].copy_from_slice(&write_u16_le(num_preferred));
+    // Truncate back to 32 bytes - the rest goes in extra data
+    buffer.truncate(32);
+
+    // Build extra data correctly: CRTCs, Modes, Clones, then Name
+    // But first we need num_clones and name_len in the header
+    // Looking at the spec more carefully...
+    // Actually after the 32-byte base, the format is:
+    // CRTCs[num_crtcs], Modes[num_modes], Clones[num_clones], Name[name_len]
+
+    // Recalculate with correct header layout
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[1] = 0; // status
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..12].copy_from_slice(&write_u32_le(timestamp));
+    buffer[12..16].copy_from_slice(&write_u32_le(crtc_id));
+    buffer[16..20].copy_from_slice(&write_u32_le(mm_width));
+    buffer[20..24].copy_from_slice(&write_u32_le(mm_height));
+    buffer[24] = connection;
+    buffer[25] = subpixel_order;
+    buffer[26..28].copy_from_slice(&write_u16_le(num_crtcs));
+    buffer[28..30].copy_from_slice(&write_u16_le(num_modes));
+    buffer[30..32].copy_from_slice(&write_u16_le(num_preferred));
+
+    // We need to add num_clones and name_len - they're actually part of extra data region
+    // No wait, looking at xrandr.h more carefully:
+    // The reply struct has these after num_preferred: num_clones, nameLen, then pad
+    // But that's only 36 bytes, and X11 replies are 32 bytes base
+    // So num_clones and nameLen must be at bytes 32-35 (first word of extra data)
+
+    // Let's append extra data: first word is num_clones (2) + name_len (2)
+    buffer.extend(write_u16_le(num_clones));
+    buffer.extend(write_u16_le(name_len));
+
+    // CRTCs
+    buffer.extend(write_u32_le(0x50)); // CRTC ID
+
+    // Modes
+    buffer.extend(write_u32_le(0x70)); // Mode ID
+
+    // Clones (none)
+
+    // Name (padded)
+    buffer.extend_from_slice(name);
+    // Pad to 4-byte boundary
+    while buffer.len() % 4 != 0 {
+        buffer.push(0);
+    }
+
+    buffer
+}
+
+/// Encode RANDR ListOutputProperties reply (empty list)
+fn encode_randr_list_output_properties_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
+    buffer[8..10].copy_from_slice(&write_u16_le(0)); // num_atoms
+    buffer
+}
+
+/// Encode RANDR QueryOutputProperty reply
+fn encode_randr_query_output_property_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
+    buffer[8] = 0; // pending
+    buffer[9] = 0; // range
+    buffer[10] = 0; // immutable
+                    // buffer[11..32] unused
+    buffer
+}
+
+/// Encode RANDR GetOutputProperty reply (empty/not found)
+fn encode_randr_get_output_property_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[1] = 0; // format
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
+    buffer[8..12].copy_from_slice(&write_u32_le(0)); // type (None)
+    buffer[12..16].copy_from_slice(&write_u32_le(0)); // bytes_after
+    buffer[16..20].copy_from_slice(&write_u32_le(0)); // num_items
+    buffer
+}
+
+/// Encode RANDR GetCrtcInfo reply
+fn encode_randr_get_crtc_info_reply(sequence: u16, _crtc: u32) -> Vec<u8> {
+    let timestamp: u32 = 1;
+    let x: i16 = 0;
+    let y: i16 = 0;
+    let width: u16 = 1920;
+    let height: u16 = 1080;
+    let mode_id: u32 = 0x70;
+    let rotation: u16 = 1; // RR_Rotate_0
+    let rotations: u16 = 1; // Only RR_Rotate_0 supported
+    let num_outputs: u16 = 1;
+    let num_possible_outputs: u16 = 1;
+
+    let extra_len = 4 * (num_outputs as usize + num_possible_outputs as usize);
+    let reply_length = extra_len / 4;
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[1] = 0; // status: Success
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..12].copy_from_slice(&write_u32_le(timestamp));
+    buffer[12..14].copy_from_slice(&(x as u16).to_le_bytes());
+    buffer[14..16].copy_from_slice(&(y as u16).to_le_bytes());
+    buffer[16..18].copy_from_slice(&write_u16_le(width));
+    buffer[18..20].copy_from_slice(&write_u16_le(height));
+    buffer[20..24].copy_from_slice(&write_u32_le(mode_id));
+    buffer[24..26].copy_from_slice(&write_u16_le(rotation));
+    buffer[26..28].copy_from_slice(&write_u16_le(rotations));
+    buffer[28..30].copy_from_slice(&write_u16_le(num_outputs));
+    buffer[30..32].copy_from_slice(&write_u16_le(num_possible_outputs));
+
+    // Outputs
+    buffer.extend(write_u32_le(0x60)); // Output ID
+
+    // Possible outputs
+    buffer.extend(write_u32_le(0x60)); // Output ID
+
+    buffer
+}
+
+/// Encode RANDR GetCrtcGammaSize reply
+fn encode_randr_get_crtc_gamma_size_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
+    buffer[8..10].copy_from_slice(&write_u16_le(256)); // size (256 entries)
+    buffer
+}
+
+/// Encode RANDR GetCrtcGamma reply (linear gamma)
+fn encode_randr_get_crtc_gamma_reply(sequence: u16) -> Vec<u8> {
+    let size: u16 = 256;
+    // Each channel is 256 u16 values = 512 bytes
+    // Total extra: 3 * 512 = 1536 bytes = 384 words
+    let extra_len = 3 * 256 * 2;
+    let reply_length = extra_len / 4;
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..10].copy_from_slice(&write_u16_le(size));
+
+    // Generate linear gamma ramp (identity)
+    for i in 0..256u16 {
+        let val = (i << 8) | i; // Scale 0-255 to 0-65535
+        buffer.extend(write_u16_le(val)); // Red
+    }
+    for i in 0..256u16 {
+        let val = (i << 8) | i;
+        buffer.extend(write_u16_le(val)); // Green
+    }
+    for i in 0..256u16 {
+        let val = (i << 8) | i;
+        buffer.extend(write_u16_le(val)); // Blue
+    }
+
+    buffer
+}
+
+/// Encode RANDR GetOutputPrimary reply
+fn encode_randr_get_output_primary_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
+    buffer[8..12].copy_from_slice(&write_u32_le(0x60)); // primary output
+    buffer
+}
+
+/// Encode RANDR GetProviders reply
+fn encode_randr_get_providers_reply(sequence: u16) -> Vec<u8> {
+    let timestamp: u32 = 1;
+    let num_providers: u16 = 1;
+    let provider_id: u32 = 0x80;
+
+    let extra_len = 4 * num_providers as usize;
+    let reply_length = extra_len / 4;
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..12].copy_from_slice(&write_u32_le(timestamp));
+    buffer[12..14].copy_from_slice(&write_u16_le(num_providers));
+
+    // Provider IDs
+    buffer.extend(write_u32_le(provider_id));
+
+    buffer
+}
+
+/// Encode RANDR GetProviderInfo reply
+fn encode_randr_get_provider_info_reply(sequence: u16) -> Vec<u8> {
+    let timestamp: u32 = 1;
+    let capabilities: u32 = 0x0F; // Source Output, Sink Output, Source Offload, Sink Offload
+    let num_crtcs: u16 = 1;
+    let num_outputs: u16 = 1;
+    let num_associated_providers: u16 = 0;
+    let name = b"X11Anywhere";
+    let name_len: u16 = name.len() as u16;
+
+    let crtcs_bytes = 4 * num_crtcs as usize;
+    let outputs_bytes = 4 * num_outputs as usize;
+    let providers_bytes = 4 * num_associated_providers as usize;
+    let name_bytes = ((name_len as usize + 3) / 4) * 4;
+    let extra_len = crtcs_bytes + outputs_bytes + providers_bytes + name_bytes;
+    let reply_length = extra_len / 4;
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[1] = 0; // status
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
+    buffer[8..12].copy_from_slice(&write_u32_le(timestamp));
+    buffer[12..16].copy_from_slice(&write_u32_le(capabilities));
+    buffer[16..18].copy_from_slice(&write_u16_le(num_crtcs));
+    buffer[18..20].copy_from_slice(&write_u16_le(num_outputs));
+    buffer[20..22].copy_from_slice(&write_u16_le(num_associated_providers));
+    buffer[22..24].copy_from_slice(&write_u16_le(name_len));
+
+    // CRTCs
+    buffer.extend(write_u32_le(0x50));
+
+    // Outputs
+    buffer.extend(write_u32_le(0x60));
+
+    // Associated providers (none)
+
+    // Name (padded)
+    buffer.extend_from_slice(name);
+    while buffer.len() % 4 != 0 {
+        buffer.push(0);
+    }
+
     buffer
 }
 

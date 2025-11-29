@@ -250,7 +250,7 @@ This document tracks the implementation status of X11 protocol features across d
 | GLX | ❌ Not Implemented | - | OpenGL for X11 |
 | MIT-SHM | 🟡 Stub | 1.2 | QueryVersion only; no actual shared memory |
 | Present | ❌ Not Implemented | - | Vsynced presentation |
-| RANDR | 🟡 Stub | 1.5 | QueryVersion only |
+| RANDR | 🟡 Partial | 1.5 | QueryVersion, GetScreenResources, GetOutputInfo, GetCrtcInfo, Gamma, Providers |
 | Record | ❌ Not Implemented | - | Input recording/playback |
 | RENDER | 🟡 Partial | 0.11 | QueryVersion, QueryPictFormats, QueryFilters, Pictures, SolidFill, Trapezoids |
 | Resource (XRes) | ❌ Not Implemented | - | Resource usage tracking |
@@ -276,7 +276,7 @@ This document tracks the implementation status of X11 protocol features across d
 - [ ] RENDER - Full implementation (alpha blending, gradients, glyphs)
 - [x] XFIXES - Cursor visibility, region operations (partial - stubs for all 32 opcodes)
 - [ ] XInput - XI2 for modern input handling
-- [ ] RANDR - Screen configuration queries
+- [x] RANDR - Screen configuration queries (partial - resources, outputs, CRTCs, gamma, providers)
 - [ ] SYNC - Synchronization fences
 
 **Medium Priority** (useful for specific use cases):
