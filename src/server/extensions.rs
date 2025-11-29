@@ -1364,7 +1364,7 @@ fn encode_randr_get_screen_resources_reply(sequence: u16) -> Vec<u8> {
     let crtcs_bytes = 4 * num_crtcs as usize;
     let outputs_bytes = 4 * num_outputs as usize;
     let modes_bytes = 32 * num_modes as usize;
-    let names_bytes = ((names_len as usize + 3) / 4) * 4; // pad to 4
+    let names_bytes = (names_len as usize).div_ceil(4) * 4; // pad to 4
     let extra_len = crtcs_bytes + outputs_bytes + modes_bytes + names_bytes;
     let reply_length = extra_len / 4;
 
@@ -1426,54 +1426,11 @@ fn encode_randr_get_output_info_reply(sequence: u16, _output: u32) -> Vec<u8> {
     let crtcs_bytes = 4 * num_crtcs as usize;
     let modes_bytes = 4 * num_modes as usize;
     let clones_bytes = 4 * num_clones as usize;
-    let name_bytes = ((name_len as usize + 3) / 4) * 4;
-    let extra_len = crtcs_bytes + modes_bytes + clones_bytes + name_bytes;
+    let name_bytes = (name_len as usize).div_ceil(4) * 4;
+    // Extra data: num_clones (2) + name_len (2) + CRTCs + Modes + Clones + Name
+    let extra_len = 4 + crtcs_bytes + modes_bytes + clones_bytes + name_bytes;
     let reply_length = extra_len / 4;
 
-    let mut buffer = vec![0u8; 32];
-    buffer[0] = 1; // Reply
-    buffer[1] = 0; // status: Success
-    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
-    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
-    buffer[8..12].copy_from_slice(&write_u32_le(timestamp));
-    buffer[12..16].copy_from_slice(&write_u32_le(crtc_id));
-    buffer[16..20].copy_from_slice(&write_u32_le(mm_width));
-    buffer[20..24].copy_from_slice(&write_u32_le(mm_height));
-    buffer[24] = connection;
-    buffer[25] = subpixel_order;
-    buffer[26..28].copy_from_slice(&write_u16_le(num_crtcs));
-    buffer[28..30].copy_from_slice(&write_u16_le(num_modes));
-    buffer[30..32].copy_from_slice(&write_u16_le(num_preferred));
-
-    // num_clones at offset 32 in extended data (but we put it in reply header area)
-    // Actually the layout is different - let me fix this
-    // The 32-byte header has: ... num_preferred (2) | num_clones (2) | name_len (2) | pad (2)
-    // We need to restructure
-
-    let mut buffer = vec![0u8; 36]; // 32 + 4 for num_clones and name_len
-    buffer[0] = 1; // Reply
-    buffer[1] = 0; // status: Success
-    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
-    buffer[4..8].copy_from_slice(&write_u32_le(reply_length as u32));
-    buffer[8..12].copy_from_slice(&write_u32_le(timestamp));
-    buffer[12..16].copy_from_slice(&write_u32_le(crtc_id));
-    buffer[16..20].copy_from_slice(&write_u32_le(mm_width));
-    buffer[20..24].copy_from_slice(&write_u32_le(mm_height));
-    buffer[24] = connection;
-    buffer[25] = subpixel_order;
-    buffer[26..28].copy_from_slice(&write_u16_le(num_crtcs));
-    buffer[28..30].copy_from_slice(&write_u16_le(num_modes));
-    buffer[30..32].copy_from_slice(&write_u16_le(num_preferred));
-    // Truncate back to 32 bytes - the rest goes in extra data
-    buffer.truncate(32);
-
-    // Build extra data correctly: CRTCs, Modes, Clones, then Name
-    // But first we need num_clones and name_len in the header
-    // Looking at the spec more carefully...
-    // Actually after the 32-byte base, the format is:
-    // CRTCs[num_crtcs], Modes[num_modes], Clones[num_clones], Name[name_len]
-
-    // Recalculate with correct header layout
     let mut buffer = vec![0u8; 32];
     buffer[0] = 1; // Reply
     buffer[1] = 0; // status
@@ -1489,13 +1446,7 @@ fn encode_randr_get_output_info_reply(sequence: u16, _output: u32) -> Vec<u8> {
     buffer[28..30].copy_from_slice(&write_u16_le(num_modes));
     buffer[30..32].copy_from_slice(&write_u16_le(num_preferred));
 
-    // We need to add num_clones and name_len - they're actually part of extra data region
-    // No wait, looking at xrandr.h more carefully:
-    // The reply struct has these after num_preferred: num_clones, nameLen, then pad
-    // But that's only 36 bytes, and X11 replies are 32 bytes base
-    // So num_clones and nameLen must be at bytes 32-35 (first word of extra data)
-
-    // Let's append extra data: first word is num_clones (2) + name_len (2)
+    // Extra data: num_clones (2) + name_len (2) + CRTCs + Modes + Clones + Name
     buffer.extend(write_u16_le(num_clones));
     buffer.extend(write_u16_le(name_len));
 
@@ -1510,7 +1461,7 @@ fn encode_randr_get_output_info_reply(sequence: u16, _output: u32) -> Vec<u8> {
     // Name (padded)
     buffer.extend_from_slice(name);
     // Pad to 4-byte boundary
-    while buffer.len() % 4 != 0 {
+    while !buffer.len().is_multiple_of(4) {
         buffer.push(0);
     }
 
@@ -1680,7 +1631,7 @@ fn encode_randr_get_provider_info_reply(sequence: u16) -> Vec<u8> {
     let crtcs_bytes = 4 * num_crtcs as usize;
     let outputs_bytes = 4 * num_outputs as usize;
     let providers_bytes = 4 * num_associated_providers as usize;
-    let name_bytes = ((name_len as usize + 3) / 4) * 4;
+    let name_bytes = (name_len as usize).div_ceil(4) * 4;
     let extra_len = crtcs_bytes + outputs_bytes + providers_bytes + name_bytes;
     let reply_length = extra_len / 4;
 
@@ -1706,7 +1657,7 @@ fn encode_randr_get_provider_info_reply(sequence: u16) -> Vec<u8> {
 
     // Name (padded)
     buffer.extend_from_slice(name);
-    while buffer.len() % 4 != 0 {
+    while !buffer.len().is_multiple_of(4) {
         buffer.push(0);
     }
 
