@@ -444,11 +444,7 @@ fn handle_xfixes_request(
                 } else {
                     String::new()
                 };
-                log::debug!(
-                    "XFIXES: SetCursorName cursor=0x{:x} name={}",
-                    cursor,
-                    name
-                );
+                log::debug!("XFIXES: SetCursorName cursor=0x{:x} name={}", cursor, name);
             }
             // No reply
         }
@@ -1446,12 +1442,12 @@ fn encode_xfixes_fetch_region_reply(sequence: u16) -> Vec<u8> {
     buffer[0] = 1; // Reply
     buffer[2..4].copy_from_slice(&write_u16_le(sequence));
     buffer[4..8].copy_from_slice(&write_u32_le(0)); // length (no extra data)
-    // Bounding box: x, y, width, height (all 0)
+                                                    // Bounding box: x, y, width, height (all 0)
     buffer[8..10].copy_from_slice(&write_u16_le(0)); // x
     buffer[10..12].copy_from_slice(&write_u16_le(0)); // y
     buffer[12..14].copy_from_slice(&write_u16_le(0)); // width
     buffer[14..16].copy_from_slice(&write_u16_le(0)); // height
-    // No rectangles follow
+                                                      // No rectangles follow
     buffer
 }
 
@@ -1469,7 +1465,7 @@ fn encode_xfixes_get_cursor_name_reply(sequence: u16, atom: u32, name: &str) -> 
     buffer[4..8].copy_from_slice(&write_u32_le(extra_words as u32)); // length
     buffer[8..12].copy_from_slice(&write_u32_le(atom)); // atom
     buffer[12..14].copy_from_slice(&write_u16_le(name_len)); // name length
-    // buffer[14..32] unused
+                                                             // buffer[14..32] unused
 
     // Append name (padded)
     buffer.extend(name_bytes);
