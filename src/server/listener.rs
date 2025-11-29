@@ -241,10 +241,44 @@ fn handle_client(
         }
     }
 
-    // Cleanup client
+    // Cleanup client resources
     {
         let mut server = server.lock().unwrap();
-        server.handle_client_disconnect(client_id);
+        let cleanup_requests = server.handle_client_disconnect(client_id);
+
+        // Process cleanup requests to actually destroy windows/resources
+        for request in cleanup_requests {
+            match request {
+                crate::resources::CleanupRequest::DestroyWindow(window) => {
+                    log::debug!("Cleanup: destroying window 0x{:x}", window.id().0);
+                    if let Err(e) = server.destroy_window(window) {
+                        log::warn!("Failed to cleanup window 0x{:x}: {}", window.id().0, e);
+                    }
+                }
+                crate::resources::CleanupRequest::FreePixmap(pixmap) => {
+                    log::debug!("Cleanup: freeing pixmap 0x{:x}", pixmap.id().0);
+                    if let Err(e) = server.free_pixmap(pixmap.id().0) {
+                        log::warn!("Failed to cleanup pixmap 0x{:x}: {}", pixmap.id().0, e);
+                    }
+                }
+                crate::resources::CleanupRequest::FreeGC(gc) => {
+                    log::debug!("Cleanup: freeing GC 0x{:x}", gc.id().0);
+                    // GC cleanup is internal, no backend call needed
+                }
+                crate::resources::CleanupRequest::CloseFont(font) => {
+                    log::debug!("Cleanup: closing font 0x{:x}", font);
+                    server.close_font(font);
+                }
+                crate::resources::CleanupRequest::FreeCursor(cursor) => {
+                    log::debug!("Cleanup: freeing cursor 0x{:x}", cursor);
+                    // Cursor cleanup is internal
+                }
+                crate::resources::CleanupRequest::FreeColormap(colormap) => {
+                    log::debug!("Cleanup: freeing colormap 0x{:x}", colormap.id().0);
+                    // Colormap cleanup is internal
+                }
+            }
+        }
     }
 
     Ok(())
