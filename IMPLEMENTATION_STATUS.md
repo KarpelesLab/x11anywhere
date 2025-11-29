@@ -260,7 +260,7 @@ This document tracks the implementation status of X11 protocol features across d
 | XEvIE | ❌ Not Implemented | - | Event Interception Extension (deprecated) |
 | XF86-DRI | ❌ Not Implemented | - | XFree86 Direct Rendering |
 | XF86-VidMode | ❌ Not Implemented | - | XFree86 Video Mode |
-| XFIXES | 🟡 Stub | 5.0 | QueryVersion only |
+| XFIXES | 🟡 Partial | 5.0 | QueryVersion, Region ops, Cursor ops, Selection input, Pointer barriers |
 | Xinerama | ❌ Not Implemented | - | Multi-monitor logical screen |
 | XInput | ❌ Not Implemented | - | Extended input devices (XI2) |
 | XKB | 🟡 Stub | 1.0 | UseExtension only |
@@ -274,7 +274,7 @@ This document tracks the implementation status of X11 protocol features across d
 
 **High Priority** (commonly required by modern applications):
 - [ ] RENDER - Full implementation (alpha blending, gradients, glyphs)
-- [ ] XFIXES - Cursor visibility, region operations
+- [x] XFIXES - Cursor visibility, region operations (partial - stubs for all 32 opcodes)
 - [ ] XInput - XI2 for modern input handling
 - [ ] RANDR - Screen configuration queries
 - [ ] SYNC - Synchronization fences

@@ -133,7 +133,7 @@ fn handle_xfixes_request(
     stream: &mut TcpStream,
     minor_opcode: u8,
     sequence: u16,
-    _data: &[u8],
+    data: &[u8],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match minor_opcode {
         0 => {
@@ -141,6 +141,423 @@ fn handle_xfixes_request(
             log::debug!("XFIXES: QueryVersion");
             let reply = encode_xfixes_query_version_reply(sequence);
             stream.write_all(&reply)?;
+        }
+        1 => {
+            // XFixesChangeSaveSet
+            if data.len() >= 8 {
+                let mode = data[0];
+                let target = data[1];
+                let map = data[2];
+                let window = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!(
+                    "XFIXES: ChangeSaveSet mode={} target={} map={} window=0x{:x}",
+                    mode,
+                    target,
+                    map,
+                    window
+                );
+            }
+            // No reply
+        }
+        2 => {
+            // XFixesSelectSelectionInput
+            if data.len() >= 12 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let selection = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let event_mask = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "XFIXES: SelectSelectionInput window=0x{:x} selection={} event_mask=0x{:x}",
+                    window,
+                    selection,
+                    event_mask
+                );
+            }
+            // No reply - enables SelectionNotify events
+        }
+        3 => {
+            // XFixesSelectCursorInput
+            if data.len() >= 8 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let event_mask = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!(
+                    "XFIXES: SelectCursorInput window=0x{:x} event_mask=0x{:x}",
+                    window,
+                    event_mask
+                );
+            }
+            // No reply - enables CursorNotify events
+        }
+        4 => {
+            // XFixesGetCursorImage
+            log::debug!("XFIXES: GetCursorImage");
+            // Return a minimal cursor image (1x1 transparent)
+            let reply = encode_xfixes_get_cursor_image_reply(sequence);
+            stream.write_all(&reply)?;
+        }
+        5 => {
+            // XFixesCreateRegion
+            if data.len() >= 4 {
+                let region = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                // Rectangles follow at data[4..]
+                let num_rects = (data.len() - 4) / 8;
+                log::debug!(
+                    "XFIXES: CreateRegion region=0x{:x} num_rects={}",
+                    region,
+                    num_rects
+                );
+            }
+            // No reply
+        }
+        6 => {
+            // XFixesCreateRegionFromBitmap
+            if data.len() >= 8 {
+                let region = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let bitmap = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!(
+                    "XFIXES: CreateRegionFromBitmap region=0x{:x} bitmap=0x{:x}",
+                    region,
+                    bitmap
+                );
+            }
+            // No reply
+        }
+        7 => {
+            // XFixesCreateRegionFromWindow
+            if data.len() >= 9 {
+                let region = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let window = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let kind = data[8];
+                log::debug!(
+                    "XFIXES: CreateRegionFromWindow region=0x{:x} window=0x{:x} kind={}",
+                    region,
+                    window,
+                    kind
+                );
+            }
+            // No reply
+        }
+        8 => {
+            // XFixesCreateRegionFromGC
+            if data.len() >= 8 {
+                let region = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let gc = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!(
+                    "XFIXES: CreateRegionFromGC region=0x{:x} gc=0x{:x}",
+                    region,
+                    gc
+                );
+            }
+            // No reply
+        }
+        9 => {
+            // XFixesCreateRegionFromPicture
+            if data.len() >= 8 {
+                let region = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let picture = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!(
+                    "XFIXES: CreateRegionFromPicture region=0x{:x} picture=0x{:x}",
+                    region,
+                    picture
+                );
+            }
+            // No reply
+        }
+        10 => {
+            // XFixesDestroyRegion
+            if data.len() >= 4 {
+                let region = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("XFIXES: DestroyRegion region=0x{:x}", region);
+            }
+            // No reply
+        }
+        11 => {
+            // XFixesSetRegion
+            if data.len() >= 4 {
+                let region = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let num_rects = (data.len() - 4) / 8;
+                log::debug!(
+                    "XFIXES: SetRegion region=0x{:x} num_rects={}",
+                    region,
+                    num_rects
+                );
+            }
+            // No reply
+        }
+        12 => {
+            // XFixesCopyRegion
+            if data.len() >= 8 {
+                let src = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let dst = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!("XFIXES: CopyRegion src=0x{:x} dst=0x{:x}", src, dst);
+            }
+            // No reply
+        }
+        13 => {
+            // XFixesUnionRegion
+            if data.len() >= 12 {
+                let src1 = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let src2 = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let dst = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "XFIXES: UnionRegion src1=0x{:x} src2=0x{:x} dst=0x{:x}",
+                    src1,
+                    src2,
+                    dst
+                );
+            }
+            // No reply
+        }
+        14 => {
+            // XFixesIntersectRegion
+            if data.len() >= 12 {
+                let src1 = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let src2 = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let dst = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "XFIXES: IntersectRegion src1=0x{:x} src2=0x{:x} dst=0x{:x}",
+                    src1,
+                    src2,
+                    dst
+                );
+            }
+            // No reply
+        }
+        15 => {
+            // XFixesSubtractRegion
+            if data.len() >= 12 {
+                let src1 = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let src2 = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let dst = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "XFIXES: SubtractRegion src1=0x{:x} src2=0x{:x} dst=0x{:x}",
+                    src1,
+                    src2,
+                    dst
+                );
+            }
+            // No reply
+        }
+        16 => {
+            // XFixesInvertRegion
+            if data.len() >= 20 {
+                let src = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                // bounds: x, y, width, height at 4..12
+                let dst = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+                log::debug!("XFIXES: InvertRegion src=0x{:x} dst=0x{:x}", src, dst);
+            }
+            // No reply
+        }
+        17 => {
+            // XFixesTranslateRegion
+            if data.len() >= 8 {
+                let region = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let dx = i16::from_le_bytes([data[4], data[5]]);
+                let dy = i16::from_le_bytes([data[6], data[7]]);
+                log::debug!(
+                    "XFIXES: TranslateRegion region=0x{:x} dx={} dy={}",
+                    region,
+                    dx,
+                    dy
+                );
+            }
+            // No reply
+        }
+        18 => {
+            // XFixesRegionExtents
+            if data.len() >= 8 {
+                let src = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let dst = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!("XFIXES: RegionExtents src=0x{:x} dst=0x{:x}", src, dst);
+            }
+            // No reply
+        }
+        19 => {
+            // XFixesFetchRegion
+            if data.len() >= 4 {
+                let region = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("XFIXES: FetchRegion region=0x{:x}", region);
+                // Return empty region (bounding box 0,0,0,0, no rectangles)
+                let reply = encode_xfixes_fetch_region_reply(sequence);
+                stream.write_all(&reply)?;
+            }
+        }
+        20 => {
+            // XFixesSetGCClipRegion
+            if data.len() >= 12 {
+                let gc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let x_origin = i16::from_le_bytes([data[4], data[5]]);
+                let y_origin = i16::from_le_bytes([data[6], data[7]]);
+                let region = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "XFIXES: SetGCClipRegion gc=0x{:x} origin=({},{}) region=0x{:x}",
+                    gc,
+                    x_origin,
+                    y_origin,
+                    region
+                );
+            }
+            // No reply
+        }
+        21 => {
+            // XFixesSetWindowShapeRegion
+            if data.len() >= 16 {
+                let dst = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let kind = data[4];
+                let x_offset = i16::from_le_bytes([data[8], data[9]]);
+                let y_offset = i16::from_le_bytes([data[10], data[11]]);
+                let region = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
+                log::debug!(
+                    "XFIXES: SetWindowShapeRegion window=0x{:x} kind={} offset=({},{}) region=0x{:x}",
+                    dst,
+                    kind,
+                    x_offset,
+                    y_offset,
+                    region
+                );
+            }
+            // No reply
+        }
+        22 => {
+            // XFixesSetPictureClipRegion
+            if data.len() >= 12 {
+                let picture = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let x_origin = i16::from_le_bytes([data[4], data[5]]);
+                let y_origin = i16::from_le_bytes([data[6], data[7]]);
+                let region = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
+                log::debug!(
+                    "XFIXES: SetPictureClipRegion picture=0x{:x} origin=({},{}) region=0x{:x}",
+                    picture,
+                    x_origin,
+                    y_origin,
+                    region
+                );
+            }
+            // No reply
+        }
+        23 => {
+            // XFixesSetCursorName
+            if data.len() >= 6 {
+                let cursor = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let name_len = u16::from_le_bytes([data[4], data[5]]) as usize;
+                let name = if data.len() >= 8 + name_len {
+                    String::from_utf8_lossy(&data[8..8 + name_len]).to_string()
+                } else {
+                    String::new()
+                };
+                log::debug!(
+                    "XFIXES: SetCursorName cursor=0x{:x} name={}",
+                    cursor,
+                    name
+                );
+            }
+            // No reply
+        }
+        24 => {
+            // XFixesGetCursorName
+            if data.len() >= 4 {
+                let cursor = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("XFIXES: GetCursorName cursor=0x{:x}", cursor);
+                // Return empty name
+                let reply = encode_xfixes_get_cursor_name_reply(sequence, 0, "");
+                stream.write_all(&reply)?;
+            }
+        }
+        25 => {
+            // XFixesGetCursorImageAndName
+            log::debug!("XFIXES: GetCursorImageAndName");
+            // Return minimal cursor info with empty name
+            let reply = encode_xfixes_get_cursor_image_and_name_reply(sequence);
+            stream.write_all(&reply)?;
+        }
+        26 => {
+            // XFixesChangeCursor
+            if data.len() >= 8 {
+                let src = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let dst = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                log::debug!("XFIXES: ChangeCursor src=0x{:x} dst=0x{:x}", src, dst);
+            }
+            // No reply
+        }
+        27 => {
+            // XFixesChangeCursorByName
+            if data.len() >= 6 {
+                let src = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let name_len = u16::from_le_bytes([data[4], data[5]]) as usize;
+                let name = if data.len() >= 8 + name_len {
+                    String::from_utf8_lossy(&data[8..8 + name_len]).to_string()
+                } else {
+                    String::new()
+                };
+                log::debug!("XFIXES: ChangeCursorByName src=0x{:x} name={}", src, name);
+            }
+            // No reply
+        }
+        28 => {
+            // XFixesExpandRegion
+            if data.len() >= 16 {
+                let src = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let dst = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let left = u16::from_le_bytes([data[8], data[9]]);
+                let right = u16::from_le_bytes([data[10], data[11]]);
+                let top = u16::from_le_bytes([data[12], data[13]]);
+                let bottom = u16::from_le_bytes([data[14], data[15]]);
+                log::debug!(
+                    "XFIXES: ExpandRegion src=0x{:x} dst=0x{:x} l={} r={} t={} b={}",
+                    src,
+                    dst,
+                    left,
+                    right,
+                    top,
+                    bottom
+                );
+            }
+            // No reply
+        }
+        29 => {
+            // XFixesHideCursor
+            if data.len() >= 4 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("XFIXES: HideCursor window=0x{:x}", window);
+                // TODO: Actually hide cursor via backend when supported
+            }
+            // No reply
+        }
+        30 => {
+            // XFixesShowCursor
+            if data.len() >= 4 {
+                let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("XFIXES: ShowCursor window=0x{:x}", window);
+                // TODO: Actually show cursor via backend when supported
+            }
+            // No reply
+        }
+        31 => {
+            // XFixesCreatePointerBarrier (version 5.0+)
+            if data.len() >= 28 {
+                let barrier = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                let window = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+                let x1 = i16::from_le_bytes([data[8], data[9]]);
+                let y1 = i16::from_le_bytes([data[10], data[11]]);
+                let x2 = i16::from_le_bytes([data[12], data[13]]);
+                let y2 = i16::from_le_bytes([data[14], data[15]]);
+                let directions = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
+                log::debug!(
+                    "XFIXES: CreatePointerBarrier barrier=0x{:x} window=0x{:x} ({},{}) to ({},{}) directions=0x{:x}",
+                    barrier,
+                    window,
+                    x1, y1, x2, y2,
+                    directions
+                );
+            }
+            // No reply
+        }
+        32 => {
+            // XFixesDeletePointerBarrier (version 5.0+)
+            if data.len() >= 4 {
+                let barrier = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+                log::debug!("XFIXES: DeletePointerBarrier barrier=0x{:x}", barrier);
+            }
+            // No reply
         }
         _ => {
             log::debug!("XFIXES: Unhandled minor opcode {}", minor_opcode);
@@ -988,6 +1405,107 @@ fn encode_render_query_filters_reply(sequence: u16) -> Vec<u8> {
 
     buffer.extend(alias_data);
     buffer.extend(filter_data);
+
+    buffer
+}
+
+/// Encode GetCursorImage reply
+/// Returns a minimal 1x1 transparent cursor
+fn encode_xfixes_get_cursor_image_reply(sequence: u16) -> Vec<u8> {
+    // Cursor image is 1x1 pixel (transparent)
+    let width: u16 = 1;
+    let height: u16 = 1;
+    let cursor_serial: u32 = 1;
+
+    // Image data is 1 ARGB pixel (4 bytes = 1 word)
+    let image_data_len: u32 = 1; // in 4-byte units
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(image_data_len)); // length
+    buffer[8..10].copy_from_slice(&write_u16_le(0)); // x hotspot
+    buffer[10..12].copy_from_slice(&write_u16_le(0)); // y hotspot
+    buffer[12..14].copy_from_slice(&write_u16_le(width));
+    buffer[14..16].copy_from_slice(&write_u16_le(height));
+    buffer[16..20].copy_from_slice(&write_u32_le(0)); // xhot (fixed-point, unused)
+    buffer[20..24].copy_from_slice(&write_u32_le(0)); // yhot (fixed-point, unused)
+    buffer[24..28].copy_from_slice(&write_u32_le(cursor_serial));
+    // buffer[28..32] unused
+
+    // Append 1 transparent ARGB pixel (4 bytes)
+    buffer.extend([0u8; 4]);
+
+    buffer
+}
+
+/// Encode FetchRegion reply
+/// Returns an empty region (bounding box 0,0,0,0, no rectangles)
+fn encode_xfixes_fetch_region_reply(sequence: u16) -> Vec<u8> {
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(0)); // length (no extra data)
+    // Bounding box: x, y, width, height (all 0)
+    buffer[8..10].copy_from_slice(&write_u16_le(0)); // x
+    buffer[10..12].copy_from_slice(&write_u16_le(0)); // y
+    buffer[12..14].copy_from_slice(&write_u16_le(0)); // width
+    buffer[14..16].copy_from_slice(&write_u16_le(0)); // height
+    // No rectangles follow
+    buffer
+}
+
+/// Encode GetCursorName reply
+fn encode_xfixes_get_cursor_name_reply(sequence: u16, atom: u32, name: &str) -> Vec<u8> {
+    let name_bytes = name.as_bytes();
+    let name_len = name_bytes.len() as u16;
+    // Pad name to 4-byte boundary
+    let padded_len = (name_len as usize + 3) & !3;
+    let extra_words = padded_len / 4;
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(extra_words as u32)); // length
+    buffer[8..12].copy_from_slice(&write_u32_le(atom)); // atom
+    buffer[12..14].copy_from_slice(&write_u16_le(name_len)); // name length
+    // buffer[14..32] unused
+
+    // Append name (padded)
+    buffer.extend(name_bytes);
+    buffer.resize(32 + padded_len, 0);
+
+    buffer
+}
+
+/// Encode GetCursorImageAndName reply
+/// Returns a minimal 1x1 transparent cursor with empty name
+fn encode_xfixes_get_cursor_image_and_name_reply(sequence: u16) -> Vec<u8> {
+    let width: u16 = 1;
+    let height: u16 = 1;
+    let cursor_serial: u32 = 1;
+    let name_len: u16 = 0;
+
+    // Image data is 1 ARGB pixel (4 bytes = 1 word)
+    // No name data (name_len = 0)
+    let image_data_len: u32 = 1;
+
+    let mut buffer = vec![0u8; 32];
+    buffer[0] = 1; // Reply
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(image_data_len)); // length
+    buffer[8..10].copy_from_slice(&write_u16_le(0)); // x hotspot
+    buffer[10..12].copy_from_slice(&write_u16_le(0)); // y hotspot
+    buffer[12..14].copy_from_slice(&write_u16_le(width));
+    buffer[14..16].copy_from_slice(&write_u16_le(height));
+    buffer[16..20].copy_from_slice(&write_u32_le(0)); // xhot
+    buffer[20..24].copy_from_slice(&write_u32_le(0)); // yhot
+    buffer[24..28].copy_from_slice(&write_u32_le(cursor_serial));
+    buffer[28..30].copy_from_slice(&write_u16_le(0)); // cursor-atom (None)
+    buffer[30..32].copy_from_slice(&write_u16_le(name_len));
+
+    // Append 1 transparent ARGB pixel (4 bytes)
+    buffer.extend([0u8; 4]);
 
     buffer
 }
