@@ -1511,14 +1511,14 @@ fn encode_sync_query_alarm_reply(sequence: u16) -> Vec<u8> {
     buffer[0] = 1; // Reply
     buffer[2..4].copy_from_slice(&write_u16_le(sequence));
     buffer[4..8].copy_from_slice(&write_u32_le(2)); // length (8 extra bytes)
-    // trigger counter, value_type, value, test_type
+                                                    // trigger counter, value_type, value, test_type
     buffer[8..12].copy_from_slice(&write_u32_le(0)); // counter (None)
     buffer[12..16].copy_from_slice(&write_u32_le(0)); // value_type (Absolute)
     buffer[16..20].copy_from_slice(&write_u32_le(0)); // value_hi
     buffer[20..24].copy_from_slice(&write_u32_le(0)); // value_lo
     buffer[24..28].copy_from_slice(&write_u32_le(0)); // test_type (PositiveTransition)
     buffer[28..32].copy_from_slice(&write_u32_le(0)); // delta_hi
-    // delta_lo, events, state in extra data
+                                                      // delta_lo, events, state in extra data
     buffer[32..36].copy_from_slice(&write_u32_le(0)); // delta_lo
     buffer[36] = 1; // events (true)
     buffer[37] = 1; // state (Active)
