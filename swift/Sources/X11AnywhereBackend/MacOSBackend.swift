@@ -105,20 +105,34 @@ class X11ContentView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        guard let buffer = self.buffer else {
-            NSLog("X11ContentView.draw: no buffer")
+        guard let buffer = self.buffer, let ctx = buffer.context, let cgImage = ctx.makeImage() else {
+            NSLog("X11ContentView.draw: no CGImage available, buffer=\(self.buffer != nil)")
             return
         }
 
-        guard let nsImage = buffer.makeNSImage() else {
-            NSLog("X11ContentView.draw: could not create NSImage")
+        guard let currentContext = NSGraphicsContext.current?.cgContext else {
+            NSLog("X11ContentView.draw: no current graphics context")
             return
         }
 
-        // Use NSImage.draw which properly handles coordinate systems in flipped views
-        // The backing buffer has a Y-flip transform, so the NSImage content is already
-        // in the correct orientation for display in a flipped NSView
-        nsImage.draw(in: bounds)
+        // The backing buffer CGContext has a Y-flip transform applied, so the CGImage
+        // already has Y=0 at top (X11 convention). Since isFlipped=true, NSView also
+        // has Y=0 at top. However, CGContext.draw() interprets the image with Y=0 at bottom.
+        // We need to flip the context to draw correctly.
+
+        currentContext.saveGState()
+
+        // Reset to identity and apply proper transform for drawing
+        // The view's context already has a transform for the flipped coordinate system.
+        // We need to flip again to correctly interpret the CGImage.
+        let height = CGFloat(buffer.height)
+        currentContext.translateBy(x: 0, y: height)
+        currentContext.scaleBy(x: 1, y: -1)
+
+        let drawRect = CGRect(x: 0, y: 0, width: CGFloat(buffer.width), height: height)
+        currentContext.draw(cgImage, in: drawRect)
+
+        currentContext.restoreGState()
     }
 
     func updateContents() {

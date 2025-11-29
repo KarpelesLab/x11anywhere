@@ -235,12 +235,16 @@ extern "C" {
 
 /// Window data stored per-window
 struct WindowData {
+    /// Swift window ID (for top-level windows) or parent's swift_id (for child windows)
     swift_id: i32,
     width: u16,
     height: u16,
     x: i16,
     y: i16,
     cursor_id: i32,
+    /// If this is a child window, stores the parent's backend window ID
+    /// Child windows don't create their own NSWindow, they share the parent's
+    parent_backend_id: Option<usize>,
 }
 
 pub struct MacOSBackend {
@@ -328,18 +332,26 @@ impl MacOSBackend {
     }
 
     /// Get drawable ID from BackendDrawable
-    fn get_drawable_id(&self, drawable: BackendDrawable) -> BackendResult<(i32, i32)> {
+    /// Returns (is_window, swift_id, x_offset, y_offset)
+    /// For child windows, returns parent's swift_id and child's position as offset
+    fn get_drawable_id(&self, drawable: BackendDrawable) -> BackendResult<(i32, i32, i16, i16)> {
         match drawable {
             BackendDrawable::Window(w) => {
                 if let Some(data) = self.windows.get(&w.0) {
-                    Ok((1, data.swift_id))
+                    // For child windows, return their position as offset
+                    let (x_offset, y_offset) = if data.parent_backend_id.is_some() {
+                        (data.x, data.y)
+                    } else {
+                        (0, 0)
+                    };
+                    Ok((1, data.swift_id, x_offset, y_offset))
                 } else {
                     Err("Window not found".into())
                 }
             }
             BackendDrawable::Pixmap(p) => {
                 if let Some(&swift_id) = self.pixmaps.get(&p) {
-                    Ok((0, swift_id))
+                    Ok((0, swift_id, 0, 0))
                 } else {
                     Err("Pixmap not found".into())
                 }
@@ -422,6 +434,46 @@ impl Backend for MacOSBackend {
     }
 
     fn create_window(&mut self, params: WindowParams) -> BackendResult<BackendWindow> {
+        // Check if this is a child window (has a parent that's not root)
+        // params.parent is None for top-level windows (parent=root)
+        // params.parent is Some for child windows
+        if let Some(parent_backend) = params.parent {
+            // This is a child window - don't create a new NSWindow
+            // Instead, share the parent's NSWindow and track the relationship
+            let parent_swift_id = if let Some(parent_data) = self.windows.get(&parent_backend.0) {
+                parent_data.swift_id
+            } else {
+                return Err("Parent window not found".into());
+            };
+
+            let id = self.next_resource_id;
+            self.next_resource_id += 1;
+
+            self.windows.insert(
+                id,
+                WindowData {
+                    swift_id: parent_swift_id, // Use parent's swift_id
+                    width: params.width,
+                    height: params.height,
+                    x: params.x,
+                    y: params.y,
+                    cursor_id: 0,
+                    parent_backend_id: Some(parent_backend.0),
+                },
+            );
+
+            log::debug!(
+                "Created child window {} (parent: {}, offset: ({}, {}))",
+                id,
+                parent_backend.0,
+                params.x,
+                params.y
+            );
+
+            return Ok(BackendWindow(id));
+        }
+
+        // Top-level window - create a new NSWindow
         unsafe {
             let swift_id = macos_backend_create_window(
                 self.handle,
@@ -446,7 +498,8 @@ impl Backend for MacOSBackend {
                     height: params.height,
                     x: params.x,
                     y: params.y,
-                    cursor_id: 0, // Default cursor
+                    cursor_id: 0,
+                    parent_backend_id: None, // Top-level window
                 },
             );
 
@@ -457,7 +510,10 @@ impl Backend for MacOSBackend {
     fn destroy_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
             if let Some(data) = self.windows.remove(&window.0) {
-                macos_backend_destroy_window(self.handle, data.swift_id);
+                // Only destroy the NSWindow for top-level windows
+                if data.parent_backend_id.is_none() {
+                    macos_backend_destroy_window(self.handle, data.swift_id);
+                }
             }
             Ok(())
         }
@@ -466,8 +522,11 @@ impl Backend for MacOSBackend {
     fn map_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
             if let Some(data) = self.windows.get(&window.0) {
-                macos_backend_map_window(self.handle, data.swift_id);
-                // Generate MapNotify event
+                // Only map top-level windows (child windows are rendered via parent)
+                if data.parent_backend_id.is_none() {
+                    macos_backend_map_window(self.handle, data.swift_id);
+                }
+                // Generate MapNotify event for all windows
                 self.event_queue.push(BackendEvent::MapNotify { window });
             }
             Ok(())
@@ -477,8 +536,11 @@ impl Backend for MacOSBackend {
     fn unmap_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
             if let Some(data) = self.windows.get(&window.0) {
-                macos_backend_unmap_window(self.handle, data.swift_id);
-                // Generate UnmapNotify event
+                // Only unmap top-level windows
+                if data.parent_backend_id.is_none() {
+                    macos_backend_unmap_window(self.handle, data.swift_id);
+                }
+                // Generate UnmapNotify event for all windows
                 self.event_queue.push(BackendEvent::UnmapNotify { window });
             }
             Ok(())
@@ -500,14 +562,17 @@ impl Backend for MacOSBackend {
                 // Check if size changed - we need to generate events
                 let size_changed = width != data.width || height != data.height;
 
-                macos_backend_configure_window(
-                    self.handle,
-                    data.swift_id,
-                    x as i32,
-                    y as i32,
-                    width as i32,
-                    height as i32,
-                );
+                // Only configure the NSWindow for top-level windows
+                if data.parent_backend_id.is_none() {
+                    macos_backend_configure_window(
+                        self.handle,
+                        data.swift_id,
+                        x as i32,
+                        y as i32,
+                        width as i32,
+                        height as i32,
+                    );
+                }
 
                 data.x = x;
                 data.y = y;
@@ -542,7 +607,10 @@ impl Backend for MacOSBackend {
     fn raise_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
             if let Some(data) = self.windows.get(&window.0) {
-                macos_backend_raise_window(self.handle, data.swift_id);
+                // Only raise top-level windows
+                if data.parent_backend_id.is_none() {
+                    macos_backend_raise_window(self.handle, data.swift_id);
+                }
             }
             Ok(())
         }
@@ -551,7 +619,10 @@ impl Backend for MacOSBackend {
     fn lower_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
             if let Some(data) = self.windows.get(&window.0) {
-                macos_backend_lower_window(self.handle, data.swift_id);
+                // Only lower top-level windows
+                if data.parent_backend_id.is_none() {
+                    macos_backend_lower_window(self.handle, data.swift_id);
+                }
             }
             Ok(())
         }
@@ -560,8 +631,11 @@ impl Backend for MacOSBackend {
     fn set_window_title(&mut self, window: BackendWindow, title: &str) -> BackendResult<()> {
         unsafe {
             if let Some(data) = self.windows.get(&window.0) {
-                let c_title = CString::new(title).unwrap();
-                macos_backend_set_window_title(self.handle, data.swift_id, c_title.as_ptr());
+                // Only set title for top-level windows
+                if data.parent_backend_id.is_none() {
+                    let c_title = CString::new(title).unwrap();
+                    macos_backend_set_window_title(self.handle, data.swift_id, c_title.as_ptr());
+                }
             }
             Ok(())
         }
@@ -600,22 +674,7 @@ impl Backend for MacOSBackend {
         height: u16,
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = match drawable {
-                BackendDrawable::Window(w) => {
-                    if let Some(data) = self.windows.get(&w.0) {
-                        (1, data.swift_id)
-                    } else {
-                        return Err("Window not found".into());
-                    }
-                }
-                BackendDrawable::Pixmap(p) => {
-                    if let Some(&swift_id) = self.pixmaps.get(&p) {
-                        (0, swift_id)
-                    } else {
-                        return Err("Pixmap not found".into());
-                    }
-                }
-            };
+            let (is_window, drawable_id, x_offset, y_offset) = self.get_drawable_id(drawable)?;
 
             let (r, g, b) = Self::color_to_rgb(gc.foreground);
             let line_width = if gc.line_width == 0 {
@@ -628,8 +687,8 @@ impl Backend for MacOSBackend {
                 self.handle,
                 is_window,
                 drawable_id,
-                x as i32,
-                y as i32,
+                (x + x_offset) as i32,
+                (y + y_offset) as i32,
                 width as i32,
                 height as i32,
                 r,
@@ -652,22 +711,7 @@ impl Backend for MacOSBackend {
         height: u16,
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = match drawable {
-                BackendDrawable::Window(w) => {
-                    if let Some(data) = self.windows.get(&w.0) {
-                        (1, data.swift_id)
-                    } else {
-                        return Err("Window not found".into());
-                    }
-                }
-                BackendDrawable::Pixmap(p) => {
-                    if let Some(&swift_id) = self.pixmaps.get(&p) {
-                        (0, swift_id)
-                    } else {
-                        return Err("Pixmap not found".into());
-                    }
-                }
-            };
+            let (is_window, drawable_id, x_offset, y_offset) = self.get_drawable_id(drawable)?;
 
             let (r, g, b) = Self::color_to_rgb(gc.foreground);
 
@@ -675,8 +719,8 @@ impl Backend for MacOSBackend {
                 self.handle,
                 is_window,
                 drawable_id,
-                x as i32,
-                y as i32,
+                (x + x_offset) as i32,
+                (y + y_offset) as i32,
                 width as i32,
                 height as i32,
                 r,
@@ -698,22 +742,7 @@ impl Backend for MacOSBackend {
         y2: i16,
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = match drawable {
-                BackendDrawable::Window(w) => {
-                    if let Some(data) = self.windows.get(&w.0) {
-                        (1, data.swift_id)
-                    } else {
-                        return Err("Window not found".into());
-                    }
-                }
-                BackendDrawable::Pixmap(p) => {
-                    if let Some(&swift_id) = self.pixmaps.get(&p) {
-                        (0, swift_id)
-                    } else {
-                        return Err("Pixmap not found".into());
-                    }
-                }
-            };
+            let (is_window, drawable_id, x_offset, y_offset) = self.get_drawable_id(drawable)?;
 
             let (r, g, b) = Self::color_to_rgb(gc.foreground);
             let line_width = if gc.line_width == 0 {
@@ -726,10 +755,10 @@ impl Backend for MacOSBackend {
                 self.handle,
                 is_window,
                 drawable_id,
-                x1 as i32,
-                y1 as i32,
-                x2 as i32,
-                y2 as i32,
+                (x1 + x_offset) as i32,
+                (y1 + y_offset) as i32,
+                (x2 + x_offset) as i32,
+                (y2 + y_offset) as i32,
                 r,
                 g,
                 b,
@@ -762,7 +791,7 @@ impl Backend for MacOSBackend {
         text: &str,
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let (is_window, drawable_id, x_offset, y_offset) = self.get_drawable_id(drawable)?;
             let (r, g, b) = Self::color_to_rgb(gc.foreground);
             let text_cstr = CString::new(text).unwrap_or_else(|_| CString::new("").unwrap());
 
@@ -770,8 +799,8 @@ impl Backend for MacOSBackend {
                 self.handle,
                 is_window,
                 drawable_id,
-                x as i32,
-                y as i32,
+                (x + x_offset) as i32,
+                (y + y_offset) as i32,
                 text_cstr.as_ptr(),
                 r,
                 g,
@@ -789,7 +818,7 @@ impl Backend for MacOSBackend {
         arcs: &[crate::protocol::Arc],
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let (is_window, drawable_id, x_offset, y_offset) = self.get_drawable_id(drawable)?;
             let (r, g, b) = Self::color_to_rgb(gc.foreground);
             let line_width = if gc.line_width == 0 {
                 1.0
@@ -802,8 +831,8 @@ impl Backend for MacOSBackend {
                     self.handle,
                     is_window,
                     drawable_id,
-                    arc.x as i32,
-                    arc.y as i32,
+                    (arc.x + x_offset) as i32,
+                    (arc.y + y_offset) as i32,
                     arc.width as i32,
                     arc.height as i32,
                     arc.angle1 as i32,
@@ -826,7 +855,7 @@ impl Backend for MacOSBackend {
         arcs: &[crate::protocol::Arc],
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let (is_window, drawable_id, x_offset, y_offset) = self.get_drawable_id(drawable)?;
             let (r, g, b) = Self::color_to_rgb(gc.foreground);
 
             for arc in arcs {
@@ -834,8 +863,8 @@ impl Backend for MacOSBackend {
                     self.handle,
                     is_window,
                     drawable_id,
-                    arc.x as i32,
-                    arc.y as i32,
+                    (arc.x + x_offset) as i32,
+                    (arc.y + y_offset) as i32,
                     arc.width as i32,
                     arc.height as i32,
                     arc.angle1 as i32,
@@ -857,13 +886,13 @@ impl Backend for MacOSBackend {
         points: &[crate::protocol::Point],
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let (is_window, drawable_id, x_offset, y_offset) = self.get_drawable_id(drawable)?;
             let (r, g, b) = Self::color_to_rgb(gc.foreground);
 
-            // Convert points to flat array of i32
+            // Convert points to flat array of i32, applying child window offset
             let coords: Vec<i32> = points
                 .iter()
-                .flat_map(|p| vec![p.x as i32, p.y as i32])
+                .flat_map(|p| vec![(p.x + x_offset) as i32, (p.y + y_offset) as i32])
                 .collect();
 
             macos_backend_fill_polygon(
@@ -894,8 +923,10 @@ impl Backend for MacOSBackend {
         dst_y: i16,
     ) -> BackendResult<()> {
         unsafe {
-            let (src_is_window, src_drawable_id) = self.get_drawable_id(src)?;
-            let (dst_is_window, dst_drawable_id) = self.get_drawable_id(dst)?;
+            let (src_is_window, src_drawable_id, src_x_offset, src_y_offset) =
+                self.get_drawable_id(src)?;
+            let (dst_is_window, dst_drawable_id, dst_x_offset, dst_y_offset) =
+                self.get_drawable_id(dst)?;
 
             let result = macos_backend_copy_area(
                 self.handle,
@@ -903,12 +934,12 @@ impl Backend for MacOSBackend {
                 src_drawable_id,
                 dst_is_window,
                 dst_drawable_id,
-                src_x as i32,
-                src_y as i32,
+                (src_x + src_x_offset) as i32,
+                (src_y + src_y_offset) as i32,
                 width as i32,
                 height as i32,
-                dst_x as i32,
-                dst_y as i32,
+                (dst_x + dst_x_offset) as i32,
+                (dst_y + dst_y_offset) as i32,
             );
 
             if result != 0 {
@@ -957,7 +988,7 @@ impl Backend for MacOSBackend {
         data: &[u8],
     ) -> BackendResult<()> {
         unsafe {
-            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let (is_window, drawable_id, x_offset, y_offset) = self.get_drawable_id(drawable)?;
 
             let result = macos_backend_put_image(
                 self.handle,
@@ -965,8 +996,8 @@ impl Backend for MacOSBackend {
                 drawable_id,
                 width as i32,
                 height as i32,
-                dst_x as i32,
-                dst_y as i32,
+                (dst_x + x_offset) as i32,
+                (dst_y + y_offset) as i32,
                 depth as i32,
                 format as i32,
                 data.as_ptr(),
@@ -992,7 +1023,7 @@ impl Backend for MacOSBackend {
         _format: u8,
     ) -> BackendResult<(u8, u32, Vec<u8>)> {
         unsafe {
-            let (is_window, drawable_id) = self.get_drawable_id(drawable)?;
+            let (is_window, drawable_id, x_offset, y_offset) = self.get_drawable_id(drawable)?;
             let depth = 24u8;
             let visual = 0x21u32; // TrueColor visual
 
@@ -1004,8 +1035,8 @@ impl Backend for MacOSBackend {
                 self.handle,
                 is_window,
                 drawable_id,
-                x as i32,
-                y as i32,
+                (x + x_offset) as i32,
+                (y + y_offset) as i32,
                 width as i32,
                 height as i32,
                 buffer.as_mut_ptr(),
