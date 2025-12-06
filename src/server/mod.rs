@@ -787,7 +787,11 @@ impl Server {
         };
 
         let backend_window = self.backend.create_window(params)?;
-        log::info!("Created window 0x{:08x} -> backend {:?}", window.id().0, backend_window);
+        log::info!(
+            "Created window 0x{:08x} -> backend {:?}",
+            window.id().0,
+            backend_window
+        );
         self.windows.insert(window, backend_window);
         log::debug!("Windows map now has {} entries", self.windows.len());
 
@@ -885,9 +889,17 @@ impl Server {
 
     /// Destroy a window
     pub fn destroy_window(&mut self, window: Window) -> Result<(), Box<dyn Error + Send + Sync>> {
-        log::debug!("destroy_window called for window 0x{:08x}, windows map has {} entries", window.id().0, self.windows.len());
+        log::debug!(
+            "destroy_window called for window 0x{:08x}, windows map has {} entries",
+            window.id().0,
+            self.windows.len()
+        );
         if let Some(&backend_window) = self.windows.get(&window) {
-            log::info!("Destroying window 0x{:08x} -> backend {:?}", window.id().0, backend_window);
+            log::info!(
+                "Destroying window 0x{:08x} -> backend {:?}",
+                window.id().0,
+                backend_window
+            );
             self.backend.destroy_window(backend_window)?;
             self.windows.remove(&window);
             log::debug!("Window destroyed and removed from map");

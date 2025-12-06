@@ -5,12 +5,12 @@
 use super::Server;
 use crate::backend::RenderTrapezoid;
 use std::io::Write;
-use std::net::TcpStream;
+
 use std::sync::{Arc, Mutex};
 
 /// Handle extension request based on major opcode
-pub fn handle_extension_request(
-    stream: &mut TcpStream,
+pub fn handle_extension_request<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     major_opcode: u8,
@@ -45,8 +45,8 @@ pub fn handle_extension_request(
 }
 
 /// Handle SHAPE extension requests
-fn handle_shape_request(
-    stream: &mut TcpStream,
+fn handle_shape_request<S: Write>(
+    stream: &mut S,
     minor_opcode: u8,
     sequence: u16,
     _data: &[u8],
@@ -66,8 +66,8 @@ fn handle_shape_request(
 }
 
 /// Handle MIT-SHM extension requests
-fn handle_shm_request(
-    stream: &mut TcpStream,
+fn handle_shm_request<S: Write>(
+    stream: &mut S,
     minor_opcode: u8,
     sequence: u16,
     _data: &[u8],
@@ -87,8 +87,8 @@ fn handle_shm_request(
 }
 
 /// Handle BIG-REQUESTS extension
-fn handle_big_requests(
-    stream: &mut TcpStream,
+fn handle_big_requests<S: Write>(
+    stream: &mut S,
     minor_opcode: u8,
     sequence: u16,
     _data: &[u8],
@@ -108,8 +108,8 @@ fn handle_big_requests(
 }
 
 /// Handle SYNC extension requests
-fn handle_sync_request(
-    stream: &mut TcpStream,
+fn handle_sync_request<S: Write>(
+    stream: &mut S,
     minor_opcode: u8,
     sequence: u16,
     data: &[u8],
@@ -306,8 +306,8 @@ fn handle_sync_request(
 }
 
 /// Handle XFIXES extension requests
-fn handle_xfixes_request(
-    stream: &mut TcpStream,
+fn handle_xfixes_request<S: Write>(
+    stream: &mut S,
     minor_opcode: u8,
     sequence: u16,
     data: &[u8],
@@ -740,8 +740,8 @@ fn handle_xfixes_request(
 }
 
 /// Handle RENDER extension requests
-fn handle_render_request(
-    stream: &mut TcpStream,
+fn handle_render_request<S: Write>(
+    stream: &mut S,
     minor_opcode: u8,
     sequence: u16,
     data: &[u8],
@@ -1009,8 +1009,8 @@ fn handle_render_request(
 }
 
 /// Handle RANDR extension requests
-fn handle_randr_request(
-    stream: &mut TcpStream,
+fn handle_randr_request<S: Write>(
+    stream: &mut S,
     minor_opcode: u8,
     sequence: u16,
     data: &[u8],
@@ -1212,8 +1212,8 @@ fn handle_randr_request(
 }
 
 /// Handle COMPOSITE extension requests
-fn handle_composite_request(
-    stream: &mut TcpStream,
+fn handle_composite_request<S: Write>(
+    stream: &mut S,
     minor_opcode: u8,
     sequence: u16,
     data: &[u8],
@@ -1316,8 +1316,8 @@ fn handle_composite_request(
 }
 
 /// Handle DAMAGE extension requests
-fn handle_damage_request(
-    stream: &mut TcpStream,
+fn handle_damage_request<S: Write>(
+    stream: &mut S,
     minor_opcode: u8,
     sequence: u16,
     data: &[u8],
@@ -1375,8 +1375,8 @@ fn handle_damage_request(
 }
 
 /// Handle XKEYBOARD (XKB) extension requests
-fn handle_xkb_request(
-    stream: &mut TcpStream,
+fn handle_xkb_request<S: Write>(
+    stream: &mut S,
     minor_opcode: u8,
     sequence: u16,
     data: &[u8],

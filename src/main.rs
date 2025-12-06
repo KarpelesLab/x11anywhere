@@ -325,8 +325,22 @@ fn main() {
         });
     }
 
+    #[cfg(unix)]
     if config.listen_unix {
-        log::warn!("Unix socket listener not yet implemented");
+        let unix_server = std::sync::Arc::clone(&server);
+        let display = config.display;
+        log::info!("Starting Unix socket listener for display :{}", display);
+
+        std::thread::spawn(move || {
+            if let Err(e) = server::listener::start_unix_listener(display, unix_server) {
+                log::error!("Unix socket listener error: {}", e);
+            }
+        });
+    }
+
+    #[cfg(not(unix))]
+    if config.listen_unix {
+        log::warn!("Unix socket listener not available on this platform");
     }
 
     // Keep the main thread alive

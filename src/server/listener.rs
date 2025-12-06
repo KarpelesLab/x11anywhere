@@ -1,7 +1,7 @@
 //! Server listener and connection handling
 use std::error::Error;
 use std::io::{Read, Write};
-use std::net::{TcpListener};
+use std::net::TcpListener;
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 use std::sync::{Arc, Mutex};
@@ -143,8 +143,13 @@ fn handle_client<S: Read + Write>(
             match stream.read_exact(&mut request_data) {
                 Ok(_) => {}
                 Err(e) => {
-                    log::warn!("Client {} read error (opcode {}, expected {} bytes): {}",
-                        client_id, opcode, request_data.len(), e);
+                    log::warn!(
+                        "Client {} read error (opcode {}, expected {} bytes): {}",
+                        client_id,
+                        opcode,
+                        request_data.len(),
+                        e
+                    );
                     break;
                 }
             }
@@ -157,181 +162,219 @@ fn handle_client<S: Read + Write>(
                     handle_create_window(&mut stream, &header, &request_data, &server)?;
                     // Track window for cleanup on disconnect
                     if request_data.len() >= 4 {
-                        let wid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
+                        let wid = u32::from_le_bytes([
+                            request_data[0],
+                            request_data[1],
+                            request_data[2],
+                            request_data[3],
+                        ]);
                         log::debug!("Tracking window 0x{:08x} for client {}", wid, client_id);
                         let mut server = server.lock().unwrap();
                         server.track_window(client_id, wid);
                     }
                 }
                 2 => handle_change_window_attributes(&mut stream, &header, &request_data, &server)?,
-            3 => handle_get_window_attributes(&mut stream, &header, &request_data, &server)?,
-            4 => handle_destroy_window(&mut stream, &header, &request_data, &server)?,
-            5 => handle_destroy_subwindows(&mut stream, &header, &request_data, &server)?,
-            6 => handle_change_save_set(&mut stream, &header, &request_data, &server)?,
-            7 => handle_reparent_window(&mut stream, &header, &request_data, &server)?,
-            8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
-            9 => handle_map_subwindows(&mut stream, &header, &request_data, &server)?,
-            10 => handle_unmap_window(&mut stream, &header, &request_data, &server)?,
-            11 => handle_unmap_subwindows(&mut stream, &header, &request_data, &server)?,
-            12 => handle_configure_window(&mut stream, &header, &request_data, &server)?,
-            13 => handle_circulate_window(&mut stream, &header, &request_data, &server)?,
-            14 => handle_get_geometry(&mut stream, &header, &request_data, &server)?,
-            15 => handle_query_tree(&mut stream, &header, &request_data, &server)?,
-            16 => handle_intern_atom(&mut stream, &header, &request_data, &server)?,
-            17 => handle_get_atom_name(&mut stream, &header, &request_data, &server)?,
-            18 => handle_change_property(&mut stream, &header, &request_data, &server)?,
-            19 => handle_delete_property(&mut stream, &header, &request_data, &server)?,
-            20 => handle_get_property(&mut stream, &header, &request_data, &server)?,
-            21 => handle_list_properties(&mut stream, &header, &request_data, &server)?,
-            22 => handle_set_selection_owner(&mut stream, &header, &request_data, &server)?,
-            23 => handle_get_selection_owner(&mut stream, &header, &request_data, &server)?,
-            24 => handle_convert_selection(&mut stream, &header, &request_data, &server)?,
-            25 => handle_send_event(&mut stream, &header, &request_data, &server)?,
-            26 => handle_grab_pointer(&mut stream, &header, &request_data, &server)?,
-            27 => handle_ungrab_pointer(&mut stream, &header, &request_data, &server)?,
-            28 => handle_grab_server(&mut stream, &header, &request_data, &server)?,
-            29 => handle_ungrab_server(&mut stream, &header, &request_data, &server)?,
-            30 => handle_change_active_pointer_grab(&mut stream, &header, &request_data, &server)?,
-            31 => handle_grab_button(&mut stream, &header, &request_data, &server)?,
-            32 => handle_ungrab_button(&mut stream, &header, &request_data, &server)?,
-            33 => handle_grab_keyboard(&mut stream, &header, &request_data, &server)?,
-            34 => handle_ungrab_keyboard(&mut stream, &header, &request_data, &server)?,
-            35 => handle_allow_events(&mut stream, &header, &request_data, &server)?,
-            36 => handle_grab_key(&mut stream, &header, &request_data, &server)?,
-            37 => handle_ungrab_key(&mut stream, &header, &request_data, &server)?,
-            38 => handle_query_pointer(&mut stream, &header, &request_data, &server)?,
-            39 => handle_get_motion_events(&mut stream, &header, &request_data, &server)?,
-            40 => handle_translate_coordinates(&mut stream, &header, &request_data, &server)?,
-            41 => handle_warp_pointer(&mut stream, &header, &request_data, &server)?,
-            42 => handle_set_input_focus(&mut stream, &header, &request_data, &server)?,
-            43 => handle_get_input_focus(&mut stream, &header, &request_data, &server)?,
-            44 => handle_query_keymap(&mut stream, &header, &request_data, &server)?,
-            45 => {
-                handle_open_font(&mut stream, &header, &request_data, &server)?;
-                // Track font for cleanup on disconnect
-                if request_data.len() >= 4 {
-                    let fid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
-                    let mut server = server.lock().unwrap();
-                    server.track_font(client_id, fid);
+                3 => handle_get_window_attributes(&mut stream, &header, &request_data, &server)?,
+                4 => handle_destroy_window(&mut stream, &header, &request_data, &server)?,
+                5 => handle_destroy_subwindows(&mut stream, &header, &request_data, &server)?,
+                6 => handle_change_save_set(&mut stream, &header, &request_data, &server)?,
+                7 => handle_reparent_window(&mut stream, &header, &request_data, &server)?,
+                8 => handle_map_window(&mut stream, &header, &request_data, &server)?,
+                9 => handle_map_subwindows(&mut stream, &header, &request_data, &server)?,
+                10 => handle_unmap_window(&mut stream, &header, &request_data, &server)?,
+                11 => handle_unmap_subwindows(&mut stream, &header, &request_data, &server)?,
+                12 => handle_configure_window(&mut stream, &header, &request_data, &server)?,
+                13 => handle_circulate_window(&mut stream, &header, &request_data, &server)?,
+                14 => handle_get_geometry(&mut stream, &header, &request_data, &server)?,
+                15 => handle_query_tree(&mut stream, &header, &request_data, &server)?,
+                16 => handle_intern_atom(&mut stream, &header, &request_data, &server)?,
+                17 => handle_get_atom_name(&mut stream, &header, &request_data, &server)?,
+                18 => handle_change_property(&mut stream, &header, &request_data, &server)?,
+                19 => handle_delete_property(&mut stream, &header, &request_data, &server)?,
+                20 => handle_get_property(&mut stream, &header, &request_data, &server)?,
+                21 => handle_list_properties(&mut stream, &header, &request_data, &server)?,
+                22 => handle_set_selection_owner(&mut stream, &header, &request_data, &server)?,
+                23 => handle_get_selection_owner(&mut stream, &header, &request_data, &server)?,
+                24 => handle_convert_selection(&mut stream, &header, &request_data, &server)?,
+                25 => handle_send_event(&mut stream, &header, &request_data, &server)?,
+                26 => handle_grab_pointer(&mut stream, &header, &request_data, &server)?,
+                27 => handle_ungrab_pointer(&mut stream, &header, &request_data, &server)?,
+                28 => handle_grab_server(&mut stream, &header, &request_data, &server)?,
+                29 => handle_ungrab_server(&mut stream, &header, &request_data, &server)?,
+                30 => {
+                    handle_change_active_pointer_grab(&mut stream, &header, &request_data, &server)?
                 }
-            }
-            46 => handle_close_font(&mut stream, &header, &request_data, &server)?,
-            47 => handle_query_font(&mut stream, &header, &request_data, &server)?,
-            48 => handle_query_text_extents(&mut stream, &header, &request_data, &server)?,
-            49 => handle_list_fonts(&mut stream, &header, &request_data, &server)?,
-            50 => handle_list_fonts_with_info(&mut stream, &header, &request_data, &server)?,
-            51 => handle_set_font_path(&mut stream, &header, &request_data, &server)?,
-            52 => handle_get_font_path(&mut stream, &header, &request_data, &server)?,
-            53 => {
-                handle_create_pixmap(&mut stream, &header, &request_data, &server)?;
-                // Track pixmap for cleanup on disconnect
-                if request_data.len() >= 4 {
-                    let pid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
-                    let mut server = server.lock().unwrap();
-                    server.track_pixmap(client_id, pid);
+                31 => handle_grab_button(&mut stream, &header, &request_data, &server)?,
+                32 => handle_ungrab_button(&mut stream, &header, &request_data, &server)?,
+                33 => handle_grab_keyboard(&mut stream, &header, &request_data, &server)?,
+                34 => handle_ungrab_keyboard(&mut stream, &header, &request_data, &server)?,
+                35 => handle_allow_events(&mut stream, &header, &request_data, &server)?,
+                36 => handle_grab_key(&mut stream, &header, &request_data, &server)?,
+                37 => handle_ungrab_key(&mut stream, &header, &request_data, &server)?,
+                38 => handle_query_pointer(&mut stream, &header, &request_data, &server)?,
+                39 => handle_get_motion_events(&mut stream, &header, &request_data, &server)?,
+                40 => handle_translate_coordinates(&mut stream, &header, &request_data, &server)?,
+                41 => handle_warp_pointer(&mut stream, &header, &request_data, &server)?,
+                42 => handle_set_input_focus(&mut stream, &header, &request_data, &server)?,
+                43 => handle_get_input_focus(&mut stream, &header, &request_data, &server)?,
+                44 => handle_query_keymap(&mut stream, &header, &request_data, &server)?,
+                45 => {
+                    handle_open_font(&mut stream, &header, &request_data, &server)?;
+                    // Track font for cleanup on disconnect
+                    if request_data.len() >= 4 {
+                        let fid = u32::from_le_bytes([
+                            request_data[0],
+                            request_data[1],
+                            request_data[2],
+                            request_data[3],
+                        ]);
+                        let mut server = server.lock().unwrap();
+                        server.track_font(client_id, fid);
+                    }
                 }
-            }
-            54 => handle_free_pixmap(&mut stream, &header, &request_data, &server)?,
-            55 => {
-                handle_create_gc(&mut stream, &header, &request_data, &server)?;
-                // Track GC for cleanup on disconnect
-                if request_data.len() >= 4 {
-                    let cid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
-                    let mut server = server.lock().unwrap();
-                    server.track_gc(client_id, cid);
+                46 => handle_close_font(&mut stream, &header, &request_data, &server)?,
+                47 => handle_query_font(&mut stream, &header, &request_data, &server)?,
+                48 => handle_query_text_extents(&mut stream, &header, &request_data, &server)?,
+                49 => handle_list_fonts(&mut stream, &header, &request_data, &server)?,
+                50 => handle_list_fonts_with_info(&mut stream, &header, &request_data, &server)?,
+                51 => handle_set_font_path(&mut stream, &header, &request_data, &server)?,
+                52 => handle_get_font_path(&mut stream, &header, &request_data, &server)?,
+                53 => {
+                    handle_create_pixmap(&mut stream, &header, &request_data, &server)?;
+                    // Track pixmap for cleanup on disconnect
+                    if request_data.len() >= 4 {
+                        let pid = u32::from_le_bytes([
+                            request_data[0],
+                            request_data[1],
+                            request_data[2],
+                            request_data[3],
+                        ]);
+                        let mut server = server.lock().unwrap();
+                        server.track_pixmap(client_id, pid);
+                    }
                 }
-            }
-            56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
-            57 => handle_copy_gc(&mut stream, &header, &request_data, &server)?,
-            58 => handle_set_dashes(&mut stream, &header, &request_data, &server)?,
-            59 => handle_set_clip_rectangles(&mut stream, &header, &request_data, &server)?,
-            60 => handle_free_gc(&mut stream, &header, &request_data, &server)?,
-            61 => handle_clear_area(&mut stream, &header, &request_data, &server)?,
-            62 => handle_copy_area(&mut stream, &header, &request_data, &server)?,
-            63 => handle_copy_plane(&mut stream, &header, &request_data, &server)?,
-            73 => handle_get_image(&mut stream, &header, &request_data, &server)?,
-            78 => handle_create_colormap(&mut stream, &header, &request_data, &server)?,
-            79 => handle_free_colormap(&mut stream, &header, &request_data, &server)?,
-            80 => handle_copy_colormap_and_free(&mut stream, &header, &request_data, &server)?,
-            81 => handle_install_colormap(&mut stream, &header, &request_data, &server)?,
-            82 => handle_uninstall_colormap(&mut stream, &header, &request_data, &server)?,
-            83 => handle_list_installed_colormaps(&mut stream, &header, &request_data, &server)?,
-            84 => handle_alloc_color(&mut stream, &header, &request_data, &server)?,
-            85 => handle_alloc_named_color(&mut stream, &header, &request_data, &server)?,
-            86 => handle_alloc_color_cells(&mut stream, &header, &request_data, &server)?,
-            87 => handle_alloc_color_planes(&mut stream, &header, &request_data, &server)?,
-            88 => handle_free_colors(&mut stream, &header, &request_data, &server)?,
-            89 => handle_store_colors(&mut stream, &header, &request_data, &server)?,
-            90 => handle_store_named_color(&mut stream, &header, &request_data, &server)?,
-            91 => handle_query_colors(&mut stream, &header, &request_data, &server)?,
-            92 => handle_lookup_color(&mut stream, &header, &request_data, &server)?,
-            93 => {
-                handle_create_cursor(&mut stream, &header, &request_data, &server)?;
-                // Track cursor for cleanup on disconnect
-                if request_data.len() >= 4 {
-                    let cid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
-                    let mut server = server.lock().unwrap();
-                    server.track_cursor(client_id, cid);
+                54 => handle_free_pixmap(&mut stream, &header, &request_data, &server)?,
+                55 => {
+                    handle_create_gc(&mut stream, &header, &request_data, &server)?;
+                    // Track GC for cleanup on disconnect
+                    if request_data.len() >= 4 {
+                        let cid = u32::from_le_bytes([
+                            request_data[0],
+                            request_data[1],
+                            request_data[2],
+                            request_data[3],
+                        ]);
+                        let mut server = server.lock().unwrap();
+                        server.track_gc(client_id, cid);
+                    }
                 }
-            }
-            94 => {
-                handle_create_glyph_cursor(&mut stream, &header, &request_data, &server)?;
-                // Track cursor for cleanup on disconnect
-                if request_data.len() >= 4 {
-                    let cid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
-                    let mut server = server.lock().unwrap();
-                    server.track_cursor(client_id, cid);
+                56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
+                57 => handle_copy_gc(&mut stream, &header, &request_data, &server)?,
+                58 => handle_set_dashes(&mut stream, &header, &request_data, &server)?,
+                59 => handle_set_clip_rectangles(&mut stream, &header, &request_data, &server)?,
+                60 => handle_free_gc(&mut stream, &header, &request_data, &server)?,
+                61 => handle_clear_area(&mut stream, &header, &request_data, &server)?,
+                62 => handle_copy_area(&mut stream, &header, &request_data, &server)?,
+                63 => handle_copy_plane(&mut stream, &header, &request_data, &server)?,
+                73 => handle_get_image(&mut stream, &header, &request_data, &server)?,
+                78 => handle_create_colormap(&mut stream, &header, &request_data, &server)?,
+                79 => handle_free_colormap(&mut stream, &header, &request_data, &server)?,
+                80 => handle_copy_colormap_and_free(&mut stream, &header, &request_data, &server)?,
+                81 => handle_install_colormap(&mut stream, &header, &request_data, &server)?,
+                82 => handle_uninstall_colormap(&mut stream, &header, &request_data, &server)?,
+                83 => {
+                    handle_list_installed_colormaps(&mut stream, &header, &request_data, &server)?
                 }
-            }
-            95 => handle_free_cursor(&mut stream, &header, &request_data, &server)?,
-            96 => handle_recolor_cursor(&mut stream, &header, &request_data, &server)?,
-            97 => handle_query_best_size(&mut stream, &header, &request_data, &server)?,
-            98 => handle_query_extension(&mut stream, &header, &request_data, &server)?,
-            99 => handle_list_extensions(&mut stream, &header, &request_data, &server)?,
-            104 => handle_bell(&mut stream, &header, &request_data, &server)?,
-            100 => handle_change_keyboard_mapping(&mut stream, &header, &request_data, &server)?,
-            101 => handle_get_keyboard_mapping(&mut stream, &header, &request_data, &server)?,
-            102 => handle_change_keyboard_control(&mut stream, &header, &request_data, &server)?,
-            103 => handle_get_keyboard_control(&mut stream, &header, &request_data, &server)?,
-            105 => handle_change_pointer_control(&mut stream, &header, &request_data, &server)?,
-            106 => handle_get_pointer_control(&mut stream, &header, &request_data, &server)?,
-            107 => handle_set_screen_saver(&mut stream, &header, &request_data, &server)?,
-            108 => handle_get_screen_saver(&mut stream, &header, &request_data, &server)?,
-            109 => handle_change_hosts(&mut stream, &header, &request_data, &server)?,
-            110 => handle_list_hosts(&mut stream, &header, &request_data, &server)?,
-            111 => handle_set_access_control(&mut stream, &header, &request_data, &server)?,
-            112 => handle_set_close_down_mode(&mut stream, &header, &request_data, &server)?,
-            113 => handle_kill_client(&mut stream, &header, &request_data, &server)?,
-            114 => handle_rotate_properties(&mut stream, &header, &request_data, &server)?,
-            115 => handle_force_screen_saver(&mut stream, &header, &request_data, &server)?,
-            116 => handle_set_pointer_mapping(&mut stream, &header, &request_data, &server)?,
-            117 => handle_get_pointer_mapping(&mut stream, &header, &request_data, &server)?,
-            118 => handle_set_modifier_mapping(&mut stream, &header, &request_data, &server)?,
-            119 => handle_get_modifier_mapping(&mut stream, &header, &request_data, &server)?,
-            127 => handle_no_operation(&mut stream, &header, &request_data, &server)?,
-            64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
-            65 => handle_poly_line(&mut stream, &header, &request_data, &server)?,
-            66 => handle_poly_segment(&mut stream, &header, &request_data, &server)?,
-            67 => handle_poly_rectangle(&mut stream, &header, &request_data, &server)?,
-            68 => handle_poly_arc(&mut stream, &header, &request_data, &server)?,
-            69 => handle_fill_poly(&mut stream, &header, &request_data, &server)?,
-            70 => handle_poly_fill_rectangle(&mut stream, &header, &request_data, &server)?,
-            71 => handle_poly_fill_arc(&mut stream, &header, &request_data, &server)?,
-            72 => handle_put_image(&mut stream, &header, &request_data, &server)?,
-            74 => handle_poly_text8(&mut stream, &header, &request_data, &server)?,
-            75 => handle_poly_text16(&mut stream, &header, &request_data, &server)?,
-            76 => handle_image_text8(&mut stream, &header, &request_data, &server)?,
-            77 => handle_image_text16(&mut stream, &header, &request_data, &server)?,
-            // Extension opcodes (129+)
-            129..=255 => {
-                super::extensions::handle_extension_request(
-                    &mut stream,
-                    &header,
-                    &request_data,
-                    opcode,
-                    &server,
-                )?;
-            }
+                84 => handle_alloc_color(&mut stream, &header, &request_data, &server)?,
+                85 => handle_alloc_named_color(&mut stream, &header, &request_data, &server)?,
+                86 => handle_alloc_color_cells(&mut stream, &header, &request_data, &server)?,
+                87 => handle_alloc_color_planes(&mut stream, &header, &request_data, &server)?,
+                88 => handle_free_colors(&mut stream, &header, &request_data, &server)?,
+                89 => handle_store_colors(&mut stream, &header, &request_data, &server)?,
+                90 => handle_store_named_color(&mut stream, &header, &request_data, &server)?,
+                91 => handle_query_colors(&mut stream, &header, &request_data, &server)?,
+                92 => handle_lookup_color(&mut stream, &header, &request_data, &server)?,
+                93 => {
+                    handle_create_cursor(&mut stream, &header, &request_data, &server)?;
+                    // Track cursor for cleanup on disconnect
+                    if request_data.len() >= 4 {
+                        let cid = u32::from_le_bytes([
+                            request_data[0],
+                            request_data[1],
+                            request_data[2],
+                            request_data[3],
+                        ]);
+                        let mut server = server.lock().unwrap();
+                        server.track_cursor(client_id, cid);
+                    }
+                }
+                94 => {
+                    handle_create_glyph_cursor(&mut stream, &header, &request_data, &server)?;
+                    // Track cursor for cleanup on disconnect
+                    if request_data.len() >= 4 {
+                        let cid = u32::from_le_bytes([
+                            request_data[0],
+                            request_data[1],
+                            request_data[2],
+                            request_data[3],
+                        ]);
+                        let mut server = server.lock().unwrap();
+                        server.track_cursor(client_id, cid);
+                    }
+                }
+                95 => handle_free_cursor(&mut stream, &header, &request_data, &server)?,
+                96 => handle_recolor_cursor(&mut stream, &header, &request_data, &server)?,
+                97 => handle_query_best_size(&mut stream, &header, &request_data, &server)?,
+                98 => handle_query_extension(&mut stream, &header, &request_data, &server)?,
+                99 => handle_list_extensions(&mut stream, &header, &request_data, &server)?,
+                104 => handle_bell(&mut stream, &header, &request_data, &server)?,
+                100 => {
+                    handle_change_keyboard_mapping(&mut stream, &header, &request_data, &server)?
+                }
+                101 => handle_get_keyboard_mapping(&mut stream, &header, &request_data, &server)?,
+                102 => {
+                    handle_change_keyboard_control(&mut stream, &header, &request_data, &server)?
+                }
+                103 => handle_get_keyboard_control(&mut stream, &header, &request_data, &server)?,
+                105 => handle_change_pointer_control(&mut stream, &header, &request_data, &server)?,
+                106 => handle_get_pointer_control(&mut stream, &header, &request_data, &server)?,
+                107 => handle_set_screen_saver(&mut stream, &header, &request_data, &server)?,
+                108 => handle_get_screen_saver(&mut stream, &header, &request_data, &server)?,
+                109 => handle_change_hosts(&mut stream, &header, &request_data, &server)?,
+                110 => handle_list_hosts(&mut stream, &header, &request_data, &server)?,
+                111 => handle_set_access_control(&mut stream, &header, &request_data, &server)?,
+                112 => handle_set_close_down_mode(&mut stream, &header, &request_data, &server)?,
+                113 => handle_kill_client(&mut stream, &header, &request_data, &server)?,
+                114 => handle_rotate_properties(&mut stream, &header, &request_data, &server)?,
+                115 => handle_force_screen_saver(&mut stream, &header, &request_data, &server)?,
+                116 => handle_set_pointer_mapping(&mut stream, &header, &request_data, &server)?,
+                117 => handle_get_pointer_mapping(&mut stream, &header, &request_data, &server)?,
+                118 => handle_set_modifier_mapping(&mut stream, &header, &request_data, &server)?,
+                119 => handle_get_modifier_mapping(&mut stream, &header, &request_data, &server)?,
+                127 => handle_no_operation(&mut stream, &header, &request_data, &server)?,
+                64 => handle_poly_point(&mut stream, &header, &request_data, &server)?,
+                65 => handle_poly_line(&mut stream, &header, &request_data, &server)?,
+                66 => handle_poly_segment(&mut stream, &header, &request_data, &server)?,
+                67 => handle_poly_rectangle(&mut stream, &header, &request_data, &server)?,
+                68 => handle_poly_arc(&mut stream, &header, &request_data, &server)?,
+                69 => handle_fill_poly(&mut stream, &header, &request_data, &server)?,
+                70 => handle_poly_fill_rectangle(&mut stream, &header, &request_data, &server)?,
+                71 => handle_poly_fill_arc(&mut stream, &header, &request_data, &server)?,
+                72 => handle_put_image(&mut stream, &header, &request_data, &server)?,
+                74 => handle_poly_text8(&mut stream, &header, &request_data, &server)?,
+                75 => handle_poly_text16(&mut stream, &header, &request_data, &server)?,
+                76 => handle_image_text8(&mut stream, &header, &request_data, &server)?,
+                77 => handle_image_text16(&mut stream, &header, &request_data, &server)?,
+                // Extension opcodes (129+)
+                129..=255 => {
+                    super::extensions::handle_extension_request(
+                        &mut stream,
+                        &header,
+                        &request_data,
+                        opcode,
+                        &server,
+                    )?;
+                }
                 _ => {
                     log::debug!("Unhandled opcode: {}", opcode);
                 }
@@ -341,7 +384,12 @@ fn handle_client<S: Read + Write>(
 
         // If handler returned an error, log it and disconnect the client
         if let Err(e) = handle_result {
-            log::warn!("Client {} handler error (opcode {}): {}", client_id, opcode, e);
+            log::warn!(
+                "Client {} handler error (opcode {}): {}",
+                client_id,
+                opcode,
+                e
+            );
             break;
         }
     }
@@ -350,7 +398,11 @@ fn handle_client<S: Read + Write>(
     {
         let mut server = server.lock().unwrap();
         let cleanup_requests = server.handle_client_disconnect(client_id);
-        log::info!("Client {} disconnected, {} cleanup requests to process", client_id, cleanup_requests.len());
+        log::info!(
+            "Client {} disconnected, {} cleanup requests to process",
+            client_id,
+            cleanup_requests.len()
+        );
 
         // Process cleanup requests to actually destroy windows/resources
         for request in cleanup_requests {
