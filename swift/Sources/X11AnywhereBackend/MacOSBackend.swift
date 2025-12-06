@@ -235,11 +235,18 @@ class MacOSBackendImpl {
     }
 
     func destroyWindow(id: Int) {
+        NSLog("destroyWindow: id=\(id)")
         DispatchQueue.main.sync {
             self.windowContentViews.removeValue(forKey: id)
             self.windowBuffers.removeValue(forKey: id)
             if let window = self.windows.removeValue(forKey: id) {
-                window.close()
+                NSLog("destroyWindow: closing window \(id)")
+                // Use orderOut instead of close to prevent app termination
+                // when last window closes
+                window.orderOut(nil)
+                NSLog("destroyWindow: window closed")
+            } else {
+                NSLog("destroyWindow: window \(id) not found in windows dict")
             }
         }
     }

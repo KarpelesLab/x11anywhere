@@ -639,6 +639,31 @@ impl Server {
         self.resource_tracker.track_request(client_id, request);
     }
 
+    /// Track a window creation for cleanup when client disconnects
+    pub fn track_window(&mut self, client_id: u32, window_id: u32) {
+        self.resource_tracker.track_window(client_id, window_id);
+    }
+
+    /// Track a GC creation for cleanup when client disconnects
+    pub fn track_gc(&mut self, client_id: u32, gc_id: u32) {
+        self.resource_tracker.track_gc(client_id, gc_id);
+    }
+
+    /// Track a pixmap creation for cleanup when client disconnects
+    pub fn track_pixmap(&mut self, client_id: u32, pixmap_id: u32) {
+        self.resource_tracker.track_pixmap(client_id, pixmap_id);
+    }
+
+    /// Track a font opening for cleanup when client disconnects
+    pub fn track_font(&mut self, client_id: u32, font_id: u32) {
+        self.resource_tracker.track_font(client_id, font_id);
+    }
+
+    /// Track a cursor creation for cleanup when client disconnects
+    pub fn track_cursor(&mut self, client_id: u32, cursor_id: u32) {
+        self.resource_tracker.track_cursor(client_id, cursor_id);
+    }
+
     /// Get the security policy
     pub fn security_policy(&self) -> &SecurityPolicy {
         &self.security_policy
@@ -762,7 +787,9 @@ impl Server {
         };
 
         let backend_window = self.backend.create_window(params)?;
+        log::info!("Created window 0x{:08x} -> backend {:?}", window.id().0, backend_window);
         self.windows.insert(window, backend_window);
+        log::debug!("Windows map now has {} entries", self.windows.len());
 
         // Store window metadata for event dispatching and geometry queries
         self.window_info.insert(
@@ -858,9 +885,14 @@ impl Server {
 
     /// Destroy a window
     pub fn destroy_window(&mut self, window: Window) -> Result<(), Box<dyn Error + Send + Sync>> {
+        log::debug!("destroy_window called for window 0x{:08x}, windows map has {} entries", window.id().0, self.windows.len());
         if let Some(&backend_window) = self.windows.get(&window) {
+            log::info!("Destroying window 0x{:08x} -> backend {:?}", window.id().0, backend_window);
             self.backend.destroy_window(backend_window)?;
             self.windows.remove(&window);
+            log::debug!("Window destroyed and removed from map");
+        } else {
+            log::warn!("Window 0x{:08x} not found in windows map!", window.id().0);
         }
         Ok(())
     }

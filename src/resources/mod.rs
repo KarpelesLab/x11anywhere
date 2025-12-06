@@ -201,6 +201,41 @@ impl ResourceTracker {
             .unwrap_or(false)
     }
 
+    /// Track a window creation for a client
+    pub fn track_window(&mut self, client_id: u32, window_id: u32) {
+        if let Some(windows) = self.windows.get_mut(&client_id) {
+            windows.insert(XID(window_id));
+        }
+    }
+
+    /// Track a GC creation for a client
+    pub fn track_gc(&mut self, client_id: u32, gc_id: u32) {
+        if let Some(gcs) = self.gcs.get_mut(&client_id) {
+            gcs.insert(XID(gc_id));
+        }
+    }
+
+    /// Track a pixmap creation for a client
+    pub fn track_pixmap(&mut self, client_id: u32, pixmap_id: u32) {
+        if let Some(pixmaps) = self.pixmaps.get_mut(&client_id) {
+            pixmaps.insert(XID(pixmap_id));
+        }
+    }
+
+    /// Track a font opening for a client
+    pub fn track_font(&mut self, client_id: u32, font_id: u32) {
+        if let Some(fonts) = self.fonts.get_mut(&client_id) {
+            fonts.insert(font_id);
+        }
+    }
+
+    /// Track a cursor creation for a client
+    pub fn track_cursor(&mut self, client_id: u32, cursor_id: u32) {
+        if let Some(cursors) = self.cursors.get_mut(&client_id) {
+            cursors.insert(cursor_id);
+        }
+    }
+
     /// Get resource counts for a client (for security limits)
     pub fn get_resource_counts(&self, client_id: u32) -> ResourceCounts {
         ResourceCounts {

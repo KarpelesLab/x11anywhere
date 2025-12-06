@@ -1,7 +1,9 @@
 //! Server listener and connection handling
 use std::error::Error;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener};
+#[cfg(unix)]
+use std::os::unix::net::UnixListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -36,11 +38,49 @@ pub fn start_tcp_listener(
     Ok(())
 }
 
-fn handle_client(
-    mut stream: TcpStream,
+/// Start Unix socket listener for X11 connections
+#[cfg(unix)]
+pub fn start_unix_listener(
+    display: u16,
     server: Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    log::info!("New client connection from {:?}", stream.peer_addr());
+    let socket_dir = std::path::Path::new("/tmp/.X11-unix");
+    if !socket_dir.exists() {
+        std::fs::create_dir_all(socket_dir)?;
+    }
+
+    let socket_path = format!("/tmp/.X11-unix/X{}", display);
+
+    // Remove existing socket file if present
+    let _ = std::fs::remove_file(&socket_path);
+
+    let listener = UnixListener::bind(&socket_path)?;
+    log::info!("Unix socket listening on {}", socket_path);
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                let server = Arc::clone(&server);
+                thread::spawn(move || {
+                    if let Err(e) = handle_client(stream, server) {
+                        log::error!("Unix client error: {}", e);
+                    }
+                });
+            }
+            Err(e) => {
+                log::error!("Unix connection failed: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_client<S: Read + Write>(
+    mut stream: S,
+    server: Arc<Mutex<Server>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::info!("New client connection");
 
     // Read connection setup
     let setup_request = SetupRequest::parse(&mut stream)?;
@@ -100,13 +140,30 @@ fn handle_client(
         // Read rest of request
         let mut request_data = vec![0u8; length.saturating_sub(4)];
         if !request_data.is_empty() {
-            stream.read_exact(&mut request_data)?;
+            match stream.read_exact(&mut request_data) {
+                Ok(_) => {}
+                Err(e) => {
+                    log::warn!("Client {} read error (opcode {}, expected {} bytes): {}",
+                        client_id, opcode, request_data.len(), e);
+                    break;
+                }
+            }
         }
 
-        // Handle X11 protocol requests
-        match opcode {
-            1 => handle_create_window(&mut stream, &header, &request_data, &server)?,
-            2 => handle_change_window_attributes(&mut stream, &header, &request_data, &server)?,
+        // Handle X11 protocol requests - wrap in closure to handle errors gracefully
+        let handle_result: Result<(), Box<dyn Error + Send + Sync>> = (|| {
+            match opcode {
+                1 => {
+                    handle_create_window(&mut stream, &header, &request_data, &server)?;
+                    // Track window for cleanup on disconnect
+                    if request_data.len() >= 4 {
+                        let wid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
+                        log::debug!("Tracking window 0x{:08x} for client {}", wid, client_id);
+                        let mut server = server.lock().unwrap();
+                        server.track_window(client_id, wid);
+                    }
+                }
+                2 => handle_change_window_attributes(&mut stream, &header, &request_data, &server)?,
             3 => handle_get_window_attributes(&mut stream, &header, &request_data, &server)?,
             4 => handle_destroy_window(&mut stream, &header, &request_data, &server)?,
             5 => handle_destroy_subwindows(&mut stream, &header, &request_data, &server)?,
@@ -149,7 +206,15 @@ fn handle_client(
             42 => handle_set_input_focus(&mut stream, &header, &request_data, &server)?,
             43 => handle_get_input_focus(&mut stream, &header, &request_data, &server)?,
             44 => handle_query_keymap(&mut stream, &header, &request_data, &server)?,
-            45 => handle_open_font(&mut stream, &header, &request_data, &server)?,
+            45 => {
+                handle_open_font(&mut stream, &header, &request_data, &server)?;
+                // Track font for cleanup on disconnect
+                if request_data.len() >= 4 {
+                    let fid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
+                    let mut server = server.lock().unwrap();
+                    server.track_font(client_id, fid);
+                }
+            }
             46 => handle_close_font(&mut stream, &header, &request_data, &server)?,
             47 => handle_query_font(&mut stream, &header, &request_data, &server)?,
             48 => handle_query_text_extents(&mut stream, &header, &request_data, &server)?,
@@ -157,9 +222,25 @@ fn handle_client(
             50 => handle_list_fonts_with_info(&mut stream, &header, &request_data, &server)?,
             51 => handle_set_font_path(&mut stream, &header, &request_data, &server)?,
             52 => handle_get_font_path(&mut stream, &header, &request_data, &server)?,
-            53 => handle_create_pixmap(&mut stream, &header, &request_data, &server)?,
+            53 => {
+                handle_create_pixmap(&mut stream, &header, &request_data, &server)?;
+                // Track pixmap for cleanup on disconnect
+                if request_data.len() >= 4 {
+                    let pid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
+                    let mut server = server.lock().unwrap();
+                    server.track_pixmap(client_id, pid);
+                }
+            }
             54 => handle_free_pixmap(&mut stream, &header, &request_data, &server)?,
-            55 => handle_create_gc(&mut stream, &header, &request_data, &server)?,
+            55 => {
+                handle_create_gc(&mut stream, &header, &request_data, &server)?;
+                // Track GC for cleanup on disconnect
+                if request_data.len() >= 4 {
+                    let cid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
+                    let mut server = server.lock().unwrap();
+                    server.track_gc(client_id, cid);
+                }
+            }
             56 => handle_change_gc(&mut stream, &header, &request_data, &server)?,
             57 => handle_copy_gc(&mut stream, &header, &request_data, &server)?,
             58 => handle_set_dashes(&mut stream, &header, &request_data, &server)?,
@@ -184,8 +265,24 @@ fn handle_client(
             90 => handle_store_named_color(&mut stream, &header, &request_data, &server)?,
             91 => handle_query_colors(&mut stream, &header, &request_data, &server)?,
             92 => handle_lookup_color(&mut stream, &header, &request_data, &server)?,
-            93 => handle_create_cursor(&mut stream, &header, &request_data, &server)?,
-            94 => handle_create_glyph_cursor(&mut stream, &header, &request_data, &server)?,
+            93 => {
+                handle_create_cursor(&mut stream, &header, &request_data, &server)?;
+                // Track cursor for cleanup on disconnect
+                if request_data.len() >= 4 {
+                    let cid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
+                    let mut server = server.lock().unwrap();
+                    server.track_cursor(client_id, cid);
+                }
+            }
+            94 => {
+                handle_create_glyph_cursor(&mut stream, &header, &request_data, &server)?;
+                // Track cursor for cleanup on disconnect
+                if request_data.len() >= 4 {
+                    let cid = u32::from_le_bytes([request_data[0], request_data[1], request_data[2], request_data[3]]);
+                    let mut server = server.lock().unwrap();
+                    server.track_cursor(client_id, cid);
+                }
+            }
             95 => handle_free_cursor(&mut stream, &header, &request_data, &server)?,
             96 => handle_recolor_cursor(&mut stream, &header, &request_data, &server)?,
             97 => handle_query_best_size(&mut stream, &header, &request_data, &server)?,
@@ -235,9 +332,17 @@ fn handle_client(
                     &server,
                 )?;
             }
-            _ => {
-                log::debug!("Unhandled opcode: {}", opcode);
+                _ => {
+                    log::debug!("Unhandled opcode: {}", opcode);
+                }
             }
+            Ok(())
+        })();
+
+        // If handler returned an error, log it and disconnect the client
+        if let Err(e) = handle_result {
+            log::warn!("Client {} handler error (opcode {}): {}", client_id, opcode, e);
+            break;
         }
     }
 
@@ -245,6 +350,7 @@ fn handle_client(
     {
         let mut server = server.lock().unwrap();
         let cleanup_requests = server.handle_client_disconnect(client_id);
+        log::info!("Client {} disconnected, {} cleanup requests to process", client_id, cleanup_requests.len());
 
         // Process cleanup requests to actually destroy windows/resources
         for request in cleanup_requests {
@@ -342,8 +448,8 @@ fn create_setup_response(server: &Server) -> SetupResponse {
     })
 }
 
-fn send_setup_response(
-    stream: &mut TcpStream,
+fn send_setup_response<S: Write>(
+    stream: &mut S,
     response: &SetupResponse,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     use crate::protocol::ByteOrder;
@@ -354,8 +460,8 @@ fn send_setup_response(
 }
 
 // Request handlers with actual implementation
-fn handle_create_window(
-    _stream: &mut TcpStream,
+fn handle_create_window<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -493,8 +599,8 @@ fn handle_create_window(
     Ok(())
 }
 
-fn handle_map_window(
-    stream: &mut TcpStream,
+fn handle_map_window<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -553,8 +659,8 @@ fn handle_map_window(
     Ok(())
 }
 
-fn handle_map_subwindows(
-    stream: &mut TcpStream,
+fn handle_map_subwindows<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -619,8 +725,8 @@ fn handle_map_subwindows(
     Ok(())
 }
 
-fn handle_unmap_window(
-    _stream: &mut TcpStream,
+fn handle_unmap_window<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -640,8 +746,8 @@ fn handle_unmap_window(
     Ok(())
 }
 
-fn handle_destroy_window(
-    _stream: &mut TcpStream,
+fn handle_destroy_window<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -661,8 +767,8 @@ fn handle_destroy_window(
     Ok(())
 }
 
-fn handle_reparent_window(
-    _stream: &mut TcpStream,
+fn handle_reparent_window<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -697,8 +803,8 @@ fn handle_reparent_window(
     Ok(())
 }
 
-fn handle_destroy_subwindows(
-    _stream: &mut TcpStream,
+fn handle_destroy_subwindows<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -733,8 +839,8 @@ fn handle_destroy_subwindows(
     Ok(())
 }
 
-fn handle_unmap_subwindows(
-    _stream: &mut TcpStream,
+fn handle_unmap_subwindows<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -769,8 +875,8 @@ fn handle_unmap_subwindows(
     Ok(())
 }
 
-fn handle_change_save_set(
-    _stream: &mut TcpStream,
+fn handle_change_save_set<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -797,8 +903,8 @@ fn handle_change_save_set(
     Ok(())
 }
 
-fn handle_circulate_window(
-    _stream: &mut TcpStream,
+fn handle_circulate_window<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -829,8 +935,8 @@ fn handle_circulate_window(
     Ok(())
 }
 
-fn handle_configure_window(
-    _stream: &mut TcpStream,
+fn handle_configure_window<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -891,8 +997,8 @@ fn handle_configure_window(
     Ok(())
 }
 
-fn handle_create_gc(
-    _stream: &mut TcpStream,
+fn handle_create_gc<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -963,8 +1069,8 @@ fn handle_create_gc(
     Ok(())
 }
 
-fn handle_change_gc(
-    _stream: &mut TcpStream,
+fn handle_change_gc<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1032,8 +1138,8 @@ fn handle_change_gc(
     Ok(())
 }
 
-fn handle_copy_gc(
-    _stream: &mut TcpStream,
+fn handle_copy_gc<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1065,8 +1171,8 @@ fn handle_copy_gc(
     Ok(())
 }
 
-fn handle_poly_fill_rectangle(
-    _stream: &mut TcpStream,
+fn handle_poly_fill_rectangle<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1116,8 +1222,8 @@ fn handle_poly_fill_rectangle(
     Ok(())
 }
 
-fn handle_poly_point(
-    _stream: &mut TcpStream,
+fn handle_poly_point<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1168,8 +1274,8 @@ fn handle_poly_point(
     Ok(())
 }
 
-fn handle_poly_line(
-    _stream: &mut TcpStream,
+fn handle_poly_line<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1220,8 +1326,8 @@ fn handle_poly_line(
     Ok(())
 }
 
-fn handle_poly_segment(
-    _stream: &mut TcpStream,
+fn handle_poly_segment<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1265,8 +1371,8 @@ fn handle_poly_segment(
     Ok(())
 }
 
-fn handle_poly_rectangle(
-    _stream: &mut TcpStream,
+fn handle_poly_rectangle<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1315,8 +1421,8 @@ fn handle_poly_rectangle(
     Ok(())
 }
 
-fn handle_poly_arc(
-    _stream: &mut TcpStream,
+fn handle_poly_arc<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1365,8 +1471,8 @@ fn handle_poly_arc(
     Ok(())
 }
 
-fn handle_fill_poly(
-    _stream: &mut TcpStream,
+fn handle_fill_poly<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1420,8 +1526,8 @@ fn handle_fill_poly(
     Ok(())
 }
 
-fn handle_poly_fill_arc(
-    _stream: &mut TcpStream,
+fn handle_poly_fill_arc<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1470,8 +1576,8 @@ fn handle_poly_fill_arc(
     Ok(())
 }
 
-fn handle_copy_area(
-    _stream: &mut TcpStream,
+fn handle_copy_area<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1524,8 +1630,8 @@ fn handle_copy_area(
     Ok(())
 }
 
-fn handle_get_image(
-    stream: &mut TcpStream,
+fn handle_get_image<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1598,8 +1704,8 @@ fn handle_get_image(
     Ok(())
 }
 
-fn handle_put_image(
-    _stream: &mut TcpStream,
+fn handle_put_image<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1654,8 +1760,8 @@ fn handle_put_image(
     Ok(())
 }
 
-fn handle_open_font(
-    _stream: &mut TcpStream,
+fn handle_open_font<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1680,8 +1786,8 @@ fn handle_open_font(
     Ok(())
 }
 
-fn handle_close_font(
-    _stream: &mut TcpStream,
+fn handle_close_font<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1701,8 +1807,8 @@ fn handle_close_font(
     Ok(())
 }
 
-fn handle_query_font(
-    stream: &mut TcpStream,
+fn handle_query_font<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1741,8 +1847,8 @@ fn handle_query_font(
     Ok(())
 }
 
-fn handle_query_text_extents(
-    stream: &mut TcpStream,
+fn handle_query_text_extents<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -1795,8 +1901,8 @@ fn handle_query_text_extents(
     Ok(())
 }
 
-fn handle_list_fonts(
-    stream: &mut TcpStream,
+fn handle_list_fonts<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1832,8 +1938,8 @@ fn handle_list_fonts(
     Ok(())
 }
 
-fn handle_list_fonts_with_info(
-    stream: &mut TcpStream,
+fn handle_list_fonts_with_info<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1887,8 +1993,8 @@ fn handle_list_fonts_with_info(
     Ok(())
 }
 
-fn handle_alloc_color(
-    stream: &mut TcpStream,
+fn handle_alloc_color<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1922,8 +2028,8 @@ fn handle_alloc_color(
     Ok(())
 }
 
-fn handle_alloc_named_color(
-    stream: &mut TcpStream,
+fn handle_alloc_named_color<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -1975,8 +2081,8 @@ fn handle_alloc_named_color(
     Ok(())
 }
 
-fn handle_query_extension(
-    stream: &mut TcpStream,
+fn handle_query_extension<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2028,8 +2134,8 @@ fn handle_query_extension(
     Ok(())
 }
 
-fn handle_list_extensions(
-    stream: &mut TcpStream,
+fn handle_list_extensions<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2057,8 +2163,8 @@ fn handle_list_extensions(
     Ok(())
 }
 
-fn handle_change_window_attributes(
-    _stream: &mut TcpStream,
+fn handle_change_window_attributes<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2173,8 +2279,8 @@ fn handle_change_window_attributes(
     Ok(())
 }
 
-fn handle_get_window_attributes(
-    stream: &mut TcpStream,
+fn handle_get_window_attributes<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2219,8 +2325,8 @@ fn handle_get_window_attributes(
     Ok(())
 }
 
-fn handle_get_geometry(
-    stream: &mut TcpStream,
+fn handle_get_geometry<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2298,8 +2404,8 @@ fn handle_get_geometry(
     Ok(())
 }
 
-fn handle_query_tree(
-    stream: &mut TcpStream,
+fn handle_query_tree<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2345,8 +2451,8 @@ fn handle_query_tree(
     Ok(())
 }
 
-fn handle_bell(
-    _stream: &mut TcpStream,
+fn handle_bell<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -2364,8 +2470,8 @@ fn handle_bell(
     Ok(())
 }
 
-fn handle_image_text8(
-    _stream: &mut TcpStream,
+fn handle_image_text8<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2407,8 +2513,8 @@ fn handle_image_text8(
     Ok(())
 }
 
-fn handle_image_text16(
-    _stream: &mut TcpStream,
+fn handle_image_text16<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2461,8 +2567,8 @@ fn handle_image_text16(
     Ok(())
 }
 
-fn handle_poly_text8(
-    _stream: &mut TcpStream,
+fn handle_poly_text8<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2528,8 +2634,8 @@ fn handle_poly_text8(
     Ok(())
 }
 
-fn handle_poly_text16(
-    _stream: &mut TcpStream,
+fn handle_poly_text16<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2606,8 +2712,8 @@ fn handle_poly_text16(
     Ok(())
 }
 
-fn handle_intern_atom(
-    stream: &mut TcpStream,
+fn handle_intern_atom<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2646,8 +2752,8 @@ fn handle_intern_atom(
     Ok(())
 }
 
-fn handle_get_atom_name(
-    stream: &mut TcpStream,
+fn handle_get_atom_name<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2679,8 +2785,8 @@ fn handle_get_atom_name(
     Ok(())
 }
 
-fn handle_change_property(
-    _stream: &mut TcpStream,
+fn handle_change_property<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2733,8 +2839,8 @@ fn handle_change_property(
     Ok(())
 }
 
-fn handle_delete_property(
-    _stream: &mut TcpStream,
+fn handle_delete_property<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2764,8 +2870,8 @@ fn handle_delete_property(
     Ok(())
 }
 
-fn handle_get_property(
-    stream: &mut TcpStream,
+fn handle_get_property<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2824,8 +2930,8 @@ fn handle_get_property(
     Ok(())
 }
 
-fn handle_list_properties(
-    stream: &mut TcpStream,
+fn handle_list_properties<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2865,8 +2971,8 @@ fn handle_list_properties(
     Ok(())
 }
 
-fn handle_set_selection_owner(
-    _stream: &mut TcpStream,
+fn handle_set_selection_owner<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2899,8 +3005,8 @@ fn handle_set_selection_owner(
     Ok(())
 }
 
-fn handle_get_selection_owner(
-    stream: &mut TcpStream,
+fn handle_get_selection_owner<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -2932,8 +3038,8 @@ fn handle_get_selection_owner(
     Ok(())
 }
 
-fn handle_convert_selection(
-    _stream: &mut TcpStream,
+fn handle_convert_selection<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -2966,8 +3072,8 @@ fn handle_convert_selection(
     Ok(())
 }
 
-fn handle_send_event(
-    _stream: &mut TcpStream,
+fn handle_send_event<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -2998,8 +3104,8 @@ fn handle_send_event(
     Ok(())
 }
 
-fn handle_set_input_focus(
-    _stream: &mut TcpStream,
+fn handle_set_input_focus<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3026,8 +3132,8 @@ fn handle_set_input_focus(
     Ok(())
 }
 
-fn handle_get_input_focus(
-    stream: &mut TcpStream,
+fn handle_get_input_focus<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -3053,8 +3159,8 @@ fn handle_get_input_focus(
     Ok(())
 }
 
-fn handle_create_pixmap(
-    _stream: &mut TcpStream,
+fn handle_create_pixmap<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -3088,8 +3194,8 @@ fn handle_create_pixmap(
     Ok(())
 }
 
-fn handle_free_pixmap(
-    _stream: &mut TcpStream,
+fn handle_free_pixmap<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -3111,8 +3217,8 @@ fn handle_free_pixmap(
     Ok(())
 }
 
-fn handle_free_gc(
-    _stream: &mut TcpStream,
+fn handle_free_gc<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3131,8 +3237,8 @@ fn handle_free_gc(
     Ok(())
 }
 
-fn handle_clear_area(
-    _stream: &mut TcpStream,
+fn handle_clear_area<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3165,8 +3271,8 @@ fn handle_clear_area(
     Ok(())
 }
 
-fn handle_grab_server(
-    _stream: &mut TcpStream,
+fn handle_grab_server<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3178,8 +3284,8 @@ fn handle_grab_server(
     Ok(())
 }
 
-fn handle_ungrab_server(
-    _stream: &mut TcpStream,
+fn handle_ungrab_server<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3189,8 +3295,8 @@ fn handle_ungrab_server(
     Ok(())
 }
 
-fn handle_query_pointer(
-    stream: &mut TcpStream,
+fn handle_query_pointer<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -3231,8 +3337,8 @@ fn handle_query_pointer(
     Ok(())
 }
 
-fn handle_get_motion_events(
-    stream: &mut TcpStream,
+fn handle_get_motion_events<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3270,8 +3376,8 @@ fn handle_get_motion_events(
     Ok(())
 }
 
-fn handle_translate_coordinates(
-    stream: &mut TcpStream,
+fn handle_translate_coordinates<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     server: &Arc<Mutex<Server>>,
@@ -3317,8 +3423,8 @@ fn handle_translate_coordinates(
     Ok(())
 }
 
-fn handle_query_keymap(
-    stream: &mut TcpStream,
+fn handle_query_keymap<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3340,8 +3446,8 @@ fn handle_query_keymap(
     Ok(())
 }
 
-fn handle_grab_pointer(
-    stream: &mut TcpStream,
+fn handle_grab_pointer<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3376,8 +3482,8 @@ fn handle_grab_pointer(
     Ok(())
 }
 
-fn handle_ungrab_pointer(
-    _stream: &mut TcpStream,
+fn handle_ungrab_pointer<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3395,8 +3501,8 @@ fn handle_ungrab_pointer(
     Ok(())
 }
 
-fn handle_grab_button(
-    _stream: &mut TcpStream,
+fn handle_grab_button<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3415,8 +3521,8 @@ fn handle_grab_button(
     Ok(())
 }
 
-fn handle_ungrab_button(
-    _stream: &mut TcpStream,
+fn handle_ungrab_button<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3438,8 +3544,8 @@ fn handle_ungrab_button(
     Ok(())
 }
 
-fn handle_grab_keyboard(
-    stream: &mut TcpStream,
+fn handle_grab_keyboard<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3472,8 +3578,8 @@ fn handle_grab_keyboard(
     Ok(())
 }
 
-fn handle_ungrab_keyboard(
-    _stream: &mut TcpStream,
+fn handle_ungrab_keyboard<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3491,8 +3597,8 @@ fn handle_ungrab_keyboard(
     Ok(())
 }
 
-fn handle_allow_events(
-    _stream: &mut TcpStream,
+fn handle_allow_events<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3524,8 +3630,8 @@ fn handle_allow_events(
     Ok(())
 }
 
-fn handle_grab_key(
-    _stream: &mut TcpStream,
+fn handle_grab_key<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3558,8 +3664,8 @@ fn handle_grab_key(
     Ok(())
 }
 
-fn handle_ungrab_key(
-    _stream: &mut TcpStream,
+fn handle_ungrab_key<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3583,8 +3689,8 @@ fn handle_ungrab_key(
     Ok(())
 }
 
-fn handle_warp_pointer(
-    _stream: &mut TcpStream,
+fn handle_warp_pointer<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3613,8 +3719,8 @@ fn handle_warp_pointer(
     Ok(())
 }
 
-fn handle_create_colormap(
-    _stream: &mut TcpStream,
+fn handle_create_colormap<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3643,8 +3749,8 @@ fn handle_create_colormap(
     Ok(())
 }
 
-fn handle_free_colormap(
-    _stream: &mut TcpStream,
+fn handle_free_colormap<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3663,8 +3769,8 @@ fn handle_free_colormap(
     Ok(())
 }
 
-fn handle_free_colors(
-    _stream: &mut TcpStream,
+fn handle_free_colors<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3689,8 +3795,8 @@ fn handle_free_colors(
     Ok(())
 }
 
-fn handle_query_colors(
-    stream: &mut TcpStream,
+fn handle_query_colors<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3753,8 +3859,8 @@ fn handle_query_colors(
     Ok(())
 }
 
-fn handle_create_cursor(
-    _stream: &mut TcpStream,
+fn handle_create_cursor<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3781,8 +3887,8 @@ fn handle_create_cursor(
     Ok(())
 }
 
-fn handle_create_glyph_cursor(
-    _stream: &mut TcpStream,
+fn handle_create_glyph_cursor<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3809,8 +3915,8 @@ fn handle_create_glyph_cursor(
     Ok(())
 }
 
-fn handle_free_cursor(
-    _stream: &mut TcpStream,
+fn handle_free_cursor<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3829,8 +3935,8 @@ fn handle_free_cursor(
     Ok(())
 }
 
-fn handle_query_best_size(
-    stream: &mut TcpStream,
+fn handle_query_best_size<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3878,8 +3984,8 @@ fn handle_query_best_size(
     Ok(())
 }
 
-fn handle_change_keyboard_mapping(
-    _stream: &mut TcpStream,
+fn handle_change_keyboard_mapping<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3906,8 +4012,8 @@ fn handle_change_keyboard_mapping(
     Ok(())
 }
 
-fn handle_get_keyboard_mapping(
-    stream: &mut TcpStream,
+fn handle_get_keyboard_mapping<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3961,8 +4067,8 @@ fn handle_get_keyboard_mapping(
     Ok(())
 }
 
-fn handle_set_pointer_mapping(
-    stream: &mut TcpStream,
+fn handle_set_pointer_mapping<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -3991,8 +4097,8 @@ fn handle_set_pointer_mapping(
     Ok(())
 }
 
-fn handle_get_pointer_mapping(
-    stream: &mut TcpStream,
+fn handle_get_pointer_mapping<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4023,8 +4129,8 @@ fn handle_get_pointer_mapping(
     Ok(())
 }
 
-fn handle_no_operation(
-    _stream: &mut TcpStream,
+fn handle_no_operation<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4034,8 +4140,8 @@ fn handle_no_operation(
     Ok(())
 }
 
-fn handle_set_screen_saver(
-    _stream: &mut TcpStream,
+fn handle_set_screen_saver<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4064,8 +4170,8 @@ fn handle_set_screen_saver(
     Ok(())
 }
 
-fn handle_get_screen_saver(
-    stream: &mut TcpStream,
+fn handle_get_screen_saver<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4090,8 +4196,8 @@ fn handle_get_screen_saver(
     Ok(())
 }
 
-fn handle_change_active_pointer_grab(
-    _stream: &mut TcpStream,
+fn handle_change_active_pointer_grab<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4112,8 +4218,8 @@ fn handle_change_active_pointer_grab(
     Ok(())
 }
 
-fn handle_set_font_path(
-    _stream: &mut TcpStream,
+fn handle_set_font_path<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4127,8 +4233,8 @@ fn handle_set_font_path(
     Ok(())
 }
 
-fn handle_get_font_path(
-    stream: &mut TcpStream,
+fn handle_get_font_path<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4142,8 +4248,8 @@ fn handle_get_font_path(
     Ok(())
 }
 
-fn handle_set_dashes(
-    _stream: &mut TcpStream,
+fn handle_set_dashes<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4164,8 +4270,8 @@ fn handle_set_dashes(
     Ok(())
 }
 
-fn handle_set_clip_rectangles(
-    _stream: &mut TcpStream,
+fn handle_set_clip_rectangles<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4190,8 +4296,8 @@ fn handle_set_clip_rectangles(
     Ok(())
 }
 
-fn handle_copy_plane(
-    _stream: &mut TcpStream,
+fn handle_copy_plane<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4214,8 +4320,8 @@ fn handle_copy_plane(
     Ok(())
 }
 
-fn handle_copy_colormap_and_free(
-    _stream: &mut TcpStream,
+fn handle_copy_colormap_and_free<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4229,8 +4335,8 @@ fn handle_copy_colormap_and_free(
     Ok(())
 }
 
-fn handle_install_colormap(
-    _stream: &mut TcpStream,
+fn handle_install_colormap<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4243,8 +4349,8 @@ fn handle_install_colormap(
     Ok(())
 }
 
-fn handle_uninstall_colormap(
-    _stream: &mut TcpStream,
+fn handle_uninstall_colormap<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4257,8 +4363,8 @@ fn handle_uninstall_colormap(
     Ok(())
 }
 
-fn handle_list_installed_colormaps(
-    stream: &mut TcpStream,
+fn handle_list_installed_colormaps<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4281,8 +4387,8 @@ fn handle_list_installed_colormaps(
     Ok(())
 }
 
-fn handle_alloc_color_cells(
-    stream: &mut TcpStream,
+fn handle_alloc_color_cells<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4304,8 +4410,8 @@ fn handle_alloc_color_cells(
     Ok(())
 }
 
-fn handle_alloc_color_planes(
-    stream: &mut TcpStream,
+fn handle_alloc_color_planes<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4327,8 +4433,8 @@ fn handle_alloc_color_planes(
     Ok(())
 }
 
-fn handle_store_colors(
-    _stream: &mut TcpStream,
+fn handle_store_colors<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4341,8 +4447,8 @@ fn handle_store_colors(
     Ok(())
 }
 
-fn handle_store_named_color(
-    _stream: &mut TcpStream,
+fn handle_store_named_color<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4355,8 +4461,8 @@ fn handle_store_named_color(
     Ok(())
 }
 
-fn handle_lookup_color(
-    stream: &mut TcpStream,
+fn handle_lookup_color<S: Write>(
+    stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4404,8 +4510,8 @@ fn handle_lookup_color(
     Ok(())
 }
 
-fn handle_recolor_cursor(
-    _stream: &mut TcpStream,
+fn handle_recolor_cursor<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4418,8 +4524,8 @@ fn handle_recolor_cursor(
     Ok(())
 }
 
-fn handle_change_keyboard_control(
-    _stream: &mut TcpStream,
+fn handle_change_keyboard_control<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4432,8 +4538,8 @@ fn handle_change_keyboard_control(
     Ok(())
 }
 
-fn handle_get_keyboard_control(
-    stream: &mut TcpStream,
+fn handle_get_keyboard_control<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4456,8 +4562,8 @@ fn handle_get_keyboard_control(
     Ok(())
 }
 
-fn handle_change_pointer_control(
-    _stream: &mut TcpStream,
+fn handle_change_pointer_control<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4477,8 +4583,8 @@ fn handle_change_pointer_control(
     Ok(())
 }
 
-fn handle_get_pointer_control(
-    stream: &mut TcpStream,
+fn handle_get_pointer_control<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4495,8 +4601,8 @@ fn handle_get_pointer_control(
     Ok(())
 }
 
-fn handle_change_hosts(
-    _stream: &mut TcpStream,
+fn handle_change_hosts<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4510,8 +4616,8 @@ fn handle_change_hosts(
     Ok(())
 }
 
-fn handle_list_hosts(
-    stream: &mut TcpStream,
+fn handle_list_hosts<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4526,8 +4632,8 @@ fn handle_list_hosts(
     Ok(())
 }
 
-fn handle_set_access_control(
-    _stream: &mut TcpStream,
+fn handle_set_access_control<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4537,8 +4643,8 @@ fn handle_set_access_control(
     Ok(())
 }
 
-fn handle_set_close_down_mode(
-    _stream: &mut TcpStream,
+fn handle_set_close_down_mode<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4548,8 +4654,8 @@ fn handle_set_close_down_mode(
     Ok(())
 }
 
-fn handle_kill_client(
-    _stream: &mut TcpStream,
+fn handle_kill_client<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4562,8 +4668,8 @@ fn handle_kill_client(
     Ok(())
 }
 
-fn handle_rotate_properties(
-    _stream: &mut TcpStream,
+fn handle_rotate_properties<S: Write>(
+    _stream: &mut S,
     _header: &[u8],
     data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4583,8 +4689,8 @@ fn handle_rotate_properties(
     Ok(())
 }
 
-fn handle_force_screen_saver(
-    _stream: &mut TcpStream,
+fn handle_force_screen_saver<S: Write>(
+    _stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4594,8 +4700,8 @@ fn handle_force_screen_saver(
     Ok(())
 }
 
-fn handle_set_modifier_mapping(
-    stream: &mut TcpStream,
+fn handle_set_modifier_mapping<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
@@ -4614,8 +4720,8 @@ fn handle_set_modifier_mapping(
     Ok(())
 }
 
-fn handle_get_modifier_mapping(
-    stream: &mut TcpStream,
+fn handle_get_modifier_mapping<S: Write>(
+    stream: &mut S,
     header: &[u8],
     _data: &[u8],
     _server: &Arc<Mutex<Server>>,
