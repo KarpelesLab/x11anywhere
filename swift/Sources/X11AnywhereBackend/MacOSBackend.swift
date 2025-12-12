@@ -114,8 +114,8 @@ class X11ContentView: NSView {
         let imageWidth = CGFloat(cgImage.width)
         let imageHeight = CGFloat(cgImage.height)
 
-        // Draw with y offset for proper positioning (temporary fix - needs investigation)
-        currentCtx.draw(cgImage, in: CGRect(x: 0, y: 100, width: imageWidth, height: imageHeight))
+        // Draw at y=30 to account for window title bar offset
+        currentCtx.draw(cgImage, in: CGRect(x: 0, y: 30, width: imageWidth, height: imageHeight))
     }
 
     func updateContents() {
