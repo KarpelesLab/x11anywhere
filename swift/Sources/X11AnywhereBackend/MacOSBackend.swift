@@ -23,6 +23,79 @@ public enum BackendResult: Int32 {
     case error = 1
 }
 
+// MARK: - Application Delegate
+
+class X11AppDelegate: NSObject, NSApplicationDelegate {
+    static let shared = X11AppDelegate()
+    private var eventMonitor: Any?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSLog("X11AppDelegate: applicationDidFinishLaunching")
+
+        // Add local event monitor to debug mouse/keyboard events
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { event in
+            NSLog("LocalEventMonitor: type=\(event.type.rawValue), window=\(event.window?.title ?? "nil")")
+            return event
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        NSLog("X11AppDelegate: applicationWillTerminate")
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // Don't quit when windows are closed
+        return false
+    }
+}
+
+// MARK: - Event Queue for X11 Events
+
+/// Structure representing an X11 event queued from NSView handlers
+struct X11QueuedEvent {
+    var type: Int32       // X11 event type
+    var windowId: Int32   // Backend window ID
+    var x: Int32          // X coordinate
+    var y: Int32          // Y coordinate
+    var width: Int32      // Width (for configure events)
+    var height: Int32     // Height (for configure events)
+    var keycode: Int32    // Key code
+    var button: Int32     // Mouse button
+    var state: Int32      // Modifier state
+    var time: Int32       // Event timestamp in milliseconds
+}
+
+/// Global event queue that NSViews can write to and poll_event can read from
+/// Access must be synchronized since NSViews run on main thread and poll_event may be called from worker thread
+class X11EventQueue {
+    static let shared = X11EventQueue()
+
+    private var events: [X11QueuedEvent] = []
+    private let lock = NSLock()
+
+    func enqueue(_ event: X11QueuedEvent) {
+        lock.lock()
+        defer { lock.unlock() }
+        events.append(event)
+        NSLog("X11EventQueue: enqueued event type=\(event.type), window=\(event.windowId), x=\(event.x), y=\(event.y), keycode=\(event.keycode)")
+    }
+
+    func dequeue() -> X11QueuedEvent? {
+        lock.lock()
+        defer { lock.unlock() }
+        if events.isEmpty {
+            return nil
+        }
+        return events.removeFirst()
+    }
+
+    var isEmpty: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return events.isEmpty
+    }
+}
+
 // MARK: - Backing Buffer Storage
 
 class X11BackingBuffer {
@@ -66,6 +139,7 @@ class X11BackingBuffer {
 
 class X11ContentView: NSView {
     var buffer: X11BackingBuffer?
+    var windowId: Int32 = 0  // Backend window ID for event routing
     private var trackingArea: NSTrackingArea?
 
     override init(frame frameRect: NSRect) {
@@ -100,6 +174,268 @@ class X11ContentView: NSView {
 
     override var isFlipped: Bool { return true }
 
+    // Accept keyboard events
+    override var acceptsFirstResponder: Bool { return true }
+    override var canBecomeKeyView: Bool { return true }
+
+    /// Convert macOS keycode to X11 keycode
+    /// X11 keycodes are typically offset by 8 from hardware scancodes
+    private func macToX11Keycode(_ macKeycode: UInt16) -> Int32 {
+        // macOS keycodes are similar to hardware scancodes
+        // X11 keycodes = hardware scancode + 8
+        return Int32(macKeycode) + 8
+    }
+
+    /// Get current modifier state as X11 modifier mask
+    private func modifierState(from event: NSEvent) -> Int32 {
+        var state: Int32 = 0
+        let flags = event.modifierFlags
+
+        if flags.contains(.shift) { state |= 1 }     // ShiftMask
+        if flags.contains(.control) { state |= 4 }   // ControlMask
+        if flags.contains(.option) { state |= 8 }    // Mod1Mask (Alt)
+        if flags.contains(.command) { state |= 64 }  // Mod4Mask (Super)
+        if flags.contains(.capsLock) { state |= 2 }  // LockMask
+
+        return state
+    }
+
+    /// Convert macOS Y coordinate (origin at bottom-left) to X11 Y (origin at top-left)
+    /// NOTE: Since isFlipped = true, coordinates from convert() are already in top-left origin,
+    /// so we just cast to Int32 without flipping.
+    private func convertY(_ macY: CGFloat) -> Int32 {
+        // With isFlipped=true, Y is already correct (0 at top)
+        return Int32(macY)
+    }
+
+    /// Get timestamp in milliseconds
+    private func eventTime(_ event: NSEvent) -> Int32 {
+        return Int32(event.timestamp * 1000)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // Don't call super - we handle it ourselves and don't want the beep
+        NSLog("X11ContentView.keyDown: keyCode=\(event.keyCode), chars=\(event.characters ?? "nil")")
+
+        let queuedEvent = X11QueuedEvent(
+            type: 2,  // X11 KeyPress
+            windowId: windowId,
+            x: 0, y: 0, width: 0, height: 0,
+            keycode: macToX11Keycode(event.keyCode),
+            button: 0,
+            state: modifierState(from: event),
+            time: eventTime(event)
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        NSLog("X11ContentView.keyUp: keyCode=\(event.keyCode)")
+
+        let queuedEvent = X11QueuedEvent(
+            type: 3,  // X11 KeyRelease
+            windowId: windowId,
+            x: 0, y: 0, width: 0, height: 0,
+            keycode: macToX11Keycode(event.keyCode),
+            button: 0,
+            state: modifierState(from: event),
+            time: eventTime(event)
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        NSLog("X11ContentView.mouseDown: location=\(event.locationInWindow)")
+        // Make sure we become first responder on click
+        window?.makeFirstResponder(self)
+
+        // locationInWindow is in window coordinates (Y=0 at bottom)
+        // We need to convert to X11 coordinates (Y=0 at top)
+        let loc = event.locationInWindow
+        let x = Int32(loc.x)
+        // Convert Y from bottom-up (macOS) to top-down (X11)
+        let windowHeight = window?.contentView?.bounds.height ?? bounds.height
+        let y = Int32(windowHeight - loc.y)
+
+        let queuedEvent = X11QueuedEvent(
+            type: 4,  // X11 ButtonPress
+            windowId: windowId,
+            x: x,
+            y: y,
+            width: 0, height: 0, keycode: 0,
+            button: 1,  // Left button
+            state: modifierState(from: event),
+            time: eventTime(event)
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        NSLog("X11ContentView.mouseUp: location=\(event.locationInWindow)")
+
+        let loc = event.locationInWindow
+        let x = Int32(loc.x)
+        let windowHeight = window?.contentView?.bounds.height ?? bounds.height
+        let y = Int32(windowHeight - loc.y)
+
+        let queuedEvent = X11QueuedEvent(
+            type: 5,  // X11 ButtonRelease
+            windowId: windowId,
+            x: x,
+            y: y,
+            width: 0, height: 0, keycode: 0,
+            button: 1,  // Left button
+            state: modifierState(from: event),
+            time: eventTime(event)
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        NSLog("X11ContentView.rightMouseDown: location=\(event.locationInWindow)")
+
+        let loc = event.locationInWindow
+        let x = Int32(loc.x)
+        let windowHeight = window?.contentView?.bounds.height ?? bounds.height
+        let y = Int32(windowHeight - loc.y)
+
+        let queuedEvent = X11QueuedEvent(
+            type: 4,  // X11 ButtonPress
+            windowId: windowId,
+            x: x,
+            y: y,
+            width: 0, height: 0, keycode: 0,
+            button: 3,  // Right button
+            state: modifierState(from: event),
+            time: eventTime(event)
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        NSLog("X11ContentView.rightMouseUp: location=\(event.locationInWindow)")
+
+        let loc = event.locationInWindow
+        let x = Int32(loc.x)
+        let windowHeight = window?.contentView?.bounds.height ?? bounds.height
+        let y = Int32(windowHeight - loc.y)
+
+        let queuedEvent = X11QueuedEvent(
+            type: 5,  // X11 ButtonRelease
+            windowId: windowId,
+            x: x,
+            y: y,
+            width: 0, height: 0, keycode: 0,
+            button: 3,  // Right button
+            state: modifierState(from: event),
+            time: eventTime(event)
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let loc = event.locationInWindow
+        let x = Int32(loc.x)
+        let windowHeight = window?.contentView?.bounds.height ?? bounds.height
+        let y = Int32(windowHeight - loc.y)
+
+        let queuedEvent = X11QueuedEvent(
+            type: 6,  // X11 MotionNotify
+            windowId: windowId,
+            x: x,
+            y: y,
+            width: 0, height: 0, keycode: 0, button: 0,
+            state: modifierState(from: event),
+            time: eventTime(event)
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let loc = event.locationInWindow
+        let x = Int32(loc.x)
+        let windowHeight = window?.contentView?.bounds.height ?? bounds.height
+        let y = Int32(windowHeight - loc.y)
+
+        let queuedEvent = X11QueuedEvent(
+            type: 6,  // X11 MotionNotify
+            windowId: windowId,
+            x: x,
+            y: y,
+            width: 0, height: 0, keycode: 0,
+            button: 1,  // Left button held
+            state: modifierState(from: event) | 256,  // Button1Mask
+            time: eventTime(event)
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        NSLog("X11ContentView.mouseEntered: windowId=\(windowId)")
+        let loc = convert(event.locationInWindow, from: nil)
+        let x = Int32(loc.x)
+        let y = Int32(loc.y)  // Already flipped because isFlipped=true
+
+        let queuedEvent = X11QueuedEvent(
+            type: 10,  // X11 EnterNotify
+            windowId: windowId,
+            x: x,
+            y: y,
+            width: 0, height: 0, keycode: 0, button: 0,
+            state: modifierState(from: event),
+            time: eventTime(event)
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        NSLog("X11ContentView.mouseExited: windowId=\(windowId)")
+        let loc = convert(event.locationInWindow, from: nil)
+        let x = Int32(loc.x)
+        let y = Int32(loc.y)  // Already flipped because isFlipped=true
+
+        let queuedEvent = X11QueuedEvent(
+            type: 11,  // X11 LeaveNotify
+            windowId: windowId,
+            x: x,
+            y: y,
+            width: 0, height: 0, keycode: 0, button: 0,
+            state: modifierState(from: event),
+            time: eventTime(event)
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        NSLog("X11ContentView.becomeFirstResponder: windowId=\(windowId)")
+        // Use system uptime (like NSEvent.timestamp) to avoid overflow
+        let time = Int32(truncatingIfNeeded: Int64(ProcessInfo.processInfo.systemUptime * 1000))
+        let queuedEvent = X11QueuedEvent(
+            type: 8,  // X11 FocusIn
+            windowId: windowId,
+            x: 0, y: 0, width: 0, height: 0,
+            keycode: 0, button: 0, state: 0,
+            time: time
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+        return super.becomeFirstResponder()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        NSLog("X11ContentView.resignFirstResponder: windowId=\(windowId)")
+        // Use system uptime (like NSEvent.timestamp) to avoid overflow
+        let time = Int32(truncatingIfNeeded: Int64(ProcessInfo.processInfo.systemUptime * 1000))
+        let queuedEvent = X11QueuedEvent(
+            type: 9,  // X11 FocusOut
+            windowId: windowId,
+            x: 0, y: 0, width: 0, height: 0,
+            keycode: 0, button: 0, state: 0,
+            time: time
+        )
+        X11EventQueue.shared.enqueue(queuedEvent)
+        return super.resignFirstResponder()
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
@@ -111,11 +447,16 @@ class X11ContentView: NSView {
             return
         }
 
+        // Get the title bar height by comparing window frame to content layout rect
+        // contentLayoutRect excludes the title bar area
+        var titleBarHeight: CGFloat = 0
+        if let window = self.window {
+            titleBarHeight = window.frame.height - window.contentLayoutRect.height
+        }
+
         let imageWidth = CGFloat(cgImage.width)
         let imageHeight = CGFloat(cgImage.height)
-
-        // Draw at y=30 to account for window title bar offset
-        currentCtx.draw(cgImage, in: CGRect(x: 0, y: 30, width: imageWidth, height: imageHeight))
+        currentCtx.draw(cgImage, in: CGRect(x: 0, y: titleBarHeight, width: imageWidth, height: imageHeight))
     }
 
     func updateContents() {
@@ -163,6 +504,22 @@ class MacOSBackendImpl {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
 
+        // Set up a delegate to track events
+        if app.delegate == nil {
+            app.delegate = X11AppDelegate.shared
+            NSLog("initializeOnMainThread: set app delegate")
+        }
+
+        // Finish launching the application so it can receive events
+        if !app.isRunning {
+            app.finishLaunching()
+            NSLog("initializeOnMainThread: called finishLaunching()")
+        }
+
+        // Activate the app to bring it to front and allow it to receive events
+        app.activate(ignoringOtherApps: true)
+        NSLog("initializeOnMainThread: activated app")
+
         // Get screen dimensions
         if let screen = NSScreen.main {
             let frame = screen.frame
@@ -205,6 +562,7 @@ class MacOSBackendImpl {
             let buffer = X11BackingBuffer(width: width, height: height)
             let contentView = X11ContentView(frame: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
             contentView.buffer = buffer
+            contentView.windowId = Int32(id)  // Set the window ID for event routing
 
             window.contentView = contentView
 
@@ -253,7 +611,9 @@ class MacOSBackendImpl {
                 // Update the content view with the current buffer content
                 if let contentView = self.windowContentViews[id] {
                     contentView.updateContents()
-                    NSLog("mapWindow: updated contentView, buffer context: \(contentView.buffer?.context != nil)")
+                    // Make content view first responder for keyboard events
+                    window.makeFirstResponder(contentView)
+                    NSLog("mapWindow: updated contentView, buffer context: \(contentView.buffer?.context != nil), firstResponder: \(window.firstResponder === contentView)")
                 }
                 window.display()
 
@@ -1357,126 +1717,21 @@ public func macos_backend_poll_event(
     state: UnsafeMutablePointer<Int32>,
     time: UnsafeMutablePointer<Int32>
 ) -> Int32 {
-    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
-
-    var hasEvent = false
-    var evtType: Int32 = 0
-    var evtWindowId: Int32 = 0
-    var evtX: Int32 = 0
-    var evtY: Int32 = 0
-    var evtWidth: Int32 = 0
-    var evtHeight: Int32 = 0
-    var evtKeycode: Int32 = 0
-    var evtButton: Int32 = 0
-    var evtState: Int32 = 0
-    var evtTime: Int32 = 0
-
-    DispatchQueue.main.sync {
-        if let nsEvent = NSApplication.shared.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) {
-            hasEvent = true
-
-            // Find which window this event is for and get content height for Y coordinate flipping
-            var contentHeight: CGFloat = 0
-            if let eventWindow = nsEvent.window {
-                for (id, window) in backend.windows {
-                    if window === eventWindow {
-                        evtWindowId = Int32(id)
-                        // Get content view height for Y coordinate conversion
-                        if let contentView = window.contentView {
-                            contentHeight = contentView.bounds.height
-                        }
-                        break
-                    }
-                }
-            }
-
-            // Helper to convert macOS Y (origin at bottom) to X11 Y (origin at top)
-            func flipY(_ macY: CGFloat) -> Int32 {
-                return Int32(contentHeight - macY)
-            }
-
-            evtTime = Int32(nsEvent.timestamp * 1000) // Convert to milliseconds
-
-            switch nsEvent.type {
-            case .leftMouseDown:
-                evtType = 5 // buttonpress
-                evtButton = 1
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .rightMouseDown:
-                evtType = 5 // buttonpress
-                evtButton = 3
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .otherMouseDown:
-                evtType = 5 // buttonpress
-                evtButton = 2
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .leftMouseUp:
-                evtType = 6 // buttonrelease
-                evtButton = 1
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .rightMouseUp:
-                evtType = 6 // buttonrelease
-                evtButton = 3
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .otherMouseUp:
-                evtType = 6 // buttonrelease
-                evtButton = 2
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-                evtType = 7 // motion
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .mouseEntered:
-                evtType = 10 // enterNotify
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .mouseExited:
-                evtType = 11 // leaveNotify
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .keyDown:
-                evtType = 3 // keypress
-                evtKeycode = Int32(nsEvent.keyCode)
-
-            case .keyUp:
-                evtType = 4 // keyrelease
-                evtKeycode = Int32(nsEvent.keyCode)
-
-            default:
-                hasEvent = false
-            }
-
-            // Dispatch the event to the application
-            NSApplication.shared.sendEvent(nsEvent)
-        }
-    }
-
-    if hasEvent {
-        eventType.pointee = evtType
-        windowId.pointee = evtWindowId
-        x.pointee = evtX
-        y.pointee = evtY
-        width.pointee = evtWidth
-        height.pointee = evtHeight
-        keycode.pointee = evtKeycode
-        button.pointee = evtButton
-        state.pointee = evtState
-        time.pointee = evtTime
+    // Read from the event queue that NSView handlers write to
+    // This works because NSApplication.run() dispatches events to views,
+    // which then queue them for us to read here
+    if let event = X11EventQueue.shared.dequeue() {
+        NSLog("poll_event: dequeued event type=\(event.type), window=\(event.windowId), x=\(event.x), y=\(event.y), keycode=\(event.keycode)")
+        eventType.pointee = event.type
+        windowId.pointee = event.windowId
+        x.pointee = event.x
+        y.pointee = event.y
+        width.pointee = event.width
+        height.pointee = event.height
+        keycode.pointee = event.keycode
+        button.pointee = event.button
+        state.pointee = event.state
+        time.pointee = event.time
         return 1 // Has event
     }
     return 0 // No event
@@ -1496,124 +1751,26 @@ public func macos_backend_wait_for_event(
     state: UnsafeMutablePointer<Int32>,
     time: UnsafeMutablePointer<Int32>
 ) -> Int32 {
-    let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
-
-    var evtType: Int32 = 0
-    var evtWindowId: Int32 = 0
-    var evtX: Int32 = 0
-    var evtY: Int32 = 0
-    var evtWidth: Int32 = 0
-    var evtHeight: Int32 = 0
-    var evtKeycode: Int32 = 0
-    var evtButton: Int32 = 0
-    var evtState: Int32 = 0
-    var evtTime: Int32 = 0
-
-    DispatchQueue.main.sync {
-        // Wait indefinitely for an event
-        if let nsEvent = NSApplication.shared.nextEvent(matching: .any, until: .distantFuture, inMode: .default, dequeue: true) {
-            // Find which window this event is for and get content height for Y coordinate flipping
-            var contentHeight: CGFloat = 0
-            if let eventWindow = nsEvent.window {
-                for (id, window) in backend.windows {
-                    if window === eventWindow {
-                        evtWindowId = Int32(id)
-                        // Get content view height for Y coordinate conversion
-                        if let contentView = window.contentView {
-                            contentHeight = contentView.bounds.height
-                        }
-                        break
-                    }
-                }
-            }
-
-            // Helper to convert macOS Y (origin at bottom) to X11 Y (origin at top)
-            func flipY(_ macY: CGFloat) -> Int32 {
-                return Int32(contentHeight - macY)
-            }
-
-            evtTime = Int32(nsEvent.timestamp * 1000) // Convert to milliseconds
-
-            switch nsEvent.type {
-            case .leftMouseDown:
-                evtType = 5 // buttonpress
-                evtButton = 1
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .rightMouseDown:
-                evtType = 5 // buttonpress
-                evtButton = 3
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .otherMouseDown:
-                evtType = 5 // buttonpress
-                evtButton = 2
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .leftMouseUp:
-                evtType = 6 // buttonrelease
-                evtButton = 1
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .rightMouseUp:
-                evtType = 6 // buttonrelease
-                evtButton = 3
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .otherMouseUp:
-                evtType = 6 // buttonrelease
-                evtButton = 2
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-                evtType = 7 // motion
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .mouseEntered:
-                evtType = 10 // enterNotify
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .mouseExited:
-                evtType = 11 // leaveNotify
-                evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = flipY(nsEvent.locationInWindow.y)
-
-            case .keyDown:
-                evtType = 3 // keypress
-                evtKeycode = Int32(nsEvent.keyCode)
-
-            case .keyUp:
-                evtType = 4 // keyrelease
-                evtKeycode = Int32(nsEvent.keyCode)
-
-            default:
-                break
-            }
-
-            // Dispatch the event to the application
-            NSApplication.shared.sendEvent(nsEvent)
+    // Wait for an event by polling the queue with small sleeps
+    // This is a blocking call that waits until an event is available
+    while true {
+        if let event = X11EventQueue.shared.dequeue() {
+            NSLog("wait_for_event: dequeued event type=\(event.type), window=\(event.windowId)")
+            eventType.pointee = event.type
+            windowId.pointee = event.windowId
+            x.pointee = event.x
+            y.pointee = event.y
+            width.pointee = event.width
+            height.pointee = event.height
+            keycode.pointee = event.keycode
+            button.pointee = event.button
+            state.pointee = event.state
+            time.pointee = event.time
+            return 1 // Has event
         }
+        // Sleep briefly to avoid busy-waiting
+        Thread.sleep(forTimeInterval: 0.01)
     }
-
-    eventType.pointee = evtType
-    windowId.pointee = evtWindowId
-    x.pointee = evtX
-    y.pointee = evtY
-    width.pointee = evtWidth
-    height.pointee = evtHeight
-    keycode.pointee = evtKeycode
-    button.pointee = evtButton
-    state.pointee = evtState
-    time.pointee = evtTime
-    return 1 // Has event
 }
 
 // MARK: - Cursor Operations
@@ -1677,4 +1834,29 @@ public func macos_backend_set_window_cursor(_ handle: BackendHandle, windowId: I
     }
 
     return BackendResult.success.rawValue
+}
+
+// MARK: - Run Loop
+
+/// Run the NSApplication event loop. This function never returns.
+/// Call this from the main thread instead of CFRunLoopRun() to ensure
+/// that NSApplication events are properly processed.
+@_cdecl("macos_backend_run_app")
+public func macos_backend_run_app() {
+    NSLog("macos_backend_run_app: starting NSApplication.run()")
+    let app = NSApplication.shared
+
+    // Make sure the app is properly set up
+    if app.delegate == nil {
+        app.delegate = X11AppDelegate.shared
+    }
+
+    if !app.isRunning {
+        app.finishLaunching()
+    }
+
+    app.activate(ignoringOtherApps: true)
+
+    // Run the application - this will block and process events
+    app.run()
 }

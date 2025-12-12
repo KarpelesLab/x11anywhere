@@ -143,6 +143,9 @@ pub struct Server {
     /// Window mapping: X11 Window ID -> Backend Window
     windows: HashMap<Window, BackendWindow>,
 
+    /// Reverse window mapping: Backend Window -> X11 Window ID (for event routing)
+    backend_to_x11: HashMap<BackendWindow, Window>,
+
     /// Window metadata: X11 Window ID -> WindowInfo
     window_info: HashMap<Window, WindowInfo>,
 
@@ -196,6 +199,12 @@ pub struct Server {
 
     /// Security policy
     security_policy: SecurityPolicy,
+
+    /// Pending events per window: Window -> Vec<encoded 32-byte events>
+    pending_events: HashMap<Window, Vec<Vec<u8>>>,
+
+    /// Event sequence number counter
+    event_sequence: u16,
 }
 
 impl Server {
@@ -210,6 +219,7 @@ impl Server {
         let mut server = Server {
             backend,
             windows: HashMap::new(),
+            backend_to_x11: HashMap::new(),
             window_info: HashMap::new(),
             gcs: HashMap::new(),
             pixmaps: HashMap::new(),
@@ -228,6 +238,8 @@ impl Server {
             selections: HashMap::new(),
             resource_tracker: ResourceTracker::new(),
             security_policy: SecurityPolicy::default(),
+            pending_events: HashMap::new(),
+            event_sequence: 0,
         };
 
         // Register predefined atoms
@@ -793,6 +805,7 @@ impl Server {
             backend_window
         );
         self.windows.insert(window, backend_window);
+        self.backend_to_x11.insert(backend_window, window);
         log::debug!("Windows map now has {} entries", self.windows.len());
 
         // Store window metadata for event dispatching and geometry queries
@@ -879,6 +892,28 @@ impl Server {
             .collect()
     }
 
+    /// Find a child window (or the window itself) that wants events with the given mask.
+    /// This implements X11 event propagation - events go to the deepest child that wants them.
+    /// Returns the window to deliver the event to and its event_mask.
+    fn find_window_for_event(&self, window: Window, required_mask: u32) -> Option<(Window, u32)> {
+        // First check if any child window wants this event (search children first for deeper propagation)
+        let children = self.get_children(window);
+        for child in children {
+            if let Some(result) = self.find_window_for_event(child, required_mask) {
+                return Some(result);
+            }
+        }
+
+        // Then check if this window itself wants the event
+        if let Some(info) = self.window_info.get(&window) {
+            if info.event_mask & required_mask != 0 {
+                return Some((window, info.event_mask));
+            }
+        }
+
+        None
+    }
+
     /// Unmap a window (hide it)
     pub fn unmap_window(&mut self, window: Window) -> Result<(), Box<dyn Error + Send + Sync>> {
         if let Some(&backend_window) = self.windows.get(&window) {
@@ -902,6 +937,7 @@ impl Server {
             );
             self.backend.destroy_window(backend_window)?;
             self.windows.remove(&window);
+            self.backend_to_x11.remove(&backend_window);
             log::debug!("Window destroyed and removed from map");
         } else {
             log::warn!("Window 0x{:08x} not found in windows map!", window.id().0);
@@ -1816,5 +1852,489 @@ impl Server {
         self.backend.flush()?;
 
         Ok(())
+    }
+
+    /// Poll backend events and queue them for delivery to clients
+    pub fn poll_and_queue_events(&mut self) {
+        use crate::backend::BackendEvent;
+        use crate::protocol::Timestamp;
+
+        // Poll events from backend
+        let events = match self.backend.poll_events() {
+            Ok(events) => events,
+            Err(e) => {
+                log::warn!("Failed to poll backend events: {:?}", e);
+                return;
+            }
+        };
+
+        for event in events {
+            // Map backend window to X11 window
+            let x11_window = match &event {
+                BackendEvent::KeyPress { window, .. }
+                | BackendEvent::KeyRelease { window, .. }
+                | BackendEvent::ButtonPress { window, .. }
+                | BackendEvent::ButtonRelease { window, .. }
+                | BackendEvent::MotionNotify { window, .. }
+                | BackendEvent::FocusIn { window }
+                | BackendEvent::FocusOut { window }
+                | BackendEvent::EnterNotify { window, .. }
+                | BackendEvent::LeaveNotify { window, .. }
+                | BackendEvent::Expose { window, .. }
+                | BackendEvent::Configure { window, .. }
+                | BackendEvent::DestroyNotify { window }
+                | BackendEvent::MapNotify { window }
+                | BackendEvent::UnmapNotify { window } => {
+                    if let Some(&x11_win) = self.backend_to_x11.get(window) {
+                        x11_win
+                    } else {
+                        log::debug!("Received event for unknown backend window {:?}", window);
+                        continue;
+                    }
+                }
+            };
+
+            // Get window info for event mask checking
+            let (event_mask, _width, _height) =
+                if let Some(info) = self.window_info.get(&x11_window) {
+                    (info.event_mask, info.width, info.height)
+                } else {
+                    log::debug!("No window info for X11 window 0x{:x}", x11_window.id().get());
+                    continue;
+                };
+
+            // Increment sequence number
+            self.event_sequence = self.event_sequence.wrapping_add(1);
+            let seq = self.event_sequence;
+
+            // Convert backend event to X11 wire format (32 bytes)
+            let encoded = match event {
+                BackendEvent::KeyPress {
+                    keycode,
+                    state,
+                    time,
+                    x,
+                    y,
+                    ..
+                } => {
+                    // Find window that wants KeyPress events (bit 0 = 0x0001)
+                    // Use event propagation to find child windows that want this event
+                    let (target_window, _target_mask) =
+                        if let Some(result) = self.find_window_for_event(x11_window, 0x0001) {
+                            result
+                        } else {
+                            log::debug!(
+                                "No window wants KeyPress starting from 0x{:x}",
+                                x11_window.id().get()
+                            );
+                            continue;
+                        };
+                    log::debug!(
+                        "KeyPress propagated from 0x{:x} to 0x{:x}",
+                        x11_window.id().get(),
+                        target_window.id().get()
+                    );
+                    Self::encode_key_event(
+                        2, // KeyPress event code
+                        keycode,
+                        seq,
+                        Timestamp::new(time),
+                        self.root_window,
+                        target_window,
+                        Window::new(0), // child
+                        x,
+                        y,
+                        x,
+                        y,
+                        state,
+                        true,
+                    )
+                }
+                BackendEvent::KeyRelease {
+                    keycode,
+                    state,
+                    time,
+                    x,
+                    y,
+                    ..
+                } => {
+                    // Find window that wants KeyRelease events (bit 1 = 0x0002)
+                    let (target_window, _target_mask) =
+                        if let Some(result) = self.find_window_for_event(x11_window, 0x0002) {
+                            result
+                        } else {
+                            log::debug!(
+                                "No window wants KeyRelease starting from 0x{:x}",
+                                x11_window.id().get()
+                            );
+                            continue;
+                        };
+                    Self::encode_key_event(
+                        3, // KeyRelease event code
+                        keycode,
+                        seq,
+                        Timestamp::new(time),
+                        self.root_window,
+                        target_window,
+                        Window::new(0),
+                        x,
+                        y,
+                        x,
+                        y,
+                        state,
+                        true,
+                    )
+                }
+                BackendEvent::ButtonPress {
+                    button,
+                    state,
+                    time,
+                    x,
+                    y,
+                    ..
+                } => {
+                    // Find window that wants ButtonPress events (bit 2 = 0x0004)
+                    let (target_window, _target_mask) =
+                        if let Some(result) = self.find_window_for_event(x11_window, 0x0004) {
+                            result
+                        } else {
+                            log::debug!(
+                                "No window wants ButtonPress starting from 0x{:x}",
+                                x11_window.id().get()
+                            );
+                            continue;
+                        };
+                    Self::encode_key_event(
+                        4, // ButtonPress event code
+                        button,
+                        seq,
+                        Timestamp::new(time),
+                        self.root_window,
+                        target_window,
+                        Window::new(0),
+                        x,
+                        y,
+                        x,
+                        y,
+                        state,
+                        true,
+                    )
+                }
+                BackendEvent::ButtonRelease {
+                    button,
+                    state,
+                    time,
+                    x,
+                    y,
+                    ..
+                } => {
+                    // Find window that wants ButtonRelease events (bit 3 = 0x0008)
+                    let (target_window, _target_mask) =
+                        if let Some(result) = self.find_window_for_event(x11_window, 0x0008) {
+                            result
+                        } else {
+                            log::debug!(
+                                "No window wants ButtonRelease starting from 0x{:x}",
+                                x11_window.id().get()
+                            );
+                            continue;
+                        };
+                    Self::encode_key_event(
+                        5, // ButtonRelease event code
+                        button,
+                        seq,
+                        Timestamp::new(time),
+                        self.root_window,
+                        target_window,
+                        Window::new(0),
+                        x,
+                        y,
+                        x,
+                        y,
+                        state,
+                        true,
+                    )
+                }
+                BackendEvent::MotionNotify {
+                    state, time, x, y, ..
+                } => {
+                    // Check if window wants MotionNotify events (bit 6 = PointerMotion)
+                    if event_mask & 0x0040 == 0 {
+                        continue;
+                    }
+                    Self::encode_key_event(
+                        6, // MotionNotify event code
+                        0, // detail (Normal)
+                        seq,
+                        Timestamp::new(time),
+                        self.root_window,
+                        x11_window,
+                        Window::new(0),
+                        x,
+                        y,
+                        x,
+                        y,
+                        state,
+                        true,
+                    )
+                }
+                BackendEvent::FocusIn { .. } => {
+                    // Check if window wants FocusChange events (bit 21)
+                    if event_mask & 0x200000 == 0 {
+                        continue;
+                    }
+                    Self::encode_focus_event(9, 0, seq, x11_window, 0) // Normal detail, Normal mode
+                }
+                BackendEvent::FocusOut { .. } => {
+                    // Check if window wants FocusChange events (bit 21)
+                    if event_mask & 0x200000 == 0 {
+                        continue;
+                    }
+                    Self::encode_focus_event(10, 0, seq, x11_window, 0)
+                }
+                BackendEvent::EnterNotify { x, y, time, .. } => {
+                    // Check if window wants EnterWindow events (bit 4)
+                    if event_mask & 0x0010 == 0 {
+                        continue;
+                    }
+                    Self::encode_enter_leave_event(
+                        7, // EnterNotify
+                        0, // detail (Ancestor)
+                        seq,
+                        Timestamp::new(time),
+                        self.root_window,
+                        x11_window,
+                        Window::new(0),
+                        x,
+                        y,
+                        x,
+                        y,
+                        0, // state
+                        0, // mode (Normal)
+                        3, // same_screen_focus (same screen = 1, focus = 2)
+                    )
+                }
+                BackendEvent::LeaveNotify { x, y, time, .. } => {
+                    // Check if window wants LeaveWindow events (bit 5)
+                    if event_mask & 0x0020 == 0 {
+                        continue;
+                    }
+                    Self::encode_enter_leave_event(
+                        8, // LeaveNotify
+                        0, seq,
+                        Timestamp::new(time),
+                        self.root_window,
+                        x11_window,
+                        Window::new(0),
+                        x,
+                        y,
+                        x,
+                        y,
+                        0,
+                        0,
+                        3,
+                    )
+                }
+                BackendEvent::Expose {
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                } => {
+                    // Check if window wants Exposure events (bit 15)
+                    if event_mask & 0x8000 == 0 {
+                        continue;
+                    }
+                    Self::encode_expose_event(seq, x11_window, x, y, width, height, 0)
+                }
+                BackendEvent::Configure {
+                    x, y, width, height, ..
+                } => {
+                    // Update window info
+                    if let Some(info) = self.window_info.get_mut(&x11_window) {
+                        info.x = x;
+                        info.y = y;
+                        info.width = width;
+                        info.height = height;
+                    }
+                    // Check if window wants StructureNotify events (bit 17)
+                    if event_mask & 0x20000 == 0 {
+                        continue;
+                    }
+                    Self::encode_configure_notify_event(
+                        seq,
+                        x11_window,
+                        x11_window,
+                        Window::new(0),
+                        x,
+                        y,
+                        width,
+                        height,
+                        0,
+                        false,
+                    )
+                }
+                BackendEvent::DestroyNotify { .. }
+                | BackendEvent::MapNotify { .. }
+                | BackendEvent::UnmapNotify { .. } => {
+                    // These are handled elsewhere or not commonly needed
+                    continue;
+                }
+            };
+
+            log::debug!(
+                "Queuing event type {} for window 0x{:x}",
+                encoded[0],
+                x11_window.id().get()
+            );
+
+            // Queue the encoded event for the window
+            self.pending_events
+                .entry(x11_window)
+                .or_insert_with(Vec::new)
+                .push(encoded);
+        }
+    }
+
+    /// Take pending events for a specific window
+    pub fn take_pending_events(&mut self, window: Window) -> Vec<Vec<u8>> {
+        self.pending_events.remove(&window).unwrap_or_default()
+    }
+
+    /// Take all pending events (for all windows owned by a client)
+    pub fn take_all_pending_events(&mut self) -> HashMap<Window, Vec<Vec<u8>>> {
+        std::mem::take(&mut self.pending_events)
+    }
+
+    // Helper to encode key/button/motion events (they share the same format)
+    fn encode_key_event(
+        code: u8,
+        detail: u8,
+        sequence: u16,
+        time: Timestamp,
+        root: Window,
+        event: Window,
+        child: Window,
+        root_x: i16,
+        root_y: i16,
+        event_x: i16,
+        event_y: i16,
+        state: u16,
+        same_screen: bool,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+        buffer[0] = code;
+        buffer[1] = detail;
+        buffer[2..4].copy_from_slice(&sequence.to_ne_bytes());
+        buffer[4..8].copy_from_slice(&time.get().to_ne_bytes());
+        buffer[8..12].copy_from_slice(&root.id().get().to_ne_bytes());
+        buffer[12..16].copy_from_slice(&event.id().get().to_ne_bytes());
+        buffer[16..20].copy_from_slice(&child.id().get().to_ne_bytes());
+        buffer[20..22].copy_from_slice(&root_x.to_ne_bytes());
+        buffer[22..24].copy_from_slice(&root_y.to_ne_bytes());
+        buffer[24..26].copy_from_slice(&event_x.to_ne_bytes());
+        buffer[26..28].copy_from_slice(&event_y.to_ne_bytes());
+        buffer[28..30].copy_from_slice(&state.to_ne_bytes());
+        buffer[30] = if same_screen { 1 } else { 0 };
+        buffer
+    }
+
+    fn encode_focus_event(
+        code: u8,
+        detail: u8,
+        sequence: u16,
+        event: Window,
+        mode: u8,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+        buffer[0] = code;
+        buffer[1] = detail;
+        buffer[2..4].copy_from_slice(&sequence.to_ne_bytes());
+        buffer[4..8].copy_from_slice(&event.id().get().to_ne_bytes());
+        buffer[8] = mode;
+        buffer
+    }
+
+    fn encode_enter_leave_event(
+        code: u8,
+        detail: u8,
+        sequence: u16,
+        time: Timestamp,
+        root: Window,
+        event: Window,
+        child: Window,
+        root_x: i16,
+        root_y: i16,
+        event_x: i16,
+        event_y: i16,
+        state: u16,
+        mode: u8,
+        same_screen_focus: u8,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+        buffer[0] = code;
+        buffer[1] = detail;
+        buffer[2..4].copy_from_slice(&sequence.to_ne_bytes());
+        buffer[4..8].copy_from_slice(&time.get().to_ne_bytes());
+        buffer[8..12].copy_from_slice(&root.id().get().to_ne_bytes());
+        buffer[12..16].copy_from_slice(&event.id().get().to_ne_bytes());
+        buffer[16..20].copy_from_slice(&child.id().get().to_ne_bytes());
+        buffer[20..22].copy_from_slice(&root_x.to_ne_bytes());
+        buffer[22..24].copy_from_slice(&root_y.to_ne_bytes());
+        buffer[24..26].copy_from_slice(&event_x.to_ne_bytes());
+        buffer[26..28].copy_from_slice(&event_y.to_ne_bytes());
+        buffer[28..30].copy_from_slice(&state.to_ne_bytes());
+        buffer[30] = mode;
+        buffer[31] = same_screen_focus;
+        buffer
+    }
+
+    fn encode_expose_event(
+        sequence: u16,
+        window: Window,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        count: u16,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+        buffer[0] = 12; // Expose event code
+        buffer[2..4].copy_from_slice(&sequence.to_ne_bytes());
+        buffer[4..8].copy_from_slice(&window.id().get().to_ne_bytes());
+        buffer[8..10].copy_from_slice(&x.to_ne_bytes());
+        buffer[10..12].copy_from_slice(&y.to_ne_bytes());
+        buffer[12..14].copy_from_slice(&width.to_ne_bytes());
+        buffer[14..16].copy_from_slice(&height.to_ne_bytes());
+        buffer[16..18].copy_from_slice(&count.to_ne_bytes());
+        buffer
+    }
+
+    fn encode_configure_notify_event(
+        sequence: u16,
+        event: Window,
+        window: Window,
+        above_sibling: Window,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        border_width: u16,
+        override_redirect: bool,
+    ) -> Vec<u8> {
+        let mut buffer = vec![0u8; 32];
+        buffer[0] = 22; // ConfigureNotify event code
+        buffer[2..4].copy_from_slice(&sequence.to_ne_bytes());
+        buffer[4..8].copy_from_slice(&event.id().get().to_ne_bytes());
+        buffer[8..12].copy_from_slice(&window.id().get().to_ne_bytes());
+        buffer[12..16].copy_from_slice(&above_sibling.id().get().to_ne_bytes());
+        buffer[16..18].copy_from_slice(&x.to_ne_bytes());
+        buffer[18..20].copy_from_slice(&y.to_ne_bytes());
+        buffer[20..22].copy_from_slice(&width.to_ne_bytes());
+        buffer[22..24].copy_from_slice(&height.to_ne_bytes());
+        buffer[24..26].copy_from_slice(&border_width.to_ne_bytes());
+        buffer[26] = if override_redirect { 1 } else { 0 };
+        buffer
     }
 }

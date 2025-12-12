@@ -1286,22 +1286,11 @@ impl MacOSBackend {
             .find(|(_, data)| data.swift_id == window_id)
             .map(|(id, _)| BackendWindow(*id))?;
 
+        // Event type mapping from Swift backend:
+        // 2 = KeyPress, 3 = KeyRelease, 4 = ButtonPress, 5 = ButtonRelease, 6 = MotionNotify
+        // 8 = FocusIn, 9 = FocusOut, 10 = EnterNotify, 11 = LeaveNotify
         match event_type {
-            1 => Some(BackendEvent::Expose {
-                window,
-                x: x as u16,
-                y: y as u16,
-                width: width as u16,
-                height: height as u16,
-            }),
-            2 => Some(BackendEvent::Configure {
-                window,
-                x: x as i16,
-                y: y as i16,
-                width: width as u16,
-                height: height as u16,
-            }),
-            3 => Some(BackendEvent::KeyPress {
+            2 => Some(BackendEvent::KeyPress {
                 window,
                 keycode: keycode as u8,
                 state: state as u16,
@@ -1309,7 +1298,7 @@ impl MacOSBackend {
                 x: x as i16,
                 y: y as i16,
             }),
-            4 => Some(BackendEvent::KeyRelease {
+            3 => Some(BackendEvent::KeyRelease {
                 window,
                 keycode: keycode as u8,
                 state: state as u16,
@@ -1317,7 +1306,7 @@ impl MacOSBackend {
                 x: x as i16,
                 y: y as i16,
             }),
-            5 => Some(BackendEvent::ButtonPress {
+            4 => Some(BackendEvent::ButtonPress {
                 window,
                 button: button as u8,
                 state: state as u16,
@@ -1325,7 +1314,7 @@ impl MacOSBackend {
                 x: x as i16,
                 y: y as i16,
             }),
-            6 => Some(BackendEvent::ButtonRelease {
+            5 => Some(BackendEvent::ButtonRelease {
                 window,
                 button: button as u8,
                 state: state as u16,
@@ -1333,7 +1322,7 @@ impl MacOSBackend {
                 x: x as i16,
                 y: y as i16,
             }),
-            7 => Some(BackendEvent::MotionNotify {
+            6 => Some(BackendEvent::MotionNotify {
                 window,
                 state: state as u16,
                 time: time as u32,

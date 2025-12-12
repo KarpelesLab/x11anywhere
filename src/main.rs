@@ -344,16 +344,16 @@ fn main() {
     }
 
     // Keep the main thread alive
-    // On macOS, we need to run the CFRunLoop to service DispatchQueue.main
+    // On macOS, we need to run NSApplication.run() to process events properly
     // On other platforms, this just prevents the main thread from exiting
     #[cfg(target_os = "macos")]
     {
         extern "C" {
-            fn CFRunLoopRun();
+            fn macos_backend_run_app();
         }
-        log::info!("Running macOS CFRunLoop on main thread");
+        log::info!("Running macOS NSApplication event loop on main thread");
         unsafe {
-            CFRunLoopRun();
+            macos_backend_run_app();
         }
     }
 

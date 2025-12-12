@@ -1,14 +1,33 @@
 //! Server listener and connection handling
 use std::error::Error;
-use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::io::{ErrorKind, Read, Write};
+use std::net::{TcpListener, TcpStream};
 #[cfg(unix)]
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use super::Server;
 use crate::protocol::setup::{SetupRequest, SetupResponse};
+
+/// Trait for streams that can set read timeouts
+trait TimeoutStream: Read + Write {
+    fn set_read_timeout(&self, dur: Option<Duration>) -> std::io::Result<()>;
+}
+
+impl TimeoutStream for TcpStream {
+    fn set_read_timeout(&self, dur: Option<Duration>) -> std::io::Result<()> {
+        TcpStream::set_read_timeout(self, dur)
+    }
+}
+
+#[cfg(unix)]
+impl TimeoutStream for UnixStream {
+    fn set_read_timeout(&self, dur: Option<Duration>) -> std::io::Result<()> {
+        UnixStream::set_read_timeout(self, dur)
+    }
+}
 
 /// Start TCP listener for X11 connections
 pub fn start_tcp_listener(
@@ -76,7 +95,7 @@ pub fn start_unix_listener(
     Ok(())
 }
 
-fn handle_client<S: Read + Write>(
+fn handle_client<S: TimeoutStream>(
     mut stream: S,
     server: Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -105,12 +124,56 @@ fn handle_client<S: Read + Write>(
     // Note: The first request after connection has sequence 1
     let mut sequence_number: u16 = 0;
 
+    // Set read timeout for event polling
+    // 10ms allows responsive event delivery while still processing requests quickly
+    stream.set_read_timeout(Some(Duration::from_millis(10)))?;
+
+    // Helper function to send pending events to the client
+    // The sequence_number is the client's current request sequence - events use this
+    fn send_pending_events<W: Write>(
+        stream: &mut W,
+        server: &Arc<Mutex<Server>>,
+        client_sequence: u16,
+    ) -> std::io::Result<()> {
+        // Poll for new events and send any pending events
+        let events_by_window = {
+            let mut server = server.lock().unwrap();
+            server.poll_and_queue_events();
+            server.take_all_pending_events()
+        };
+
+        // Flatten events from all windows and send them
+        // Patch the sequence number in each event (bytes 2-3) to match the client's sequence
+        for (_window, events) in events_by_window {
+            for mut event_data in events {
+                // X11 events are 32 bytes, sequence number is at bytes 2-3 (little-endian)
+                if event_data.len() >= 4 {
+                    let seq_bytes = client_sequence.to_le_bytes();
+                    event_data[2] = seq_bytes[0];
+                    event_data[3] = seq_bytes[1];
+                }
+                stream.write_all(&event_data)?;
+            }
+        }
+        Ok(())
+    }
+
     // Handle requests in a loop
     loop {
+        // First, poll and send any pending events to this client
+        if let Err(e) = send_pending_events(&mut stream, &server, sequence_number) {
+            log::warn!("Client {} event send error: {}", client_id, e);
+            break;
+        }
+
         // Read request header (4 bytes minimum)
         let mut header = [0u8; 4];
         match stream.read_exact(&mut header) {
             Ok(_) => {}
+            Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
+                // Timeout - no client request, loop back to check for events
+                continue;
+            }
             Err(_) => {
                 log::info!("Client {} disconnected", client_id);
                 break;
@@ -4064,6 +4127,134 @@ fn handle_change_keyboard_mapping<S: Write>(
     Ok(())
 }
 
+/// Map macOS keycode (after +8 offset) to X11 keysym
+/// macOS keycodes are not sequential - this provides the correct mapping
+fn macos_keycode_to_keysym(keycode: u8) -> u32 {
+    // macOS keycode + 8 = our keycode, so subtract 8 to get macOS keycode
+    let mac_keycode = keycode.saturating_sub(8);
+
+    // macOS virtual key codes to X11 keysyms
+    // Reference: Carbon/HIToolbox/Events.h (kVK_* constants)
+    match mac_keycode {
+        // Letters (QWERTY layout)
+        0 => 0x61,   // kVK_ANSI_A -> 'a'
+        1 => 0x73,   // kVK_ANSI_S -> 's'
+        2 => 0x64,   // kVK_ANSI_D -> 'd'
+        3 => 0x66,   // kVK_ANSI_F -> 'f'
+        4 => 0x68,   // kVK_ANSI_H -> 'h'
+        5 => 0x67,   // kVK_ANSI_G -> 'g'
+        6 => 0x7a,   // kVK_ANSI_Z -> 'z'
+        7 => 0x78,   // kVK_ANSI_X -> 'x'
+        8 => 0x63,   // kVK_ANSI_C -> 'c'
+        9 => 0x76,   // kVK_ANSI_V -> 'v'
+        11 => 0x62,  // kVK_ANSI_B -> 'b'
+        12 => 0x71,  // kVK_ANSI_Q -> 'q'
+        13 => 0x77,  // kVK_ANSI_W -> 'w'
+        14 => 0x65,  // kVK_ANSI_E -> 'e'
+        15 => 0x72,  // kVK_ANSI_R -> 'r'
+        16 => 0x79,  // kVK_ANSI_Y -> 'y'
+        17 => 0x74,  // kVK_ANSI_T -> 't'
+        18 => 0x31,  // kVK_ANSI_1 -> '1'
+        19 => 0x32,  // kVK_ANSI_2 -> '2'
+        20 => 0x33,  // kVK_ANSI_3 -> '3'
+        21 => 0x34,  // kVK_ANSI_4 -> '4'
+        22 => 0x36,  // kVK_ANSI_6 -> '6'
+        23 => 0x35,  // kVK_ANSI_5 -> '5'
+        24 => 0x3d,  // kVK_ANSI_Equal -> '='
+        25 => 0x39,  // kVK_ANSI_9 -> '9'
+        26 => 0x37,  // kVK_ANSI_7 -> '7'
+        27 => 0x2d,  // kVK_ANSI_Minus -> '-'
+        28 => 0x38,  // kVK_ANSI_8 -> '8'
+        29 => 0x30,  // kVK_ANSI_0 -> '0'
+        30 => 0x5d,  // kVK_ANSI_RightBracket -> ']'
+        31 => 0x6f,  // kVK_ANSI_O -> 'o'
+        32 => 0x75,  // kVK_ANSI_U -> 'u'
+        33 => 0x5b,  // kVK_ANSI_LeftBracket -> '['
+        34 => 0x69,  // kVK_ANSI_I -> 'i'
+        35 => 0x70,  // kVK_ANSI_P -> 'p'
+        37 => 0x6c,  // kVK_ANSI_L -> 'l'
+        38 => 0x6a,  // kVK_ANSI_J -> 'j'
+        39 => 0x27,  // kVK_ANSI_Quote -> '''
+        40 => 0x6b,  // kVK_ANSI_K -> 'k'
+        41 => 0x3b,  // kVK_ANSI_Semicolon -> ';'
+        42 => 0x5c,  // kVK_ANSI_Backslash -> '\'
+        43 => 0x2c,  // kVK_ANSI_Comma -> ','
+        44 => 0x2f,  // kVK_ANSI_Slash -> '/'
+        45 => 0x6e,  // kVK_ANSI_N -> 'n'
+        46 => 0x6d,  // kVK_ANSI_M -> 'm'
+        47 => 0x2e,  // kVK_ANSI_Period -> '.'
+        50 => 0x60,  // kVK_ANSI_Grave -> '`'
+
+        // Special keys
+        36 => 0xff0d, // kVK_Return -> XK_Return
+        48 => 0xff09, // kVK_Tab -> XK_Tab
+        49 => 0x20,   // kVK_Space -> ' '
+        51 => 0xff08, // kVK_Delete (backspace) -> XK_BackSpace
+        53 => 0xff1b, // kVK_Escape -> XK_Escape
+
+        // Arrow keys
+        123 => 0xff51, // kVK_LeftArrow -> XK_Left
+        124 => 0xff53, // kVK_RightArrow -> XK_Right
+        125 => 0xff54, // kVK_DownArrow -> XK_Down
+        126 => 0xff52, // kVK_UpArrow -> XK_Up
+
+        // Function keys
+        122 => 0xffbe, // kVK_F1 -> XK_F1
+        120 => 0xffbf, // kVK_F2 -> XK_F2
+        99 => 0xffc0,  // kVK_F3 -> XK_F3
+        118 => 0xffc1, // kVK_F4 -> XK_F4
+        96 => 0xffc2,  // kVK_F5 -> XK_F5
+        97 => 0xffc3,  // kVK_F6 -> XK_F6
+        98 => 0xffc4,  // kVK_F7 -> XK_F7
+        100 => 0xffc5, // kVK_F8 -> XK_F8
+        101 => 0xffc6, // kVK_F9 -> XK_F9
+        109 => 0xffc7, // kVK_F10 -> XK_F10
+        103 => 0xffc8, // kVK_F11 -> XK_F11
+        111 => 0xffc9, // kVK_F12 -> XK_F12
+
+        // Modifier keys
+        56 => 0xffe1,  // kVK_Shift -> XK_Shift_L
+        60 => 0xffe2,  // kVK_RightShift -> XK_Shift_R
+        58 => 0xffe9,  // kVK_Option -> XK_Alt_L
+        61 => 0xffea,  // kVK_RightOption -> XK_Alt_R
+        59 => 0xffe3,  // kVK_Control -> XK_Control_L
+        62 => 0xffe4,  // kVK_RightControl -> XK_Control_R
+        55 => 0xffeb,  // kVK_Command -> XK_Super_L
+        54 => 0xffec,  // kVK_RightCommand -> XK_Super_R
+        57 => 0xffe5,  // kVK_CapsLock -> XK_Caps_Lock
+
+        // Keypad
+        65 => 0xffae,  // kVK_ANSI_KeypadDecimal -> XK_KP_Decimal
+        67 => 0xffaa,  // kVK_ANSI_KeypadMultiply -> XK_KP_Multiply
+        69 => 0xffab,  // kVK_ANSI_KeypadPlus -> XK_KP_Add
+        71 => 0xff7f,  // kVK_ANSI_KeypadClear -> XK_Num_Lock
+        75 => 0xffaf,  // kVK_ANSI_KeypadDivide -> XK_KP_Divide
+        76 => 0xff8d,  // kVK_ANSI_KeypadEnter -> XK_KP_Enter
+        78 => 0xffad,  // kVK_ANSI_KeypadMinus -> XK_KP_Subtract
+        81 => 0xffbd,  // kVK_ANSI_KeypadEquals -> XK_KP_Equal
+        82 => 0xffb0,  // kVK_ANSI_Keypad0 -> XK_KP_0
+        83 => 0xffb1,  // kVK_ANSI_Keypad1 -> XK_KP_1
+        84 => 0xffb2,  // kVK_ANSI_Keypad2 -> XK_KP_2
+        85 => 0xffb3,  // kVK_ANSI_Keypad3 -> XK_KP_3
+        86 => 0xffb4,  // kVK_ANSI_Keypad4 -> XK_KP_4
+        87 => 0xffb5,  // kVK_ANSI_Keypad5 -> XK_KP_5
+        88 => 0xffb6,  // kVK_ANSI_Keypad6 -> XK_KP_6
+        89 => 0xffb7,  // kVK_ANSI_Keypad7 -> XK_KP_7
+        91 => 0xffb8,  // kVK_ANSI_Keypad8 -> XK_KP_8
+        92 => 0xffb9,  // kVK_ANSI_Keypad9 -> XK_KP_9
+
+        // Navigation keys
+        115 => 0xff50, // kVK_Home -> XK_Home
+        116 => 0xff55, // kVK_PageUp -> XK_Page_Up
+        117 => 0xffff, // kVK_ForwardDelete -> XK_Delete
+        119 => 0xff57, // kVK_End -> XK_End
+        121 => 0xff56, // kVK_PageDown -> XK_Page_Down
+
+        // Unknown key
+        _ => 0, // NoSymbol
+    }
+}
+
 fn handle_get_keyboard_mapping<S: Write>(
     stream: &mut S,
     header: &[u8],
@@ -4088,9 +4279,8 @@ fn handle_get_keyboard_mapping<S: Write>(
     // Get the sequence number from header
     let sequence = u16::from_le_bytes([header[2], header[3]]);
 
-    // Return a minimal keyboard mapping (1 keysym per keycode)
-    // For simplicity, just return the keycode as the keysym (ASCII-like mapping)
-    let keysyms_per_keycode = 1u8;
+    // Return keyboard mapping with 2 keysyms per keycode (normal + shifted)
+    let keysyms_per_keycode = 2u8;
     let n_keysyms = (count as usize) * (keysyms_per_keycode as usize);
     let reply_length = n_keysyms; // in 4-byte units (each keysym is 4 bytes)
 
@@ -4101,17 +4291,44 @@ fn handle_get_keyboard_mapping<S: Write>(
     reply[2..4].copy_from_slice(&sequence.to_le_bytes());
     reply[4..8].copy_from_slice(&(reply_length as u32).to_le_bytes());
 
-    // Fill in keysyms - map keycodes to basic keysyms
+    // Fill in keysyms using macOS keycode mapping
     for i in 0..count as usize {
-        let keycode = first_keycode as usize + i;
-        // Simple mapping: keycode -> keysym (for printable ASCII)
-        let keysym = if (0x20..0x7f).contains(&keycode) {
-            keycode as u32
-        } else {
-            0 // NoSymbol
+        let keycode = (first_keycode as usize + i) as u8;
+        let keysym = macos_keycode_to_keysym(keycode);
+
+        // Calculate shifted keysym for letters and some symbols
+        let shifted_keysym = match keysym {
+            // Lowercase letters -> uppercase
+            0x61..=0x7a => keysym - 0x20, // 'a'-'z' -> 'A'-'Z'
+            // Number row shifted symbols
+            0x31 => 0x21, // '1' -> '!'
+            0x32 => 0x40, // '2' -> '@'
+            0x33 => 0x23, // '3' -> '#'
+            0x34 => 0x24, // '4' -> '$'
+            0x35 => 0x25, // '5' -> '%'
+            0x36 => 0x5e, // '6' -> '^'
+            0x37 => 0x26, // '7' -> '&'
+            0x38 => 0x2a, // '8' -> '*'
+            0x39 => 0x28, // '9' -> '('
+            0x30 => 0x29, // '0' -> ')'
+            0x2d => 0x5f, // '-' -> '_'
+            0x3d => 0x2b, // '=' -> '+'
+            0x5b => 0x7b, // '[' -> '{'
+            0x5d => 0x7d, // ']' -> '}'
+            0x5c => 0x7c, // '\' -> '|'
+            0x3b => 0x3a, // ';' -> ':'
+            0x27 => 0x22, // ''' -> '"'
+            0x60 => 0x7e, // '`' -> '~'
+            0x2c => 0x3c, // ',' -> '<'
+            0x2e => 0x3e, // '.' -> '>'
+            0x2f => 0x3f, // '/' -> '?'
+            // For other keys, shifted is the same
+            _ => keysym,
         };
-        let offset = 32 + i * 4;
+
+        let offset = 32 + i * 8; // 2 keysyms * 4 bytes each
         reply[offset..offset + 4].copy_from_slice(&keysym.to_le_bytes());
+        reply[offset + 4..offset + 8].copy_from_slice(&shifted_keysym.to_le_bytes());
     }
 
     stream.write_all(&reply)?;
