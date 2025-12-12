@@ -1397,6 +1397,12 @@ fn handle_xkb_request<S: Write>(
             let reply = encode_xkb_use_extension_reply(sequence, true, 1, 0);
             stream.write_all(&reply)?;
         }
+        8 => {
+            // XkbGetMap - return an empty map
+            log::debug!("XKB: GetMap");
+            let reply = encode_xkb_get_map_reply(sequence);
+            stream.write_all(&reply)?;
+        }
         _ => {
             log::debug!("XKB: Unhandled minor opcode {}", minor_opcode);
             // For most XKB requests, we don't need to send a reply
@@ -1969,6 +1975,29 @@ fn encode_xkb_use_extension_reply(
     buffer[4..8].copy_from_slice(&write_u32_le(0)); // length
     buffer[8..10].copy_from_slice(&write_u16_le(server_major));
     buffer[10..12].copy_from_slice(&write_u16_le(server_minor));
+    buffer
+}
+
+fn encode_xkb_get_map_reply(sequence: u16) -> Vec<u8> {
+    // XkbGetMapReply - return a minimal/empty map
+    // The reply has a 40-byte header (8 bytes extra beyond standard 32-byte reply)
+    // Length field counts 4-byte units after the first 32 bytes, so length = 2
+    let mut buffer = vec![0u8; 40];
+    buffer[0] = 1; // Reply
+    buffer[1] = 0; // deviceID (use core keyboard)
+    buffer[2..4].copy_from_slice(&write_u16_le(sequence));
+    buffer[4..8].copy_from_slice(&write_u32_le(2)); // length: 8 extra bytes = 2 words
+    // Bytes 8-9: pad
+    buffer[10] = 8; // minKeyCode (standard)
+    buffer[11] = 255; // maxKeyCode (standard)
+    buffer[12..14].copy_from_slice(&write_u16_le(0)); // present (no components)
+    buffer[14..16].copy_from_slice(&write_u16_le(8)); // firstType
+    buffer[16] = 0; // nTypes
+    buffer[17] = 0; // totalTypes
+    buffer[18] = 8; // firstKeySym
+    buffer[19] = 0; // totalSyms (high byte)
+    buffer[20] = 0; // nKeySyms
+    // Rest of the header fields are 0 (no key actions, behaviors, etc.)
     buffer
 }
 

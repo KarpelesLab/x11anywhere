@@ -46,9 +46,8 @@ class X11BackingBuffer {
                                bytesPerRow: self.width * 4,
                                space: colorSpace,
                                bitmapInfo: bitmapInfo) {
-            // Flip coordinate system to match X11 (origin at top-left, Y increasing downward)
-            ctx.translateBy(x: 0, y: CGFloat(self.height))
-            ctx.scaleBy(x: 1.0, y: -1.0)
+            // No CTM flip here - X11 draws with Y=0 at top, which means row 0 is at top
+            // The flip will happen in the draw() method when displaying
 
             // Fill with white background
             ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
@@ -99,40 +98,24 @@ class X11ContentView: NSView {
         setupTrackingArea()
     }
 
-    // Use flipped coordinates to match X11 (origin at top-left)
     override var isFlipped: Bool { return true }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
         guard let buffer = self.buffer, let ctx = buffer.context, let cgImage = ctx.makeImage() else {
-            NSLog("X11ContentView.draw: no CGImage available, buffer=\(self.buffer != nil)")
             return
         }
 
-        guard let currentContext = NSGraphicsContext.current?.cgContext else {
-            NSLog("X11ContentView.draw: no current graphics context")
+        guard let currentCtx = NSGraphicsContext.current?.cgContext else {
             return
         }
 
-        // The backing buffer CGContext has a Y-flip transform applied, so the CGImage
-        // already has Y=0 at top (X11 convention). Since isFlipped=true, NSView also
-        // has Y=0 at top. However, CGContext.draw() interprets the image with Y=0 at bottom.
-        // We need to flip the context to draw correctly.
+        let imageWidth = CGFloat(cgImage.width)
+        let imageHeight = CGFloat(cgImage.height)
 
-        currentContext.saveGState()
-
-        // Reset to identity and apply proper transform for drawing
-        // The view's context already has a transform for the flipped coordinate system.
-        // We need to flip again to correctly interpret the CGImage.
-        let height = CGFloat(buffer.height)
-        currentContext.translateBy(x: 0, y: height)
-        currentContext.scaleBy(x: 1, y: -1)
-
-        let drawRect = CGRect(x: 0, y: 0, width: CGFloat(buffer.width), height: height)
-        currentContext.draw(cgImage, in: drawRect)
-
-        currentContext.restoreGState()
+        // Draw with y offset for proper positioning (temporary fix - needs investigation)
+        currentCtx.draw(cgImage, in: CGRect(x: 0, y: 100, width: imageWidth, height: imageHeight))
     }
 
     func updateContents() {
@@ -143,8 +126,9 @@ class X11ContentView: NSView {
 
         NSLog("X11ContentView.updateContents: setting image \(cgImage.width)x\(cgImage.height), bpc=\(cgImage.bitsPerComponent), bpp=\(cgImage.bitsPerPixel)")
 
-        // Mark view as needing redraw
+        // Mark view as needing redraw and force immediate display
         self.setNeedsDisplay(self.bounds)
+        self.displayIfNeeded()
     }
 }
 
@@ -255,18 +239,14 @@ class MacOSBackendImpl {
         DispatchQueue.main.sync {
             NSLog("mapWindow: id=\(id)")
             if let window = self.windows[id] {
-                // Make window appear on all spaces (including full screen apps)
-                window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+                // Normal window level - can go behind other windows
+                window.level = .normal
 
-                // Use a very high window level to ensure it appears on top
-                window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow)))
-
-                // Activate the app and force window to front
+                // Activate the app and show the window
                 NSApplication.shared.activate(ignoringOtherApps: true)
 
                 // Show the window
                 window.makeKeyAndOrderFront(nil)
-                window.orderFrontRegardless()
 
                 NSLog("mapWindow: window frame=\(window.frame), isVisible=\(window.isVisible)")
 
@@ -1395,14 +1375,24 @@ public func macos_backend_poll_event(
         if let nsEvent = NSApplication.shared.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) {
             hasEvent = true
 
-            // Find which window this event is for
+            // Find which window this event is for and get content height for Y coordinate flipping
+            var contentHeight: CGFloat = 0
             if let eventWindow = nsEvent.window {
                 for (id, window) in backend.windows {
                     if window === eventWindow {
                         evtWindowId = Int32(id)
+                        // Get content view height for Y coordinate conversion
+                        if let contentView = window.contentView {
+                            contentHeight = contentView.bounds.height
+                        }
                         break
                     }
                 }
+            }
+
+            // Helper to convert macOS Y (origin at bottom) to X11 Y (origin at top)
+            func flipY(_ macY: CGFloat) -> Int32 {
+                return Int32(contentHeight - macY)
             }
 
             evtTime = Int32(nsEvent.timestamp * 1000) // Convert to milliseconds
@@ -1412,52 +1402,52 @@ public func macos_backend_poll_event(
                 evtType = 5 // buttonpress
                 evtButton = 1
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .rightMouseDown:
                 evtType = 5 // buttonpress
                 evtButton = 3
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .otherMouseDown:
                 evtType = 5 // buttonpress
                 evtButton = 2
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .leftMouseUp:
                 evtType = 6 // buttonrelease
                 evtButton = 1
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .rightMouseUp:
                 evtType = 6 // buttonrelease
                 evtButton = 3
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .otherMouseUp:
                 evtType = 6 // buttonrelease
                 evtButton = 2
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
                 evtType = 7 // motion
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .mouseEntered:
                 evtType = 10 // enterNotify
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .mouseExited:
                 evtType = 11 // leaveNotify
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .keyDown:
                 evtType = 3 // keypress
@@ -1522,14 +1512,24 @@ public func macos_backend_wait_for_event(
     DispatchQueue.main.sync {
         // Wait indefinitely for an event
         if let nsEvent = NSApplication.shared.nextEvent(matching: .any, until: .distantFuture, inMode: .default, dequeue: true) {
-            // Find which window this event is for
+            // Find which window this event is for and get content height for Y coordinate flipping
+            var contentHeight: CGFloat = 0
             if let eventWindow = nsEvent.window {
                 for (id, window) in backend.windows {
                     if window === eventWindow {
                         evtWindowId = Int32(id)
+                        // Get content view height for Y coordinate conversion
+                        if let contentView = window.contentView {
+                            contentHeight = contentView.bounds.height
+                        }
                         break
                     }
                 }
+            }
+
+            // Helper to convert macOS Y (origin at bottom) to X11 Y (origin at top)
+            func flipY(_ macY: CGFloat) -> Int32 {
+                return Int32(contentHeight - macY)
             }
 
             evtTime = Int32(nsEvent.timestamp * 1000) // Convert to milliseconds
@@ -1539,52 +1539,52 @@ public func macos_backend_wait_for_event(
                 evtType = 5 // buttonpress
                 evtButton = 1
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .rightMouseDown:
                 evtType = 5 // buttonpress
                 evtButton = 3
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .otherMouseDown:
                 evtType = 5 // buttonpress
                 evtButton = 2
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .leftMouseUp:
                 evtType = 6 // buttonrelease
                 evtButton = 1
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .rightMouseUp:
                 evtType = 6 // buttonrelease
                 evtButton = 3
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .otherMouseUp:
                 evtType = 6 // buttonrelease
                 evtButton = 2
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
                 evtType = 7 // motion
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .mouseEntered:
                 evtType = 10 // enterNotify
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .mouseExited:
                 evtType = 11 // leaveNotify
                 evtX = Int32(nsEvent.locationInWindow.x)
-                evtY = Int32(nsEvent.locationInWindow.y)
+                evtY = flipY(nsEvent.locationInWindow.y)
 
             case .keyDown:
                 evtType = 3 // keypress
