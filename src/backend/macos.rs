@@ -85,6 +85,7 @@ extern "C" {
         r: f32,
         g: f32,
         b: f32,
+        gc_function: i32,
     ) -> i32;
     fn macos_backend_draw_line(
         handle: BackendHandle,
@@ -726,6 +727,7 @@ impl Backend for MacOSBackend {
                 r,
                 g,
                 b,
+                gc.function as i32,
             );
 
             Ok(())
@@ -1272,8 +1274,8 @@ impl MacOSBackend {
         window_id: i32,
         x: i32,
         y: i32,
-        width: i32,
-        height: i32,
+        _width: i32,
+        _height: i32,
         keycode: i32,
         button: i32,
         state: i32,

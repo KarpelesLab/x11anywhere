@@ -10,7 +10,7 @@ mod client;
 pub mod extensions;
 pub mod listener;
 
-use crate::backend::{Backend, BackendGC, BackendWindow};
+use crate::backend::{Backend, BackendCursor, BackendGC, BackendWindow, StandardCursor};
 use crate::protocol::*;
 use crate::resources::ResourceTracker;
 use crate::security::SecurityPolicy;
@@ -205,6 +205,24 @@ pub struct Server {
 
     /// Event sequence number counter
     event_sequence: u16,
+
+    /// Currently focused window
+    focused_window: Window,
+
+    /// Focus revert-to mode (0=None, 1=PointerRoot, 2=Parent)
+    focus_revert_to: u8,
+
+    /// Cursor mapping: X11 cursor ID -> BackendCursor
+    cursors: HashMap<u32, BackendCursor>,
+
+    /// Last known pointer X position
+    last_pointer_x: i16,
+
+    /// Last known pointer Y position
+    last_pointer_y: i16,
+
+    /// Last known window the pointer is in
+    last_pointer_window: Window,
 }
 
 impl Server {
@@ -240,6 +258,12 @@ impl Server {
             security_policy: SecurityPolicy::default(),
             pending_events: HashMap::new(),
             event_sequence: 0,
+            focused_window: root_window,
+            focus_revert_to: 1, // PointerRoot
+            cursors: HashMap::new(),
+            last_pointer_x: 0,
+            last_pointer_y: 0,
+            last_pointer_window: root_window,
         };
 
         // Register predefined atoms
@@ -863,17 +887,25 @@ impl Server {
         }
 
         // Update cursor if specified
-        // TODO: Implement cursor mapping when cursor support is fully added to Server
         if let Some(cursor_id) = cursor {
-            if cursor_id == 0 {
-                // cursor_id 0 means use parent's cursor (or default)
-                log::debug!(
-                    "Window 0x{:x} cursor reset to default (cursor_id=0)",
-                    window.id().get()
-                );
+            let backend_cursor = if cursor_id == 0 {
+                BackendCursor::NONE
+            } else if let Some(&bc) = self.cursors.get(&cursor_id) {
+                bc
             } else {
                 log::debug!(
-                    "Window 0x{:x} cursor change requested to 0x{:x} (not yet implemented)",
+                    "Window 0x{:x} cursor 0x{:x} not in cursor map, ignoring",
+                    window.id().get(),
+                    cursor_id
+                );
+                return Ok(());
+            };
+
+            if let Some(&backend_window) = self.windows.get(&window) {
+                self.backend
+                    .set_window_cursor(backend_window, backend_cursor)?;
+                log::debug!(
+                    "Set window 0x{:x} cursor to 0x{:x}",
                     window.id().get(),
                     cursor_id
                 );
@@ -890,6 +922,187 @@ impl Server {
             .filter(|(_, info)| info.parent == parent)
             .map(|(window, _)| *window)
             .collect()
+    }
+
+    /// Set the input focus to a window
+    pub fn set_input_focus(&mut self, focus: Window, revert_to: u8) {
+        log::debug!(
+            "Setting input focus to 0x{:x}, revert_to={}",
+            focus.id().get(),
+            revert_to
+        );
+        self.focused_window = focus;
+        self.focus_revert_to = revert_to;
+    }
+
+    /// Get the current input focus
+    pub fn get_input_focus(&self) -> (Window, u8) {
+        (self.focused_window, self.focus_revert_to)
+    }
+
+    /// Clear an area of a window
+    pub fn clear_area(
+        &mut self,
+        window: Window,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(&backend_window) = self.windows.get(&window) {
+            // If width/height are 0, use the window dimensions
+            let (w, h) = if width == 0 && height == 0 {
+                if let Some(info) = self.window_info.get(&window) {
+                    (info.width, info.height)
+                } else {
+                    return Ok(());
+                }
+            } else {
+                (width, height)
+            };
+            self.backend.clear_area(backend_window, x, y, w, h)?;
+            self.backend.flush()?;
+        }
+        Ok(())
+    }
+
+    /// Free a graphics context
+    pub fn free_gc(&mut self, gc: GContext) {
+        if self.gcs.remove(&gc).is_some() {
+            log::debug!("Freed GC 0x{:x}", gc.id().get());
+        } else {
+            log::warn!("FreeGC: GC 0x{:x} not found", gc.id().get());
+        }
+    }
+
+    /// Create a cursor from a standard cursor shape and store it
+    pub fn create_cursor_from_standard(
+        &mut self,
+        cursor_id: u32,
+        shape: StandardCursor,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_cursor = self.backend.create_standard_cursor(shape)?;
+        self.cursors.insert(cursor_id, backend_cursor);
+        log::debug!(
+            "Created cursor 0x{:x} -> backend {:?}",
+            cursor_id,
+            backend_cursor
+        );
+        Ok(())
+    }
+
+    /// Store a cursor with a given backend cursor handle
+    pub fn create_cursor(&mut self, cursor_id: u32, backend_cursor: BackendCursor) {
+        self.cursors.insert(cursor_id, backend_cursor);
+    }
+
+    /// Free a cursor
+    pub fn free_cursor(&mut self, cursor_id: u32) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(backend_cursor) = self.cursors.remove(&cursor_id) {
+            self.backend.free_cursor(backend_cursor)?;
+            log::debug!("Freed cursor 0x{:x}", cursor_id);
+        }
+        Ok(())
+    }
+
+    /// Set the cursor for a window using a cursor ID from the cursor map
+    pub fn set_window_cursor(
+        &mut self,
+        window: Window,
+        cursor_id: u32,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let backend_cursor = if cursor_id == 0 {
+            BackendCursor::NONE
+        } else if let Some(&cursor) = self.cursors.get(&cursor_id) {
+            cursor
+        } else {
+            log::warn!(
+                "set_window_cursor: cursor 0x{:x} not found in cursor map",
+                cursor_id
+            );
+            return Ok(());
+        };
+
+        if let Some(&backend_window) = self.windows.get(&window) {
+            self.backend
+                .set_window_cursor(backend_window, backend_cursor)?;
+        }
+        Ok(())
+    }
+
+    /// Translate coordinates from one window's coordinate space to another
+    ///
+    /// Returns (dst_x, dst_y, child_window) where child_window is the child
+    /// of dst_window that contains the point, or Window::NONE if none.
+    pub fn translate_coordinates(
+        &self,
+        src_window: Window,
+        dst_window: Window,
+        src_x: i16,
+        src_y: i16,
+    ) -> (i16, i16, Window) {
+        // Convert src coords to root coords by walking up the parent chain
+        let (root_x, root_y) = self.window_to_root_coords(src_window, src_x, src_y);
+
+        // Convert root coords to dst coords by walking up dst parent chain
+        let (dst_off_x, dst_off_y) = self.window_to_root_coords(dst_window, 0, 0);
+        let dst_x = root_x - dst_off_x;
+        let dst_y = root_y - dst_off_y;
+
+        // Find child of dst_window that contains the point
+        let child = self.find_child_at(dst_window, dst_x, dst_y);
+
+        (dst_x, dst_y, child)
+    }
+
+    /// Convert window-local coordinates to root coordinates
+    fn window_to_root_coords(&self, window: Window, x: i16, y: i16) -> (i16, i16) {
+        let mut abs_x = x;
+        let mut abs_y = y;
+        let mut current = window;
+
+        while current != self.root_window && current != Window::NONE {
+            if let Some(info) = self.window_info.get(&current) {
+                abs_x += info.x;
+                abs_y += info.y;
+                current = info.parent;
+            } else {
+                break;
+            }
+        }
+
+        (abs_x, abs_y)
+    }
+
+    /// Find the child of parent_window that contains the point (x, y)
+    fn find_child_at(&self, parent: Window, x: i16, y: i16) -> Window {
+        for (win, info) in &self.window_info {
+            if info.parent == parent
+                && x >= info.x
+                && y >= info.y
+                && x < info.x + info.width as i16
+                && y < info.y + info.height as i16
+            {
+                return *win;
+            }
+        }
+        Window::NONE
+    }
+
+    /// Update the tracked pointer position
+    pub fn update_pointer_position(&mut self, x: i16, y: i16, window: Window) {
+        self.last_pointer_x = x;
+        self.last_pointer_y = y;
+        self.last_pointer_window = window;
+    }
+
+    /// Get the last known pointer position
+    pub fn get_pointer_position(&self) -> (i16, i16, Window) {
+        (
+            self.last_pointer_x,
+            self.last_pointer_y,
+            self.last_pointer_window,
+        )
     }
 
     /// Find a child window (or the window itself) that wants events with the given mask.
@@ -1899,9 +2112,25 @@ impl Server {
                 if let Some(info) = self.window_info.get(&x11_window) {
                     (info.event_mask, info.width, info.height)
                 } else {
-                    log::debug!("No window info for X11 window 0x{:x}", x11_window.id().get());
+                    log::debug!(
+                        "No window info for X11 window 0x{:x}",
+                        x11_window.id().get()
+                    );
                     continue;
                 };
+
+            // Track pointer position from events that carry coordinates
+            match &event {
+                BackendEvent::MotionNotify { x, y, .. }
+                | BackendEvent::ButtonPress { x, y, .. }
+                | BackendEvent::ButtonRelease { x, y, .. }
+                | BackendEvent::EnterNotify { x, y, .. } => {
+                    self.last_pointer_x = *x;
+                    self.last_pointer_y = *y;
+                    self.last_pointer_window = x11_window;
+                }
+                _ => {}
+            }
 
             // Increment sequence number
             self.event_sequence = self.event_sequence.wrapping_add(1);
@@ -2079,18 +2308,44 @@ impl Server {
                     )
                 }
                 BackendEvent::FocusIn { .. } => {
-                    // Check if window wants FocusChange events (bit 21)
-                    if event_mask & 0x200000 == 0 {
-                        continue;
-                    }
-                    Self::encode_focus_event(9, 0, seq, x11_window, 0) // Normal detail, Normal mode
+                    // Find window that wants FocusChange events (bit 21 = 0x200000)
+                    // Use event propagation to find child windows that want this event
+                    let (target_window, _target_mask) =
+                        if let Some(result) = self.find_window_for_event(x11_window, 0x200000) {
+                            result
+                        } else {
+                            log::debug!(
+                                "No window wants FocusIn starting from 0x{:x}",
+                                x11_window.id().get()
+                            );
+                            continue;
+                        };
+                    log::debug!(
+                        "FocusIn propagated from 0x{:x} to 0x{:x}",
+                        x11_window.id().get(),
+                        target_window.id().get()
+                    );
+                    Self::encode_focus_event(9, 0, seq, target_window, 0) // Normal detail, Normal mode
                 }
                 BackendEvent::FocusOut { .. } => {
-                    // Check if window wants FocusChange events (bit 21)
-                    if event_mask & 0x200000 == 0 {
-                        continue;
-                    }
-                    Self::encode_focus_event(10, 0, seq, x11_window, 0)
+                    // Find window that wants FocusChange events (bit 21 = 0x200000)
+                    // Use event propagation to find child windows that want this event
+                    let (target_window, _target_mask) =
+                        if let Some(result) = self.find_window_for_event(x11_window, 0x200000) {
+                            result
+                        } else {
+                            log::debug!(
+                                "No window wants FocusOut starting from 0x{:x}",
+                                x11_window.id().get()
+                            );
+                            continue;
+                        };
+                    log::debug!(
+                        "FocusOut propagated from 0x{:x} to 0x{:x}",
+                        x11_window.id().get(),
+                        target_window.id().get()
+                    );
+                    Self::encode_focus_event(10, 0, seq, target_window, 0)
                 }
                 BackendEvent::EnterNotify { x, y, time, .. } => {
                     // Check if window wants EnterWindow events (bit 4)
@@ -2121,7 +2376,8 @@ impl Server {
                     }
                     Self::encode_enter_leave_event(
                         8, // LeaveNotify
-                        0, seq,
+                        0,
+                        seq,
                         Timestamp::new(time),
                         self.root_window,
                         x11_window,
@@ -2149,7 +2405,11 @@ impl Server {
                     Self::encode_expose_event(seq, x11_window, x, y, width, height, 0)
                 }
                 BackendEvent::Configure {
-                    x, y, width, height, ..
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
                 } => {
                     // Update window info
                     if let Some(info) = self.window_info.get_mut(&x11_window) {
@@ -2192,7 +2452,7 @@ impl Server {
             // Queue the encoded event for the window
             self.pending_events
                 .entry(x11_window)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(encoded);
         }
     }
@@ -2208,6 +2468,7 @@ impl Server {
     }
 
     // Helper to encode key/button/motion events (they share the same format)
+    #[allow(clippy::too_many_arguments)]
     fn encode_key_event(
         code: u8,
         detail: u8,
@@ -2240,13 +2501,7 @@ impl Server {
         buffer
     }
 
-    fn encode_focus_event(
-        code: u8,
-        detail: u8,
-        sequence: u16,
-        event: Window,
-        mode: u8,
-    ) -> Vec<u8> {
+    fn encode_focus_event(code: u8, detail: u8, sequence: u16, event: Window, mode: u8) -> Vec<u8> {
         let mut buffer = vec![0u8; 32];
         buffer[0] = code;
         buffer[1] = detail;
@@ -2256,6 +2511,7 @@ impl Server {
         buffer
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn encode_enter_leave_event(
         code: u8,
         detail: u8,
@@ -2311,6 +2567,7 @@ impl Server {
         buffer
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn encode_configure_notify_event(
         sequence: u16,
         event: Window,

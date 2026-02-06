@@ -108,7 +108,8 @@ class X11BackingBuffer {
         self.height = max(height, 1)
 
         // Create a bitmap context for our backing store
-        // Use premultipliedLast (RGBA) for better compatibility with CALayer display
+        // Use premultipliedLast (RGBA) with byte order 32 Big for consistent cross-platform layout
+        // This gives us RGBA in memory: R at offset 0, G at 1, B at 2, A at 3
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
 
@@ -955,30 +956,12 @@ public func macos_backend_draw_rectangle(_ handle: BackendHandle, isWindow: Int3
 @_cdecl("macos_backend_fill_rectangle")
 public func macos_backend_fill_rectangle(_ handle: BackendHandle, isWindow: Int32, drawableId: Int32,
                                         x: Int32, y: Int32, width: Int32, height: Int32,
-                                        r: Float, g: Float, b: Float) -> Int32 {
+                                        r: Float, g: Float, b: Float, gcFunction: Int32) -> Int32 {
     let backend = Unmanaged<MacOSBackendImpl>.fromOpaque(handle).takeUnretainedValue()
-
-    // Debug: write to a file to confirm this function is called
-    let debugMsg = "fill_rectangle: isWindow=\(isWindow), drawable=\(drawableId), rect=(\(x),\(y),\(width),\(height)), color=(\(r),\(g),\(b))\n"
-    let debugPath = "/tmp/x11anywhere_debug.log"
-    if let data = debugMsg.data(using: .utf8) {
-        if FileManager.default.fileExists(atPath: debugPath) {
-            if let fileHandle = FileHandle(forWritingAtPath: debugPath) {
-                fileHandle.seekToEndOfFile()
-                fileHandle.write(data)
-                fileHandle.closeFile()
-            }
-        } else {
-            FileManager.default.createFile(atPath: debugPath, contents: data, attributes: nil)
-        }
-    }
-
-    NSLog("fill_rectangle: isWindow=\(isWindow), drawable=\(drawableId), rect=(\(x),\(y),\(width),\(height)), color=(\(r),\(g),\(b))")
 
     let context: CGContext?
     if isWindow != 0 {
         context = backend.getWindowContext(id: Int(drawableId))
-        NSLog("fill_rectangle: got window context: \(context != nil)")
     } else {
         context = backend.getPixmapContext(id: Int(drawableId))
     }
@@ -988,11 +971,51 @@ public func macos_backend_fill_rectangle(_ handle: BackendHandle, isWindow: Int3
         return BackendResult.error.rawValue
     }
 
-    // Use X11 coordinates directly - CTM transform in X11BackingBuffer handles coordinate flipping
     let rect = CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))
-    ctx.setFillColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
-    ctx.fill(rect)
-    NSLog("fill_rectangle: filled rect at y=\(y)")
+
+    // X11 GCFunction values:
+    // 0 = Clear, 1 = And, 2 = AndReverse, 3 = Copy (default)
+    // 4 = AndInverted, 5 = NoOp, 6 = Xor, 7 = Or, etc.
+
+    if gcFunction == 6 {
+        // XOR mode - direct pixel manipulation on backing buffer
+        // Our bitmap uses premultipliedLast (RGBA) with byteOrder32Big
+        // This gives us RGBA in memory: R at offset 0, G at 1, B at 2, A at 3
+        if let data = ctx.data {
+            let bytesPerRow = ctx.bytesPerRow
+            let bufWidth = ctx.width
+            let bufHeight = ctx.height
+            let ptr = data.assumingMemoryBound(to: UInt8.self)
+
+            // Convert fill color to 8-bit values
+            let fillR = UInt8(min(max(r * 255.0, 0), 255))
+            let fillG = UInt8(min(max(g * 255.0, 0), 255))
+            let fillB = UInt8(min(max(b * 255.0, 0), 255))
+
+            // Clamp rectangle to buffer bounds
+            let startX = max(0, Int(x))
+            let startY = max(0, Int(y))
+            let endX = min(bufWidth, Int(x) + Int(width))
+            let endY = min(bufHeight, Int(y) + Int(height))
+
+            // XOR each pixel in the rectangle
+            // Memory layout with premultipliedLast + byteOrder32Big:
+            // RGBA format: R at offset 0, G at 1, B at 2, A at 3
+            for py in startY..<endY {
+                for px in startX..<endX {
+                    let offset = py * bytesPerRow + px * 4
+                    ptr[offset + 0] ^= fillR  // R
+                    ptr[offset + 1] ^= fillG  // G
+                    ptr[offset + 2] ^= fillB  // B
+                    // Don't XOR alpha at offset+3
+                }
+            }
+        }
+    } else {
+        // Copy mode (default) - use standard CGContext fill
+        ctx.setFillColor(CGColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1))
+        ctx.fill(rect)
+    }
 
     if isWindow != 0 {
         backend.releaseWindowContext(id: Int(drawableId))

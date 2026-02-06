@@ -1987,7 +1987,7 @@ fn encode_xkb_get_map_reply(sequence: u16) -> Vec<u8> {
     buffer[1] = 0; // deviceID (use core keyboard)
     buffer[2..4].copy_from_slice(&write_u16_le(sequence));
     buffer[4..8].copy_from_slice(&write_u32_le(2)); // length: 8 extra bytes = 2 words
-    // Bytes 8-9: pad
+                                                    // Bytes 8-9: pad
     buffer[10] = 8; // minKeyCode (standard)
     buffer[11] = 255; // maxKeyCode (standard)
     buffer[12..14].copy_from_slice(&write_u16_le(0)); // present (no components)
@@ -1997,7 +1997,7 @@ fn encode_xkb_get_map_reply(sequence: u16) -> Vec<u8> {
     buffer[18] = 8; // firstKeySym
     buffer[19] = 0; // totalSyms (high byte)
     buffer[20] = 0; // nKeySyms
-    // Rest of the header fields are 0 (no key actions, behaviors, etc.)
+                    // Rest of the header fields are 0 (no key actions, behaviors, etc.)
     buffer
 }
 

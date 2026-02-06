@@ -2541,21 +2541,19 @@ fn handle_query_tree<S: Write>(
 
     // Get the root window
     let root = server.root_window();
+    let window = crate::protocol::Window::new(window_id);
 
-    // For now, return empty children list with root as parent
-    // TODO: Track window hierarchy properly
-    let parent = if window_id == root.id().get() {
+    // Look up actual parent from window info
+    let parent = if window == root {
         crate::protocol::types::Window::NONE
+    } else if let Some(info) = server.get_window_info(window) {
+        info.parent
     } else {
         root
     };
 
-    // Get all windows as children of root for now
-    let children: Vec<crate::protocol::types::Window> = if window_id == root.id().get() {
-        server.windows.keys().cloned().collect()
-    } else {
-        Vec::new()
-    };
+    // Get actual children of this window
+    let children = server.get_children(window);
 
     let encoder =
         crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
@@ -3223,7 +3221,7 @@ fn handle_set_input_focus<S: Write>(
     _stream: &mut S,
     header: &[u8],
     data: &[u8],
-    _server: &Arc<Mutex<Server>>,
+    server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     // Parse SetInputFocus request: revert_to(1 in header), focus(4), time(4)
     if data.len() < 8 {
@@ -3242,8 +3240,18 @@ fn handle_set_input_focus<S: Write>(
         time
     );
 
+    let mut server = server.lock().unwrap();
+    // Handle special focus values:
+    // 0 = None (discard keyboard events)
+    // 1 = PointerRoot (focus follows pointer)
+    let focus_window = match focus {
+        0 => crate::protocol::Window::NONE,
+        1 => crate::protocol::Window::new(1), // PointerRoot → use root
+        _ => crate::protocol::Window::new(focus),
+    };
+    server.set_input_focus(focus_window, revert_to);
+
     // No reply for SetInputFocus
-    // TODO: Actually set focus on backend
     Ok(())
 }
 
@@ -3260,9 +3268,7 @@ fn handle_get_input_focus<S: Write>(
 
     let server = server.lock().unwrap();
 
-    // Return root window as focus for now
-    let focus = server.root_window();
-    let revert_to = 1u8; // RevertToPointerRoot
+    let (focus, revert_to) = server.get_input_focus();
 
     // Encode and send reply
     let encoder =
@@ -3336,7 +3342,7 @@ fn handle_free_gc<S: Write>(
     _stream: &mut S,
     _header: &[u8],
     data: &[u8],
-    _server: &Arc<Mutex<Server>>,
+    server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     // Parse FreeGC request: gc(4)
     if data.len() < 4 {
@@ -3347,7 +3353,9 @@ fn handle_free_gc<S: Write>(
     let gc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     log::debug!("FreeGC: gc=0x{:x}", gc);
 
-    // TODO: Actually free GC
+    let mut server = server.lock().unwrap();
+    server.free_gc(crate::protocol::GContext::new(gc));
+
     // No reply for FreeGC
     Ok(())
 }
@@ -3356,7 +3364,7 @@ fn handle_clear_area<S: Write>(
     _stream: &mut S,
     header: &[u8],
     data: &[u8],
-    _server: &Arc<Mutex<Server>>,
+    server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     // Parse ClearArea request: exposures(1 in header), window(4), x(2), y(2), width(2), height(2)
     if data.len() < 12 {
@@ -3364,7 +3372,7 @@ fn handle_clear_area<S: Write>(
         return Ok(());
     }
 
-    let exposures = header[1] != 0;
+    let _exposures = header[1] != 0;
     let window = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     let x = i16::from_le_bytes([data[4], data[5]]);
     let y = i16::from_le_bytes([data[6], data[7]]);
@@ -3378,10 +3386,12 @@ fn handle_clear_area<S: Write>(
         y,
         width,
         height,
-        exposures
+        _exposures
     );
 
-    // TODO: Actually clear area using backend
+    let mut server = server.lock().unwrap();
+    server.clear_area(crate::protocol::Window::new(window), x, y, width, height)?;
+
     // No reply for ClearArea
     Ok(())
 }
@@ -3430,21 +3440,43 @@ fn handle_query_pointer<S: Write>(
 
     let server = server.lock().unwrap();
     let root = server.root_window();
+    let (pointer_x, pointer_y, pointer_window) = server.get_pointer_position();
 
-    // Return the root window and (0,0) coordinates for now
-    // TODO: Get actual pointer position from backend
+    // Compute window-local coordinates
+    let win = crate::protocol::Window::new(window);
+    let (win_x, win_y) = if win == root {
+        (pointer_x, pointer_y)
+    } else {
+        // Translate root coords to window-local coords
+        let (_, _, child) = server.translate_coordinates(root, win, pointer_x, pointer_y);
+        let _ = child;
+        let (dx, dy, _) = server.translate_coordinates(root, win, pointer_x, pointer_y);
+        (dx, dy)
+    };
+
+    // Find child of queried window that contains the pointer
+    let child = if pointer_window == win {
+        crate::protocol::Window::NONE
+    } else {
+        // Check if pointer_window is a child of the queried window
+        server
+            .get_children(win)
+            .into_iter()
+            .find(|&c| c == pointer_window)
+            .unwrap_or(crate::protocol::Window::NONE)
+    };
+
     let encoder =
         crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
     let reply = encoder.encode_query_pointer_reply(
-        sequence,
-        true,                            // same_screen
-        root,                            // root
-        crate::protocol::Window::new(0), // child (None)
-        0,                               // root_x
-        0,                               // root_y
-        0,                               // win_x
-        0,                               // win_y
-        0,                               // mask (no buttons pressed)
+        sequence, true,      // same_screen
+        root,      // root
+        child,     // child
+        pointer_x, // root_x
+        pointer_y, // root_y
+        win_x,     // win_x
+        win_y,     // win_y
+        0,         // mask (no buttons pressed)
     );
 
     stream.write_all(&reply)?;
@@ -3519,18 +3551,19 @@ fn handle_translate_coordinates<S: Write>(
     // Get the sequence number from header
     let sequence = u16::from_le_bytes([header[2], header[3]]);
 
-    let _server = server.lock().unwrap();
+    let server = server.lock().unwrap();
 
-    // For now, just return the same coordinates (assume same coordinate space)
-    // TODO: Actually translate coordinates based on window positions
+    let src_win = crate::protocol::Window::new(src_window);
+    let dst_win = crate::protocol::Window::new(dst_window);
+    let (dst_x, dst_y, child) = server.translate_coordinates(src_win, dst_win, src_x, src_y);
+
     let encoder =
         crate::protocol::encoder::ProtocolEncoder::new(crate::protocol::ByteOrder::LSBFirst);
     let reply = encoder.encode_translate_coordinates_reply(
-        sequence,
-        true,                            // same_screen
-        crate::protocol::Window::new(0), // child (None)
-        src_x,                           // dst_x (same as src for now)
-        src_y,                           // dst_y (same as src for now)
+        sequence, true,  // same_screen
+        child, // child
+        dst_x, // dst_x
+        dst_y, // dst_y
     );
 
     stream.write_all(&reply)?;
@@ -3978,7 +4011,7 @@ fn handle_create_cursor<S: Write>(
     _stream: &mut S,
     _header: &[u8],
     data: &[u8],
-    _server: &Arc<Mutex<Server>>,
+    server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     // Parse CreateCursor request
     if data.len() < 28 {
@@ -3997,7 +4030,13 @@ fn handle_create_cursor<S: Write>(
         mask
     );
 
-    // TODO: Create actual cursor from pixmaps
+    // Pixmap cursor creation is complex; create a default arrow cursor as a placeholder
+    let mut server = server.lock().unwrap();
+    if let Err(e) = server.create_cursor_from_standard(cid, crate::backend::StandardCursor::LeftPtr)
+    {
+        log::warn!("Failed to create cursor 0x{:x}: {:?}", cid, e);
+    }
+
     // No reply for CreateCursor
     Ok(())
 }
@@ -4006,7 +4045,7 @@ fn handle_create_glyph_cursor<S: Write>(
     _stream: &mut S,
     _header: &[u8],
     data: &[u8],
-    _server: &Arc<Mutex<Server>>,
+    server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     // Parse CreateGlyphCursor request
     if data.len() < 28 {
@@ -4025,7 +4064,15 @@ fn handle_create_glyph_cursor<S: Write>(
         source_char
     );
 
-    // TODO: Map cursor glyph to system cursor
+    // Map the glyph char to a StandardCursor, defaulting to LeftPtr
+    let cursor_shape = crate::backend::StandardCursor::from_glyph(source_char)
+        .unwrap_or(crate::backend::StandardCursor::LeftPtr);
+
+    let mut server = server.lock().unwrap();
+    if let Err(e) = server.create_cursor_from_standard(cid, cursor_shape) {
+        log::warn!("Failed to create glyph cursor 0x{:x}: {:?}", cid, e);
+    }
+
     // No reply for CreateGlyphCursor
     Ok(())
 }
@@ -4034,7 +4081,7 @@ fn handle_free_cursor<S: Write>(
     _stream: &mut S,
     _header: &[u8],
     data: &[u8],
-    _server: &Arc<Mutex<Server>>,
+    server: &Arc<Mutex<Server>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     // Parse FreeCursor request: cursor(4)
     if data.len() < 4 {
@@ -4045,7 +4092,9 @@ fn handle_free_cursor<S: Write>(
     let cursor = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     log::debug!("FreeCursor: cursor=0x{:x}", cursor);
 
-    // For system cursors, this is a no-op
+    let mut server = server.lock().unwrap();
+    server.free_cursor(cursor)?;
+
     // No reply for FreeCursor
     Ok(())
 }
@@ -4137,53 +4186,53 @@ fn macos_keycode_to_keysym(keycode: u8) -> u32 {
     // Reference: Carbon/HIToolbox/Events.h (kVK_* constants)
     match mac_keycode {
         // Letters (QWERTY layout)
-        0 => 0x61,   // kVK_ANSI_A -> 'a'
-        1 => 0x73,   // kVK_ANSI_S -> 's'
-        2 => 0x64,   // kVK_ANSI_D -> 'd'
-        3 => 0x66,   // kVK_ANSI_F -> 'f'
-        4 => 0x68,   // kVK_ANSI_H -> 'h'
-        5 => 0x67,   // kVK_ANSI_G -> 'g'
-        6 => 0x7a,   // kVK_ANSI_Z -> 'z'
-        7 => 0x78,   // kVK_ANSI_X -> 'x'
-        8 => 0x63,   // kVK_ANSI_C -> 'c'
-        9 => 0x76,   // kVK_ANSI_V -> 'v'
-        11 => 0x62,  // kVK_ANSI_B -> 'b'
-        12 => 0x71,  // kVK_ANSI_Q -> 'q'
-        13 => 0x77,  // kVK_ANSI_W -> 'w'
-        14 => 0x65,  // kVK_ANSI_E -> 'e'
-        15 => 0x72,  // kVK_ANSI_R -> 'r'
-        16 => 0x79,  // kVK_ANSI_Y -> 'y'
-        17 => 0x74,  // kVK_ANSI_T -> 't'
-        18 => 0x31,  // kVK_ANSI_1 -> '1'
-        19 => 0x32,  // kVK_ANSI_2 -> '2'
-        20 => 0x33,  // kVK_ANSI_3 -> '3'
-        21 => 0x34,  // kVK_ANSI_4 -> '4'
-        22 => 0x36,  // kVK_ANSI_6 -> '6'
-        23 => 0x35,  // kVK_ANSI_5 -> '5'
-        24 => 0x3d,  // kVK_ANSI_Equal -> '='
-        25 => 0x39,  // kVK_ANSI_9 -> '9'
-        26 => 0x37,  // kVK_ANSI_7 -> '7'
-        27 => 0x2d,  // kVK_ANSI_Minus -> '-'
-        28 => 0x38,  // kVK_ANSI_8 -> '8'
-        29 => 0x30,  // kVK_ANSI_0 -> '0'
-        30 => 0x5d,  // kVK_ANSI_RightBracket -> ']'
-        31 => 0x6f,  // kVK_ANSI_O -> 'o'
-        32 => 0x75,  // kVK_ANSI_U -> 'u'
-        33 => 0x5b,  // kVK_ANSI_LeftBracket -> '['
-        34 => 0x69,  // kVK_ANSI_I -> 'i'
-        35 => 0x70,  // kVK_ANSI_P -> 'p'
-        37 => 0x6c,  // kVK_ANSI_L -> 'l'
-        38 => 0x6a,  // kVK_ANSI_J -> 'j'
-        39 => 0x27,  // kVK_ANSI_Quote -> '''
-        40 => 0x6b,  // kVK_ANSI_K -> 'k'
-        41 => 0x3b,  // kVK_ANSI_Semicolon -> ';'
-        42 => 0x5c,  // kVK_ANSI_Backslash -> '\'
-        43 => 0x2c,  // kVK_ANSI_Comma -> ','
-        44 => 0x2f,  // kVK_ANSI_Slash -> '/'
-        45 => 0x6e,  // kVK_ANSI_N -> 'n'
-        46 => 0x6d,  // kVK_ANSI_M -> 'm'
-        47 => 0x2e,  // kVK_ANSI_Period -> '.'
-        50 => 0x60,  // kVK_ANSI_Grave -> '`'
+        0 => 0x61,  // kVK_ANSI_A -> 'a'
+        1 => 0x73,  // kVK_ANSI_S -> 's'
+        2 => 0x64,  // kVK_ANSI_D -> 'd'
+        3 => 0x66,  // kVK_ANSI_F -> 'f'
+        4 => 0x68,  // kVK_ANSI_H -> 'h'
+        5 => 0x67,  // kVK_ANSI_G -> 'g'
+        6 => 0x7a,  // kVK_ANSI_Z -> 'z'
+        7 => 0x78,  // kVK_ANSI_X -> 'x'
+        8 => 0x63,  // kVK_ANSI_C -> 'c'
+        9 => 0x76,  // kVK_ANSI_V -> 'v'
+        11 => 0x62, // kVK_ANSI_B -> 'b'
+        12 => 0x71, // kVK_ANSI_Q -> 'q'
+        13 => 0x77, // kVK_ANSI_W -> 'w'
+        14 => 0x65, // kVK_ANSI_E -> 'e'
+        15 => 0x72, // kVK_ANSI_R -> 'r'
+        16 => 0x79, // kVK_ANSI_Y -> 'y'
+        17 => 0x74, // kVK_ANSI_T -> 't'
+        18 => 0x31, // kVK_ANSI_1 -> '1'
+        19 => 0x32, // kVK_ANSI_2 -> '2'
+        20 => 0x33, // kVK_ANSI_3 -> '3'
+        21 => 0x34, // kVK_ANSI_4 -> '4'
+        22 => 0x36, // kVK_ANSI_6 -> '6'
+        23 => 0x35, // kVK_ANSI_5 -> '5'
+        24 => 0x3d, // kVK_ANSI_Equal -> '='
+        25 => 0x39, // kVK_ANSI_9 -> '9'
+        26 => 0x37, // kVK_ANSI_7 -> '7'
+        27 => 0x2d, // kVK_ANSI_Minus -> '-'
+        28 => 0x38, // kVK_ANSI_8 -> '8'
+        29 => 0x30, // kVK_ANSI_0 -> '0'
+        30 => 0x5d, // kVK_ANSI_RightBracket -> ']'
+        31 => 0x6f, // kVK_ANSI_O -> 'o'
+        32 => 0x75, // kVK_ANSI_U -> 'u'
+        33 => 0x5b, // kVK_ANSI_LeftBracket -> '['
+        34 => 0x69, // kVK_ANSI_I -> 'i'
+        35 => 0x70, // kVK_ANSI_P -> 'p'
+        37 => 0x6c, // kVK_ANSI_L -> 'l'
+        38 => 0x6a, // kVK_ANSI_J -> 'j'
+        39 => 0x27, // kVK_ANSI_Quote -> '''
+        40 => 0x6b, // kVK_ANSI_K -> 'k'
+        41 => 0x3b, // kVK_ANSI_Semicolon -> ';'
+        42 => 0x5c, // kVK_ANSI_Backslash -> '\'
+        43 => 0x2c, // kVK_ANSI_Comma -> ','
+        44 => 0x2f, // kVK_ANSI_Slash -> '/'
+        45 => 0x6e, // kVK_ANSI_N -> 'n'
+        46 => 0x6d, // kVK_ANSI_M -> 'm'
+        47 => 0x2e, // kVK_ANSI_Period -> '.'
+        50 => 0x60, // kVK_ANSI_Grave -> '`'
 
         // Special keys
         36 => 0xff0d, // kVK_Return -> XK_Return
@@ -4213,35 +4262,35 @@ fn macos_keycode_to_keysym(keycode: u8) -> u32 {
         111 => 0xffc9, // kVK_F12 -> XK_F12
 
         // Modifier keys
-        56 => 0xffe1,  // kVK_Shift -> XK_Shift_L
-        60 => 0xffe2,  // kVK_RightShift -> XK_Shift_R
-        58 => 0xffe9,  // kVK_Option -> XK_Alt_L
-        61 => 0xffea,  // kVK_RightOption -> XK_Alt_R
-        59 => 0xffe3,  // kVK_Control -> XK_Control_L
-        62 => 0xffe4,  // kVK_RightControl -> XK_Control_R
-        55 => 0xffeb,  // kVK_Command -> XK_Super_L
-        54 => 0xffec,  // kVK_RightCommand -> XK_Super_R
-        57 => 0xffe5,  // kVK_CapsLock -> XK_Caps_Lock
+        56 => 0xffe1, // kVK_Shift -> XK_Shift_L
+        60 => 0xffe2, // kVK_RightShift -> XK_Shift_R
+        58 => 0xffe9, // kVK_Option -> XK_Alt_L
+        61 => 0xffea, // kVK_RightOption -> XK_Alt_R
+        59 => 0xffe3, // kVK_Control -> XK_Control_L
+        62 => 0xffe4, // kVK_RightControl -> XK_Control_R
+        55 => 0xffeb, // kVK_Command -> XK_Super_L
+        54 => 0xffec, // kVK_RightCommand -> XK_Super_R
+        57 => 0xffe5, // kVK_CapsLock -> XK_Caps_Lock
 
         // Keypad
-        65 => 0xffae,  // kVK_ANSI_KeypadDecimal -> XK_KP_Decimal
-        67 => 0xffaa,  // kVK_ANSI_KeypadMultiply -> XK_KP_Multiply
-        69 => 0xffab,  // kVK_ANSI_KeypadPlus -> XK_KP_Add
-        71 => 0xff7f,  // kVK_ANSI_KeypadClear -> XK_Num_Lock
-        75 => 0xffaf,  // kVK_ANSI_KeypadDivide -> XK_KP_Divide
-        76 => 0xff8d,  // kVK_ANSI_KeypadEnter -> XK_KP_Enter
-        78 => 0xffad,  // kVK_ANSI_KeypadMinus -> XK_KP_Subtract
-        81 => 0xffbd,  // kVK_ANSI_KeypadEquals -> XK_KP_Equal
-        82 => 0xffb0,  // kVK_ANSI_Keypad0 -> XK_KP_0
-        83 => 0xffb1,  // kVK_ANSI_Keypad1 -> XK_KP_1
-        84 => 0xffb2,  // kVK_ANSI_Keypad2 -> XK_KP_2
-        85 => 0xffb3,  // kVK_ANSI_Keypad3 -> XK_KP_3
-        86 => 0xffb4,  // kVK_ANSI_Keypad4 -> XK_KP_4
-        87 => 0xffb5,  // kVK_ANSI_Keypad5 -> XK_KP_5
-        88 => 0xffb6,  // kVK_ANSI_Keypad6 -> XK_KP_6
-        89 => 0xffb7,  // kVK_ANSI_Keypad7 -> XK_KP_7
-        91 => 0xffb8,  // kVK_ANSI_Keypad8 -> XK_KP_8
-        92 => 0xffb9,  // kVK_ANSI_Keypad9 -> XK_KP_9
+        65 => 0xffae, // kVK_ANSI_KeypadDecimal -> XK_KP_Decimal
+        67 => 0xffaa, // kVK_ANSI_KeypadMultiply -> XK_KP_Multiply
+        69 => 0xffab, // kVK_ANSI_KeypadPlus -> XK_KP_Add
+        71 => 0xff7f, // kVK_ANSI_KeypadClear -> XK_Num_Lock
+        75 => 0xffaf, // kVK_ANSI_KeypadDivide -> XK_KP_Divide
+        76 => 0xff8d, // kVK_ANSI_KeypadEnter -> XK_KP_Enter
+        78 => 0xffad, // kVK_ANSI_KeypadMinus -> XK_KP_Subtract
+        81 => 0xffbd, // kVK_ANSI_KeypadEquals -> XK_KP_Equal
+        82 => 0xffb0, // kVK_ANSI_Keypad0 -> XK_KP_0
+        83 => 0xffb1, // kVK_ANSI_Keypad1 -> XK_KP_1
+        84 => 0xffb2, // kVK_ANSI_Keypad2 -> XK_KP_2
+        85 => 0xffb3, // kVK_ANSI_Keypad3 -> XK_KP_3
+        86 => 0xffb4, // kVK_ANSI_Keypad4 -> XK_KP_4
+        87 => 0xffb5, // kVK_ANSI_Keypad5 -> XK_KP_5
+        88 => 0xffb6, // kVK_ANSI_Keypad6 -> XK_KP_6
+        89 => 0xffb7, // kVK_ANSI_Keypad7 -> XK_KP_7
+        91 => 0xffb8, // kVK_ANSI_Keypad8 -> XK_KP_8
+        92 => 0xffb9, // kVK_ANSI_Keypad9 -> XK_KP_9
 
         // Navigation keys
         115 => 0xff50, // kVK_Home -> XK_Home
