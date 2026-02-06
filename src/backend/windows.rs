@@ -45,6 +45,12 @@ fn color_to_rgb(color: u32) -> (u8, u8, u8) {
 struct WindowData {
     hwnd: HWND,
     hdc: HDC,
+    /// Backing store memory DC (all drawing goes here)
+    mem_dc: HDC,
+    /// Backing store bitmap
+    mem_bitmap: HBITMAP,
+    /// Previous bitmap to restore on cleanup
+    old_bitmap: isize,
     width: u16,
     height: u16,
     /// Whether the mouse is currently inside this window
@@ -154,8 +160,23 @@ impl WindowsBackend {
             }
             WM_PAINT => {
                 let mut ps: PAINTSTRUCT = mem::zeroed();
-                let hdc = BeginPaint(hwnd, &mut ps);
-                // Actual painting is done via X11 drawing commands
+                let paint_dc = BeginPaint(hwnd, &mut ps);
+                // Blit from backing store (mem_dc stored in GWLP_USERDATA)
+                let mem_dc = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as HDC;
+                if mem_dc != 0 {
+                    let rc = ps.rcPaint;
+                    BitBlt(
+                        paint_dc,
+                        rc.left,
+                        rc.top,
+                        rc.right - rc.left,
+                        rc.bottom - rc.top,
+                        mem_dc,
+                        rc.left,
+                        rc.top,
+                        SRCCOPY,
+                    );
+                }
                 EndPaint(hwnd, &ps);
                 0
             }
@@ -202,12 +223,12 @@ impl WindowsBackend {
             .ok_or_else(|| format!("Invalid window ID: {}", window.0))
     }
 
-    /// Get device context for drawable
+    /// Get device context for drawable (returns backing store DC for windows)
     fn get_dc(&self, drawable: BackendDrawable) -> Result<HDC, String> {
         match drawable {
             BackendDrawable::Window(win) => {
                 let data = self.get_window_data(win)?;
-                Ok(data.hdc)
+                Ok(data.mem_dc)
             }
             BackendDrawable::Pixmap(id) => self
                 .pixmaps
@@ -350,6 +371,34 @@ impl Backend for WindowsBackend {
                 return Err("Failed to get device context".into());
             }
 
+            // Create backing store (off-screen memory DC + bitmap)
+            let mem_dc = CreateCompatibleDC(hdc);
+            let mem_bitmap = CreateCompatibleBitmap(hdc, params.width as i32, params.height as i32);
+            if mem_dc == 0 || mem_bitmap == 0 {
+                if mem_dc != 0 {
+                    DeleteDC(mem_dc);
+                }
+                if mem_bitmap != 0 {
+                    DeleteObject(mem_bitmap as isize);
+                }
+                ReleaseDC(hwnd, hdc);
+                DestroyWindow(hwnd);
+                return Err("Failed to create backing store".into());
+            }
+            let old_bitmap = SelectObject(mem_dc, mem_bitmap as isize);
+
+            // Fill backing store with white background
+            let bg_rect = RECT {
+                left: 0,
+                top: 0,
+                right: params.width as i32,
+                bottom: params.height as i32,
+            };
+            FillRect(mem_dc, &bg_rect, GetStockObject(WHITE_BRUSH) as HBRUSH);
+
+            // Store mem_dc in GWLP_USERDATA so wnd_proc can access it for WM_PAINT
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, mem_dc as isize);
+
             let id = self.next_resource_id;
             self.next_resource_id += 1;
 
@@ -361,6 +410,9 @@ impl Backend for WindowsBackend {
                 WindowData {
                     hwnd,
                     hdc,
+                    mem_dc,
+                    mem_bitmap,
+                    old_bitmap,
                     width: params.width,
                     height: params.height,
                     mouse_inside: false,
@@ -375,6 +427,12 @@ impl Backend for WindowsBackend {
     fn destroy_window(&mut self, window: BackendWindow) -> BackendResult<()> {
         unsafe {
             if let Some(data) = self.windows.remove(&window.0) {
+                // Clean up backing store
+                SelectObject(data.mem_dc, data.old_bitmap);
+                DeleteObject(data.mem_bitmap as isize);
+                DeleteDC(data.mem_dc);
+                // Clear GWLP_USERDATA before destroying
+                SetWindowLongPtrW(data.hwnd, GWLP_USERDATA, 0);
                 ReleaseDC(data.hwnd, data.hdc);
                 DestroyWindow(data.hwnd);
             }
@@ -493,7 +551,7 @@ impl Backend for WindowsBackend {
     ) -> BackendResult<()> {
         unsafe {
             let data = self.get_window_data(window)?;
-            let hdc = data.hdc;
+            let hdc = data.mem_dc;
 
             let rect = RECT {
                 left: x as i32,
@@ -1063,6 +1121,58 @@ impl Backend for WindowsBackend {
                         {
                             let width = (msg.lParam & 0xffff) as u16;
                             let height = ((msg.lParam >> 16) & 0xffff) as u16;
+
+                            if width > 0 && height > 0 {
+                                // Resize backing store
+                                let new_bitmap =
+                                    CreateCompatibleBitmap(data.hdc, width as i32, height as i32);
+                                if new_bitmap != 0 {
+                                    let new_dc = CreateCompatibleDC(data.hdc);
+                                    if new_dc != 0 {
+                                        let new_old = SelectObject(new_dc, new_bitmap as isize);
+                                        // Fill with white then copy old content
+                                        let bg_rect = RECT {
+                                            left: 0,
+                                            top: 0,
+                                            right: width as i32,
+                                            bottom: height as i32,
+                                        };
+                                        FillRect(
+                                            new_dc,
+                                            &bg_rect,
+                                            GetStockObject(WHITE_BRUSH) as HBRUSH,
+                                        );
+                                        BitBlt(
+                                            new_dc,
+                                            0,
+                                            0,
+                                            data.width as i32,
+                                            data.height as i32,
+                                            data.mem_dc,
+                                            0,
+                                            0,
+                                            SRCCOPY,
+                                        );
+                                        // Clean up old backing store
+                                        SelectObject(data.mem_dc, data.old_bitmap);
+                                        DeleteObject(data.mem_bitmap as isize);
+                                        DeleteDC(data.mem_dc);
+                                        // Update to new backing store
+                                        data.mem_dc = new_dc;
+                                        data.mem_bitmap = new_bitmap;
+                                        data.old_bitmap = new_old;
+                                        // Update GWLP_USERDATA
+                                        SetWindowLongPtrW(
+                                            data.hwnd,
+                                            GWLP_USERDATA,
+                                            new_dc as isize,
+                                        );
+                                    } else {
+                                        DeleteObject(new_bitmap as isize);
+                                    }
+                                }
+                            }
+
                             data.width = width;
                             data.height = height;
 
@@ -1296,6 +1406,20 @@ impl Backend for WindowsBackend {
         unsafe {
             // Flush GDI queue to ensure all drawing operations are complete
             GdiFlush();
+            // Blit backing store to window for all windows
+            for data in self.windows.values() {
+                BitBlt(
+                    data.hdc,
+                    0,
+                    0,
+                    data.width as i32,
+                    data.height as i32,
+                    data.mem_dc,
+                    0,
+                    0,
+                    SRCCOPY,
+                );
+            }
             Ok(())
         }
     }
@@ -1342,6 +1466,54 @@ impl Backend for WindowsBackend {
                         {
                             let width = (msg.lParam & 0xffff) as u16;
                             let height = ((msg.lParam >> 16) & 0xffff) as u16;
+
+                            if width > 0 && height > 0 {
+                                // Resize backing store
+                                let new_bitmap =
+                                    CreateCompatibleBitmap(data.hdc, width as i32, height as i32);
+                                if new_bitmap != 0 {
+                                    let new_dc = CreateCompatibleDC(data.hdc);
+                                    if new_dc != 0 {
+                                        let new_old = SelectObject(new_dc, new_bitmap as isize);
+                                        let bg_rect = RECT {
+                                            left: 0,
+                                            top: 0,
+                                            right: width as i32,
+                                            bottom: height as i32,
+                                        };
+                                        FillRect(
+                                            new_dc,
+                                            &bg_rect,
+                                            GetStockObject(WHITE_BRUSH) as HBRUSH,
+                                        );
+                                        BitBlt(
+                                            new_dc,
+                                            0,
+                                            0,
+                                            data.width as i32,
+                                            data.height as i32,
+                                            data.mem_dc,
+                                            0,
+                                            0,
+                                            SRCCOPY,
+                                        );
+                                        SelectObject(data.mem_dc, data.old_bitmap);
+                                        DeleteObject(data.mem_bitmap as isize);
+                                        DeleteDC(data.mem_dc);
+                                        data.mem_dc = new_dc;
+                                        data.mem_bitmap = new_bitmap;
+                                        data.old_bitmap = new_old;
+                                        SetWindowLongPtrW(
+                                            data.hwnd,
+                                            GWLP_USERDATA,
+                                            new_dc as isize,
+                                        );
+                                    } else {
+                                        DeleteObject(new_bitmap as isize);
+                                    }
+                                }
+                            }
+
                             data.width = width;
                             data.height = height;
 
